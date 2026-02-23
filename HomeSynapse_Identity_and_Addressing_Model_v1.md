@@ -118,7 +118,11 @@ A Slug is a human-readable, URL-safe, mutable string derived from a Display Name
 6. Truncate to 128 characters at a hyphen boundary (do not split words).
 7. If the result is empty (e.g., Display Name was entirely non-ASCII symbols), generate `unnamed-{short-ulid-suffix}` where the suffix is the last 6 characters of the object's Reference.
 
-**Collision resolution.** Slugs must be unique within a Home among active objects of the same addressable type (entity slugs are unique among entities; area slugs among areas). When generation produces a collision:
+**Normalization and uniqueness checking.** Uniqueness is always checked against the normalized, stored form of the slug — the lowercase ASCII output of the generation algorithm. "Kitchen" and "kitchen" produce the identical stored slug `kitchen` and are therefore the same slug. There is no case-sensitive or pre-normalization comparison path.
+
+**Uniqueness is per-type.** Slug uniqueness is scoped to `(home, addressable_type)`. The same slug string may exist simultaneously as an entity slug and an area slug without collision — `kitchen` as an `area_slug` and `kitchen` as an `entity_slug` are independent. This reflects the fact that Paths disambiguate by structure (`home/kitchen` is an Area; `home/kitchen/kitchen` is an Entity in that Area), and URN forms disambiguate by type segment. Slug tombstones (below) are also per-type: a tombstoned entity slug does not block creation of an area slug with the same string.
+
+**Collision resolution.** When generation produces a collision within the same `(home, addressable_type)` scope:
 
 1. The system appends `-2` to the base slug.
 2. If `-2` collides, increment to `-3`, `-4`, etc., choosing the lowest available suffix.
