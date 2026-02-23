@@ -120,7 +120,7 @@ Devices and Entities are assigned to Areas. An Entity may optionally override it
 
 ### 1.5 Label
 
-**Concept.** A cross-cutting organizational tag applicable to any addressable object: Devices, Entities, Areas, Automations. Labels serve two purposes: UI organization (filtering, grouping) and automation targeting (an action can target "all Entities with label `outdoor-lights`"). Labels are not hierarchical and carry no inherent semantics — they are user-defined strings.
+**Concept.** A cross-cutting organizational tag applicable to any addressable object: Devices, Entities, Areas, Automations. Labels serve two purposes: UI organization (filtering, grouping) and automation targeting (an action can target "all Entities with label `outdoor-lights`"). Labels are not hierarchical and carry no inherent semantics — they are user-defined strings. Operational semantics defined in Identity & Addressing Model §7.
 
 This concept follows the same pattern as Home Assistant's Labels (2024.4) — a cross-cutting primitive separate from the spatial hierarchy.
 
@@ -499,7 +499,7 @@ The `event_type` field carries a dotted string identifying the Event's category.
 | `command_result` | Entity | The outcome of a Command (acknowledged, rejected, timed out) |
 | `device_discovered` | Device | An Integration detected a new Device on its protocol network |
 | `device_adopted` | Device | A discovered Device was accepted into the system |
-| `device_replaced` | Device | Physical hardware was swapped (see Identity and Addressing Model) |
+| `entity_transferred` | Entity | Physical hardware was swapped (see Identity and Addressing Model) |
 | `entity_type_changed` | Entity | Entity Type was migrated via governed type migration (§2.11) |
 | `device_removed` | Device | A Device was removed from the system |
 | `availability_changed` | Entity/Device | Reachability status changed |
@@ -849,7 +849,7 @@ For slug generation algorithm, uniqueness scope rules, collision resolution, and
 
 For path format specification and composition rules, see the Identity and Addressing Model.
 
-### 8.4 Device Replacement
+### 8.4 Entity Transferring
 
 **Concept.** The operation of transferring a logical identity (an Entity and its history) from one physical device to another. When a physical device fails and is replaced with compatible hardware, Device Replacement preserves the Entity's `entity_id`, all Automation bindings, all historical Events, Area assignment, Labels, and Display Name. Only the Protocol Binding and Hardware Identifiers change.
 
