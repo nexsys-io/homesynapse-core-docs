@@ -100,6 +100,8 @@ A Reference is a ULID-based identifier that serves as the immutable, opaque, int
 
 **API token convention.** The `*_id` suffix denotes a Reference used as a primary key (`entity_id`, `device_id`, `area_id`). The `*_ref` suffix denotes the same ULID used as a foreign key in event payloads, automation bindings, and permission targets (`entity_ref`, `subject_ref`, `target_ref`). The values are identical — the suffix signals intent, not a different type.
 
+**Java implementation guidance.** Java code should use typed identifier wrappers per addressable-object kind (`EntityId`, `DeviceId`, `AreaId`, etc.) to prevent cross-type confusion at compile time (see LTD-04 for the type hierarchy). The `_id` / `_ref` suffix distinction is a wire-format serialization concern; both forms map to the same Java type for a given object kind. A method that accepts an `EntityId` does not distinguish whether the caller obtained the value from the entity's own record (`entity_id` context) or from an event payload (`entity_ref` context) — the type guarantees it identifies an Entity, which is the safety property that matters.
+
 **The binding key rule.** References are the **only** identifiers used for durable machine-to-machine binding. Automations bind to `entity_ref`. Events record their subject as `entity_ref`. Permissions target `object_ref`. No system stores a Slug or Path as a binding key. This rule is the operational mechanism for INV-CS-02: because bindings use References and References never change, renaming or moving an object never breaks an automation, event query, or permission grant.
 
 ### 2.2 Layer 2 — Slug (human-readable key)

@@ -35,11 +35,13 @@ Every glossary entry specifies three layers:
 
 **UI term.** The user-facing label in dashboards, configuration wizards, error messages, and documentation. UI terms may be friendlier or more context-specific than concept terms, but each UI term maps to exactly one concept term. UI terms may evolve through copy changes and localization without affecting the concept or API layers.
 
-**API token.** The stable, code-facing identifier used in configuration files (YAML), event schemas (JSON), REST/WebSocket APIs, and internal Java interfaces. API tokens are hard contracts. They change only through a formal deprecation process: deprecated tokens continue to function for at least one major version (INV-CS-06), and the deprecation is documented in release notes, configuration validation warnings, and this glossary.
+**API token.** The stable, code-facing name used in wire formats: configuration files (YAML keys), event schemas (JSON field names), REST/WebSocket API payloads, and published JSON Schema definitions. API tokens are hard contracts. They change only through a formal deprecation process: deprecated tokens continue to function for at least one major version (INV-CS-06), and the deprecation is documented in release notes, configuration validation warnings, and this glossary.
+
+API tokens are wire-format names, not Java field names. In Java source code, fields and methods use standard `camelCase` naming (`entityRef`, `homeId`, `displayName`). The mapping between Java `camelCase` and wire-format `snake_case` is handled globally by Jackson's `PropertyNamingStrategy.SNAKE_CASE` (LTD-08). Explicit `@JsonProperty` annotations are reserved for the rare edge cases where the automatic mapping produces the wrong result.`
 
 ### 0.3 Naming conventions
 
-All API tokens use `snake_case`. Dotted notation (`capability.attribute`) is used for hierarchical addressing within payloads. Hyphenated `kebab-case` is used for slugs (see Identity and Addressing Model §3).
+All API tokens use `snake_case`. Dotted notation (`capability.attribute`) is used for hierarchical addressing within payloads. Hyphenated `kebab-case` is used for slugs (see Identity and Addressing Model §3). Java domain fields corresponding to API tokens use standard `camelCase` (`entityRef`, `homeId`, `displayName`); the `snake_case` form is the serialized wire representation, mapped automatically by Jackson (LTD-08).
 
 The `*_id` suffix denotes a ULID-format stable identifier. The `*_ref` suffix is an alias for `*_id` used in contexts where the term "reference" clarifies intent — event payloads, automation bindings, permission targets. The `*_slug` suffix denotes a human-readable, mutable key. These conventions are specified in full in the Identity and Addressing Model.
 
