@@ -102,8 +102,8 @@ The device model is organized in four layers: physical identity (Device), functi
 │  │  │  │  Commands (0..N per Capability)                │  │  │ │
 │  │  │  │  ┌──────────────────────────────────────────┐  │  │  │ │
 │  │  │  │  │ command_type   parameters   required_    │  │  │  │ │
-│  │  │  │  │               features     expected_    │  │  │  │ │
-│  │  │  │  │               outcomes     timeout      │  │  │  │ │
+│  │  │  │  │               features     expected_     │  │  │  │ │
+│  │  │  │  │               outcomes     timeout       │  │  │  │ │
 │  │  │  │  └──────────────────────────────────────────┘  │  │  │ │
 │  │  │  └────────────────────────────────────────────────┘  │  │ │
 │  │  └──────────────────────────────────────────────────────┘  │ │
@@ -156,6 +156,12 @@ An Entity is the smallest addressable unit of state and control. It represents a
 | `enabled` | Boolean | User-controlled | Mutable |
 | `labels` | String[] | User-assigned | Mutable |
 
+**Entity enable/disable.** An entity can be enabled or disabled. Disabling an entity means it stops participating in state projections, automation evaluation, and command dispatch. A disabled entity's `state_reported` events are still persisted to the event log (they are facts about the physical world), but the State Projection ignores them — the entity's state is frozen at its last value before disabling. Commands targeting a disabled entity are rejected at dispatch time with a structured error.
+
+Enabling and disabling produce `entity_enabled` and `entity_disabled` events respectively (see Event Model §4.3). The enabled/disabled state is stored as a boolean property on the entity record in the registry, not as a state attribute — it is an administrative property of the entity's participation in the system, not an observation about the physical world.
+
+Disabling is distinct from unavailability. An unavailable entity is one that the integration cannot reach (network failure, device powered off). A disabled entity is one that the user or an automation has deliberately excluded from processing. The two states are orthogonal: an entity can be both disabled and unavailable, both disabled and available, or any other combination.
+
 **The `endpoint_index` field.** Every entity on a device carries an integer `endpoint_index` that identifies its position within the device's functional structure. This maps directly to Matter's endpoint numbering, Zigbee's endpoint IDs, and Z-Wave's multi-channel endpoint IDs. For single-function devices, the sole entity has `endpoint_index = 1`. For multi-function devices, the integration assigns indices during discovery. Endpoint index 0 is reserved — it is not materialized as a separate entity but represents device-level metadata (the Matter Root Node concept). The `endpoint_index` is stable for the lifetime of the entity and is used in protocol-level communication but never in automation bindings (which use `entity_ref`).
 
 **Entity-first targeting.** Automations, API operations, and state queries always target entities, never devices. A "turn off all devices in the kitchen" automation resolves to a set of entity references via the addressing system (Identity and Addressing Model §7). This prevents the ambiguity of device-level operations on multi-function devices. To act on all entities of a device, use label-based or device-based entity resolution — the automation targets the resolved entity set, not the device directly.
@@ -169,6 +175,14 @@ A Capability is a typed contract that defines what an entity can do or report. T
 **Level 2 — Enabled Features (Feature Map).** Each capability instance carries a `feature_map` bitmask declaring which optional features of that capability are supported. Feature maps are stable per-entity but may differ across entities of the same capability type (one light supports color temperature, another does not). Feature map changes also require an `entity_profile_changed` event.
 
 **Level 3 — Availability.** Runtime truth about whether a declared capability is currently actionable. Availability is a function of device reachability (the `availability` state per Glossary §8.6), transient error conditions (e.g., a lock is jammed), and integration health. Availability is dynamic and does not affect the declared capability set. An unavailable entity still has its declared capabilities — it just cannot act on them right now.
+
+**Availability scope.** Availability is an entity-level property, not a per-capability property. An entity is either available (the integration can communicate with the underlying device function) or unavailable (communication has been lost). There is no "partially available" state where some capabilities work and others do not within the same entity.
+
+This design choice is deliberate. Per-capability availability would require the integration to report individual capability reachability — information that most protocols (Zigbee, Z-Wave, Matter) do not provide at that granularity. A Zigbee endpoint is either reachable or not; individual clusters within an endpoint do not have independent reachability. Modeling per-capability availability would create false precision.
+
+If a device genuinely has independently-available functions (e.g., a dual-radio device where Wi-Fi and Zigbee radios are independent), those functions should be modeled as separate entities with separate availability tracking, which the multi-entity device model (§3.11) already supports.
+
+Post-MVP, if protocols emerge that provide per-capability health (e.g., Matter's cluster-level status attributes), a `capability_health` concept may be introduced as an extension of the availability model. The current entity-level availability does not prevent this addition.
 
 **Why this separation matters.** Discovery, UI rendering, and voice assistant integration all need static capability information to function. If capabilities change silently with runtime state (as Home Assistant's `supported_features` bitmask permits), controllers cannot reliably generate UIs, voice assistants discover incorrect capabilities, and automations that depend on capability presence break unpredictably. The three-level separation ensures that anything querying "what can this entity do?" gets a stable answer, while "can it do it right now?" is a separate, dynamic query.
 
@@ -635,6 +649,14 @@ This subsystem defines the payload schemas for device-related event types declar
 
 **Recovery:** The system logs a structured warning with the integration ID, entity ID, attribute key, invalid value, and the validation failure reason. The invalid event is persisted as a DIAGNOSTIC event with an `invalid_report` marker for observability. The integration's health indicator increments an error counter. If the error rate exceeds a configurable threshold, the integration is flagged as unhealthy.
 
+**Processing order for incoming `state_reported` events:**
+
+1. **Persistence.** The `state_reported` event is appended to the event log with write-ahead guarantees (INV-ES-04). The event is an immutable fact — the integration reported this value. Persistence happens unconditionally, regardless of validation outcome.
+2. **Validation.** The Device Model's `AttributeValidator` checks the reported value against the entity's capability-defined attribute schema (type, range, unit, constraints). If validation fails, a `state_report_rejected` event is produced (see §6.1), and the value does not proceed to step 3.
+3. **State projection.** If validation passes, the State Projection receives the `state_reported` event and compares the value against canonical state. If the value differs, a `state_changed` event is produced. If the value matches a pending command's expectation, a `state_confirmed` event is produced by the Pending Command Ledger.
+
+This order is critical. Persisting before validation means the raw fact is never lost — even invalid reports are available for forensic analysis. Validating before projection means invalid values never corrupt the state model. The `state_report_rejected` event provides an auditable record of rejected values, enabling integration developers to diagnose bugs and users to understand why a device's state appears stale.
+
 **Events produced:** `state_report_rejected` (DIAGNOSTIC priority) carrying the integration ID, entity ID, rejected value, and validation error.
 
 ### 6.2 Capability Profile Change During Active Automation
@@ -683,7 +705,7 @@ This subsystem defines the payload schemas for device-related event types declar
 
 **Impact:** The system has no record of devices and entities. State events in the event log reference entity IDs that the registry cannot resolve.
 
-**Recovery:** The registry is rebuilt by replaying `device_adopted`, `device_removed`, `entity_profile_changed`, `entity_transferred`, and `entity_type_changed` events from the event log. The event log is the source of truth (INV-ES-02); the registry is a materialized view. Rebuilding produces identical registry state.
+**Recovery:** The registry is rebuilt by replaying the following event types from the event log: `device_adopted`, `device_removed`, `entity_profile_changed`, `entity_type_changed`, `entity_transferred`, `device_metadata_changed`, `entity_enabled`, and `entity_disabled`. The event log is the source of truth (INV-ES-02); the registry is a materialized view. Rebuilding produces identical registry state because every mutable property of the registry (device metadata, entity capability profiles, entity type, entity enabled/disabled status, and device-entity associations) is captured by at least one of these event types.
 
 **Events produced:** `system_registry_rebuilt` (CRITICAL) recording the rebuild trigger, duration, and entity count.
 
@@ -693,7 +715,7 @@ This subsystem defines the payload schemas for device-related event types declar
 
 | Subsystem | Direction | Mechanism | Data | Constraints |
 |---|---|---|---|---|
-| Event Model & Event Bus | Produces events via | `EventPublisher.publish()` | `device_adopted`, `device_removed`, `entity_profile_changed`, `entity_type_changed`, `entity_transferred`, `state_report_rejected` | Producer boundary rules: device lifecycle events are core-produced (Event Model §3.1) |
+| Event Model & Event Bus | Produces events via | `EventPublisher.publish()` | `device_adopted`, `device_removed`, `entity_profile_changed`, `entity_type_changed`, `entity_transferred`, `device_metadata_changed`, `entity_enabled`, `entity_disabled`, `state_report_rejected` | Producer boundary rules: device lifecycle events are core-produced (Event Model §3.1) |
 | Event Model & Event Bus | Consumes events via | Event subscription | `device_discovered`, `state_reported`, `command_result`, `availability_changed` | Subscribes to integration-produced events for registry updates and validation |
 | State Store | Provides to | `EntityRegistry` query interface | Entity records, capability definitions, attribute schemas | State Store uses capability schemas to validate incoming state and structure materialized views |
 | Pending Command Ledger | Provides to | `ExpectationFactory` interface | Concrete `Expectation` implementations per capability/command | Ledger consumes expectations to evaluate command confirmation (Event Model §3.8) |
@@ -821,6 +843,9 @@ All options have sensible defaults. HomeSynapse runs correctly with zero configu
 |---|---|---|---|
 | `device.adopted` | INFO | `device_id`, `integration_id`, `manufacturer`, `model`, `entity_count` | A device was adopted into the system |
 | `device.removed` | INFO | `device_id`, `entity_count` | A device was removed |
+| `device.metadata_changed` | INFO | `device_id`, `changed_fields`, `integration_id` | Device mutable metadata updated (firmware version, configuration) |
+| `entity.enabled` | INFO | `entity_id`, `actor_ref` | An entity was enabled |
+| `entity.disabled` | INFO | `entity_id`, `actor_ref` | An entity was disabled |
 | `entity.profile_changed` | INFO | `entity_id`, `change_type`, `capability_id` | Entity capability profile changed |
 | `validation.attribute_rejected` | WARN | `entity_id`, `attribute_key`, `rejected_value`, `reason` | An attribute value failed validation |
 | `validation.command_rejected` | WARN | `entity_id`, `command_type`, `reason` | A command failed validation |
@@ -856,6 +881,8 @@ All options have sensible defaults. HomeSynapse runs correctly with zero configu
 - **Attribute validation:** Test every attribute type against valid values, boundary values, out-of-range values, wrong types, null when non-nullable, and missing units for physical quantities.
 - **Command validation:** Test parameter schema enforcement, required-feature gating, and expected outcome construction for every standard capability's commands.
 - **Entity type composition:** Test that required-capability validation accepts valid compositions and rejects invalid ones.
+- **Entity disable/enable lifecycle:** Disable an entity. Verify: `entity_disabled` event produced, State Projection stops updating the entity's state, commands targeting the entity are rejected with structured error, entity still appears in registry with `enabled = false`. Enable the entity. Verify: `entity_enabled` event produced, State Projection resumes, commands are accepted.
+- **Disabled entity state_reported handling:** Disable an entity. Produce `state_reported` events. Verify: events are persisted to the log, but the State Projection does not update the entity's state, no `state_changed` events are produced for the disabled entity.
 - **Expectation evaluation:** Test each `Expectation` implementation (`ExactMatch`, `WithinTolerance`, `EnumTransition`, `AnyChange`) against matching, non-matching, and edge-case values.
 - **Hardware identifier dedup:** Test single-match, multi-match, no-match, and cross-integration isolation.
 - **Capability compatibility checking:** Test compatible, partially compatible, and incompatible replacement scenarios.
@@ -932,7 +959,7 @@ All options have sensible defaults. HomeSynapse runs correctly with zero configu
 | Capability granularity | Fine-grained, composable (OnOff + Brightness, not DimmableLight) | Prevents monolithic-capability splitting pain; safe evolution | §3.6 |
 | Entity type relationship | Type determines required capabilities (with auto-classification fallback) | Enables validation, UI generation, and automation templates | §3.10 |
 | Multi-function device modeling | Multiple entities per device with endpoint_index | Maps cleanly to Matter, Zigbee, Z-Wave multi-endpoint devices | §3.11 |
-| Device metadata location | Registry properties (immutable) + diagnostic capability (mutable firmware) | Separates identification from observable state; keeps event stream focused | §3.2 |
+| Device metadata location | Registry properties (immutable identity) + device-reported mutable metadata via events | Separates identification (manufacturer, model, serial — immutable) from observable metadata (firmware version, configuration — mutable, updated via `device_metadata_changed` events). Keeps the event stream focused on state changes rather than metadata churn. | §3.2 |
 | Energy device modeling | Dedicated capability families (energy_meter, power_meter, etc.) | First-class per INV-EI-01; not generic sensors with hints | §3.6 |
 | Custom capability governance | Namespace isolation + stability levels + UI labeling | Prevents ecosystem fragmentation while enabling innovation | §3.9 |
 | Discovery deduplication | Hardware identifier registry with integration-scoped matching | Prevents duplicate devices on re-pairing; cross-integration matching is user-initiated | §3.12 |

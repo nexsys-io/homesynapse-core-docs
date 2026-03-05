@@ -127,6 +127,8 @@ Rule T2: `state_changed`, `state_confirmed`, and `command_dispatched` are emitte
 
 Rule T3: System lifecycle events (`system_started`, `system_stopped`, `migration_applied`, `snapshot_created`, `config_changed`) are produced exclusively by the core runtime. Integrations must not produce these types.
 
+The core runtime also produces `entity_enabled` and `entity_disabled` events when a user or automation enables or disables an entity. These are entity lifecycle events, not state events — they do not flow through the state event lifecycle (§3.2). Automations may trigger enable/disable as an action (e.g., "disable the outdoor camera entity when the privacy mode automation activates"). The enable/disable state is stored as a registry property on the entity record, not as a state attribute — it is not observable through the `state_reported` → `state_changed` pathway.
+
 These rules ensure that interpretation is centralized. A Zigbee adapter's responsibility ends at "I observed brightness = 74% at time T." Whether that constitutes a change, confirms a pending command, or is a redundant report is the core's determination.
 
 ### 3.2 State Event Lifecycle
@@ -191,6 +193,12 @@ public record SubscriptionFilter(
 
 The bus maintains per-subscriber filters and only notifies a subscriber when events matching its filter have been appended. This prevents waking the automation engine for `state_reported` events that did not result in `state_changed`.
 
+**`entity_type_prefix` filter semantics.** The `entity_type_prefix` field enables a subscriber to receive events only for entities whose `entity_type` starts with a given prefix. This is useful for subsystem-scoped subscriptions: a lighting dashboard subscribes with prefix `light` to receive events for `light` entities without processing `sensor`, `switch`, or `climate` events.
+
+The filter operates on the `entity_type` field stored in the entity registry, not on any field within the event envelope. When the Event Bus evaluates a subscription filter, it resolves the event's `subject_ref` to its entity type via the entity registry and applies the prefix match. Events whose `subject_ref` refers to a non-entity subject (Device, Automation, Person, System) are **not matched** by entity type prefix filters — they pass through only if the filter's `entity_type_prefix` is null (meaning "all subjects").
+
+This resolution requires that the Event Bus has read access to the entity registry, establishing a runtime dependency from the Event Bus to the Device Model's `EntityRegistry` interface (§7). The dependency is read-only and uses an in-memory cache with no write path, so it does not create a circular dependency with the Device Model's subscription to the Event Bus.
+
 **Subscriber lifecycle:**
 
 1. Register with `subscriberId` (stable string), `SubscriptionFilter`, and initial `lastCheckpoint` (0 for new subscribers, loaded from checkpoint store for existing ones).
@@ -199,6 +207,18 @@ The bus maintains per-subscriber filters and only notifies a subscriber when eve
 4. Subscriber polls: `List<EventEnvelope> batch = eventStore.readFrom(lastCheckpoint, batchSize, filter)`.
 5. Subscriber processes each event, then acknowledges by writing checkpoint.
 6. Checkpoint is stored in the domain event store database (same file, different table — atomic with the same SQLite connection).
+
+**Re-entrant event production.** Core subscribers — specifically the State Projection and the Pending Command Ledger — produce derived events (`state_changed`, `state_confirmed`, `state_report_rejected`) in response to events they consume. This creates a re-entrant write path: a subscriber's event handler calls `EventPublisher.publish()`, which appends to the event store and triggers notification of other subscribers (and potentially the same subscriber, if the derived event matches its filter).
+
+The single-writer model (LTD-03, LTD-11) serializes all writes through one thread. Re-entrant writes are safe because:
+
+1. The producing subscriber holds no lock on the event store during its processing — it calls `publish()`, which acquires the write lock, appends, releases, and returns.
+2. The derived event is assigned the next `global_position` and `subject_sequence` values, maintaining monotonicity.
+3. Notification of the derived event to other subscribers happens asynchronously after the `publish()` call returns.
+
+However, re-entrant production means a single incoming `state_reported` event may produce zero, one, or two additional events (a `state_changed` and/or a `state_confirmed`) within the same processing cycle. Throughput calculations must account for this amplification factor. At steady state with 50 devices reporting every 30 seconds, the amplification is modest (roughly 1.3× — most reports either change state or confirm commands, not both). During event storms (many simultaneous changes), the amplification approaches 2× in the worst case.
+
+The `EventPublisher` implementation must not notify the producing subscriber synchronously about the event it just produced during the same `publish()` call. Derived events are appended to the store and picked up by subscribers in the next polling cycle. This prevents unbounded recursive chains within a single call stack.
 
 **Delivery gap handling:**
 
@@ -240,6 +260,10 @@ Coalescing means: if multiple coalescable events for the same `(subject_ref, att
 
 NORMAL and CRITICAL events are never coalesced under any condition.
 
+**Coalescing exemption for the Pending Command Ledger.** The Pending Command Ledger subscription is exempt from DIAGNOSTIC coalescing. The Ledger requires every `state_reported` event — including DIAGNOSTIC-priority reports that did not change state — to evaluate whether a pending command's expected outcome has been reached. If coalescing drops intermediate `state_reported` events for an entity with a pending command, the Ledger may incorrectly time out or miss the confirming report.
+
+Implementation: the Pending Command Ledger registers its subscription with coalescing disabled. The Event Bus respects this per-subscriber setting. Other subscribers (Trace Viewer, observability dashboards) may use coalescing freely.
+
 ### 3.7 Processing Modes
 
 The processing mode is a property of the subscriber's execution context, not of individual events. It governs whether side effects are permitted during event processing.
@@ -252,6 +276,16 @@ The processing mode is a property of the subscriber's execution context, not of 
 | DRY_RUN | Automation testing or what-if analysis | Logged to dry-run audit, not executed | Recorded to dry-run audit, not the event store | Suppressed |
 
 **REPLAY to LIVE transition:** A subscriber transitions from REPLAY to LIVE when its checkpoint reaches within a configurable threshold of the log head (default: within 10 events). The transition is logged as a diagnostic event. The brief overlap window (events arriving during transition) is safe because at-least-once delivery tolerates reprocessing.
+
+**Replay does not produce new events.** During REPLAY processing (catch-up subscription from a checkpoint behind the log head), subscribers process historical events to rebuild their state. Subscribers operating in REPLAY mode must not produce new derived events — the derived events already exist in the log from the original live processing. Specifically:
+
+- The State Projection does not re-emit `state_changed` events during replay. It applies the stored `state_changed` events to rebuild state.
+- The Pending Command Ledger does not re-emit `state_confirmed` events during replay. It applies the stored confirmations to rebuild its pending command map.
+- Integration adapters do not re-issue commands during replay (this was already specified).
+
+The processing mode transition from REPLAY to LIVE occurs when the subscriber's checkpoint reaches within a configurable distance of the log head (default: 10 events). Events processed after the transition are in LIVE mode and may produce new derived events.
+
+If a subscriber discovers during replay that its previously-produced derived events are inconsistent with a re-derivation (e.g., after an upcaster changes how a payload is interpreted), this is a snapshot invalidation scenario. The subscriber discards its snapshot, replays from position zero, and the new derived events replace the old ones. This is a rare recovery path, not normal operation.
 
 **Command idempotency for crash recovery:**
 
@@ -333,10 +367,10 @@ The event envelope is the standard wrapper structure for every event in the doma
 | Event ID | `event_id` | ULID | Globally unique, monotonic within millisecond (LTD-04). Generated by the EventPublisher at append time. |
 | Event Type | `event_type` | String | Dotted category key identifying the event's type. See §4.3 for the taxonomy. |
 | Schema Version | `schema_version` | Integer | Positive integer identifying the payload schema version for this event type. Starts at 1. |
-| Ingest Time | `ingest_time` | Timestamp (ISO 8601) | System clock at the moment the event was appended to the log. Always present. Always system-derived. |
-| Event Time | `event_time` | Timestamp (ISO 8601), nullable | When the real-world occurrence happened, as reported by the event source. Null if the source has no reliable clock. See INV-ES-08 for the distinction between event time and ingest time. |
+| Ingest Time | `ingest_time` | Timestamp | System clock at the moment the event was appended to the log. Always present. Always system-derived. Storage: integer microseconds since Unix epoch (§4.2). Java: `java.time.Instant`. Wire/API: ISO 8601 string (LTD-08). |
+| Event Time | `event_time` | Timestamp, nullable | When the real-world occurrence happened, as reported by the event source. Null if the source has no reliable clock. Same three-layer representation as `ingest_time`: integer microseconds in storage, `Instant` in Java, ISO 8601 on the wire. See INV-ES-08 for the distinction between event time and ingest time. |
 | Subject Reference | `subject_ref` | ULID | The entity, device, automation, person, or system component this event is about. |
-| Entity Sequence | `entity_sequence` | Integer | Monotonically increasing within the subject's event stream. Used for optimistic concurrency: `(subject_ref, entity_sequence)` is a unique constraint. |
+| Subject Sequence | `subject_sequence` | Integer | Monotonically increasing within the subject's event stream. Used for optimistic concurrency: `(subject_ref, subject_sequence)` is a unique constraint. The name reflects that subjects may be Entities, Devices, Automations, Persons, or System components — not exclusively Entities. |
 | Global Position | `global_position` | Integer | SQLite rowid. Monotonic across all entities. Subscribers checkpoint against this value. |
 | Priority | `priority` | Enum string | One of: `CRITICAL`, `NORMAL`, `DIAGNOSTIC`. See §3.3. |
 | Origin | `origin` | Enum string | One of: `PHYSICAL`, `USER_COMMAND`, `AUTOMATION`, `DEVICE_AUTONOMOUS`, `INTEGRATION`, `SYSTEM`, `UNKNOWN`. See §3.9. |
@@ -350,7 +384,7 @@ The event envelope is the standard wrapper structure for every event in the doma
 | Causation ID | `causation_id` | ULID, nullable | The `event_id` of the immediately preceding event in the causal chain. Null for root events only. |
 | Actor Reference | `actor_ref` | ULID, nullable | The user identity attributable to this event. See INV-MU-01 for semantics. Null when no user is attributable. |
 
-**Invariant alignment:** INV-ES-01 (immutable once persisted), INV-ES-03 (per-entity ordering via entity_sequence), INV-ES-04 (write-ahead via global_position), INV-ES-06 (explainable via correlation_id + causation_id + actor_ref + origin), INV-ES-07 (schema evolution via schema_version), INV-ES-08 (event_time vs ingest_time distinction), LTD-04 (ULID format), LTD-05 (dual ordering), LTD-08 (Jackson JSON serialization).
+**Invariant alignment:** INV-ES-01 (immutable once persisted), INV-ES-03 (per-subject ordering via subject_sequence), INV-ES-04 (write-ahead via global_position), INV-ES-06 (explainable via correlation_id + causation_id + actor_ref + origin), INV-ES-07 (schema evolution via schema_version), INV-ES-08 (event_time vs ingest_time distinction), LTD-04 (ULID format), LTD-05 (dual ordering), LTD-08 (Jackson JSON serialization).
 
 ### 4.2 Domain Event Store Schema
 
@@ -363,17 +397,17 @@ CREATE TABLE events (
     ingest_time       INTEGER  NOT NULL,     -- Unix microseconds
     event_time        INTEGER,               -- Unix microseconds, nullable
     subject_ref       BLOB(16) NOT NULL,
-    entity_sequence   INTEGER  NOT NULL,
+    subject_sequence  INTEGER  NOT NULL,
     priority          TEXT     NOT NULL DEFAULT 'NORMAL',
     origin            TEXT     NOT NULL DEFAULT 'UNKNOWN',
     actor_ref         BLOB(16),
     correlation_id    BLOB(16) NOT NULL,     -- ULID; equals event_id for root events
     causation_id      BLOB(16),
     payload           TEXT     NOT NULL,      -- JSON
-    UNIQUE(subject_ref, entity_sequence)
+    UNIQUE(subject_ref, subject_sequence)
 );
 
-CREATE INDEX idx_events_subject     ON events(subject_ref, entity_sequence);
+CREATE INDEX idx_events_subject     ON events(subject_ref, subject_sequence);
 CREATE INDEX idx_events_type        ON events(event_type, global_position);
 CREATE INDEX idx_events_correlation ON events(correlation_id, global_position);
 CREATE INDEX idx_events_ingest_time ON events(ingest_time);
@@ -385,7 +419,7 @@ Timestamps are stored as integer microseconds since epoch, not ISO 8601 strings.
 
 ULID fields are stored as BLOB(16) per LTD-04. SQLite byte-comparison on BLOB(16) preserves ULID lexicographic ordering without encoding overhead.
 
-The `UNIQUE(subject_ref, entity_sequence)` constraint enforces optimistic concurrency. An attempt to append an event with a sequence number that already exists for that subject is a conflict, indicating a concurrent modification.
+The `UNIQUE(subject_ref, subject_sequence)` constraint enforces optimistic concurrency. An attempt to append an event with a sequence number that already exists for that subject is a conflict, indicating a concurrent modification.
 
 The `payload` field stores the event-type-specific JSON object. The full envelope is not stored as a single JSON blob — envelope fields are promoted to columns for indexed querying. The payload is the only unstructured column.
 
@@ -400,6 +434,16 @@ CREATE TABLE subscriber_checkpoints (
 ```
 
 Storing checkpoints in the same SQLite file as events means a subscriber can atomically update its checkpoint and query the event store within a single connection, avoiding distributed state consistency issues.
+
+**Per-subject-type sequence integrity.** The `(subject_ref, subject_sequence)` unique constraint is universal — it applies regardless of subject type. However, the integrity guarantee it provides has practical differences across subject types:
+
+- **Entity subjects** (the most common case): The sequence enforces optimistic concurrency for state projections. A concurrent modification to the same entity is detected immediately by the constraint violation.
+- **Device subjects:** Device-level events (e.g., `device_adopted`, `device_removed`) are infrequent and single-sourced (core runtime). Sequence conflicts are unexpected; if one occurs, it indicates a bug in the core lifecycle management.
+- **Automation subjects:** Automation events (e.g., `automation_triggered`, `automation_completed`) are produced by the Automation Engine. Sequences track the execution history of a single automation definition.
+- **System subjects:** System events use a well-known system subject reference. Sequences order system lifecycle events (startup, shutdown, migration, snapshot).
+- **Person subjects:** Presence events use person references. Sequences order presence state transitions for a single person.
+
+All subject types share the same SQLite table and the same `UNIQUE` constraint. No subject-type-specific tables or indexes are needed for MVP.
 
 ### 4.3 Event Type Taxonomy
 
@@ -433,6 +477,16 @@ The `event_type` field carries a dotted string. Core event types are listed belo
 | `entity_type_changed` | Entity | Core (migration) | NORMAL | Entity type was migrated via governed type migration. |
 | `availability_changed` | Entity/Device | Integration Adapter / Core | CRITICAL (to offline) / NORMAL (to online) | Reachability status changed. |
 
+**Device and entity profile events:**
+
+| Event Type | Subject | Producer | Default Priority | Description |
+|---|---|---|---|---|
+| `entity_profile_changed` | Entity | Core (Device Model) | NORMAL | An entity's capability set, feature map, or type classification changed. Carries the capability diff (added, removed, modified capabilities). Produced after firmware updates, user-initiated capability changes, or entity type migration. |
+| `device_metadata_changed` | Device | Core (Device Model) | DIAGNOSTIC | A device's mutable metadata changed (firmware version, configuration parameters reported by the device). Does not cover identity fields (manufacturer, model, serial) which are immutable registry properties. |
+| `entity_enabled` | Entity | Core (user-initiated or automation) | NORMAL | An entity was enabled. The entity resumes participation in state projections, automation evaluation, and command dispatch. |
+| `entity_disabled` | Entity | Core (user-initiated or automation) | NORMAL | An entity was disabled. The entity stops participating in state projections and automation evaluation. Commands targeting a disabled entity are rejected at dispatch time. Disabling is distinct from unavailability — a disabled entity is deliberately excluded, not unreachable. |
+| `state_report_rejected` | Entity | Core (Device Model validation) | DIAGNOSTIC | An integration produced a `state_reported` event with a value that failed attribute validation. Carries the integration ID, rejected value, and structured validation error. The rejected value does not reach the State Store. |
+
 **Automation lifecycle:**
 
 | Event Type | Subject | Producer | Default Priority | Description |
@@ -458,6 +512,14 @@ The `event_type` field carries a dotted string. Core event types are listed belo
 | `snapshot_created` | System | Core Runtime | CRITICAL | A backup snapshot was created. |
 | `system_storage_critical` | System | Core Runtime | CRITICAL | Disk space has fallen below the emergency threshold. |
 
+**Cross-subsystem diagnostic events:**
+
+| Event Type | Subject | Producer | Default Priority | Description |
+|---|---|---|---|---|
+| `automation_capability_mismatch` | Automation | Automation Engine | NORMAL | An automation references a capability that no longer exists on one or more of its target entities (typically after a device replacement that reduced capabilities). Carries the automation ID, affected entity IDs, and missing capability IDs. |
+| `system_registry_rebuilt` | System | Core (Device Model) | CRITICAL | The device/entity registry was rebuilt from the event log due to corruption or data loss. Carries the rebuild trigger, duration, and entity count. |
+| `system_storage_critical` | System | Core (Persistence Layer) | CRITICAL | Disk usage has exceeded a critical threshold. The system may begin emergency retention to preserve operability. |
+
 **Telemetry:**
 
 | Event Type | Subject | Producer | Default Priority | Description |
@@ -482,13 +544,108 @@ This supports the "why did this happen?" query: given any event, follow its `cor
 
 The projection also monitors chain depth. When a chain exceeds the configurable threshold (default: 50 events), it emits a `causality_depth_warning` DIAGNOSTIC event. This serves as an early indicator of potential automation loops — a well-behaved automation chain rarely exceeds 10 events.
 
+**Memory bound.** The causal chain projection maintains an in-memory index of active causal chains (chains with at least one event within the last N minutes, where N is configurable, default 60). Chains older than the configured window are evicted from the in-memory index. Historical chain queries beyond the window fall back to a database query on the `idx_events_correlation` index, which is slower but correct.
+
+The memory bound is: one entry per active `correlation_id`, each carrying a chain depth counter and the `event_id` of the chain's most recent event. At 50 devices with typical automation activity, the active chain count is estimated at 200–500 chains, consuming less than 100 KB. The configured maximum chain depth (default: 50 events) triggers a `causality_depth_warning` event (DIAGNOSTIC) when exceeded. This prevents runaway automation loops from consuming unbounded memory in the projection.
+
+Configuration:
+```yaml
+event_bus:
+  causality:
+    active_chain_window_minutes: 60
+    max_chain_depth: 50
+```
+
+### 4.5 Core Event Payload Schemas
+
+This section defines payload schemas for event types where the structure is owned by the Event Model. Event types whose payloads are owned by other subsystems (e.g., `entity_profile_changed` payload is owned by the Device Model) are defined in those subsystem documents and referenced here by event type name.
+
+**`command_issued` payload:**
+```json
+{
+  "target_entity_ref": "01HV...",
+  "command_type": "set_level",
+  "parameters": {
+    "level": 75,
+    "transition_ms": 500
+  },
+  "confirmation_timeout_ms": 5000,
+  "idempotency_class": "IDEMPOTENT"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `target_entity_ref` | ULID | Yes | The entity receiving the command. Always equals the envelope's `subject_ref`. Explicit in the payload for self-documentation. |
+| `command_type` | String | Yes | The command identifier as defined by the entity's capability (e.g., `set_level`, `toggle`, `lock`). |
+| `parameters` | JSON Object | Yes | Command parameters as defined by the capability's `CommandDefinition`. May be empty (`{}`) for parameterless commands (e.g., `toggle`). |
+| `confirmation_timeout_ms` | Integer | Yes | The timeout for the Pending Command Ledger to wait for a confirming `state_reported`. Sourced from the capability's `CommandDefinition.default_timeout`, potentially overridden by the adapter. |
+| `idempotency_class` | String | Yes | One of `IDEMPOTENT`, `NOT_IDEMPOTENT`, `CONDITIONAL`. Sourced from the capability's `CommandDefinition`. Governs replay behavior (§3.7). |
+
+**`state_reported` payload:**
+```json
+{
+  "attribute_key": "brightness",
+  "value": 74,
+  "unit": "percent",
+  "raw_protocol_value": 189,
+  "raw_protocol_unit": "zigbee_level"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `attribute_key` | String | Yes | The attribute being reported, as defined by the entity's capability schema. |
+| `value` | Any (typed per schema) | Yes | The canonical value in SI or standard units. |
+| `unit` | String | Conditional | Required for physical quantities. The canonical unit. |
+| `raw_protocol_value` | Any | No | The value as received from the protocol, before canonical conversion. Present when the integration performs unit conversion. |
+| `raw_protocol_unit` | String | No | The protocol-native unit. Present alongside `raw_protocol_value`. |
+
+**`state_changed` payload:**
+```json
+{
+  "attribute_key": "brightness",
+  "old_value": 50,
+  "new_value": 74,
+  "triggered_by": "01HV..."
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `attribute_key` | String | Yes | The attribute that changed. |
+| `old_value` | Any (typed per schema) | Yes | The previous canonical value. |
+| `new_value` | Any (typed per schema) | Yes | The new canonical value. |
+| `triggered_by` | ULID | Yes | The `event_id` of the `state_reported` event that caused this state change. |
+
+**`state_confirmed` payload:**
+```json
+{
+  "command_event_id": "01HV...",
+  "report_event_id": "01HV...",
+  "attribute_key": "brightness",
+  "expected_value": 75,
+  "actual_value": 74,
+  "match_type": "within_tolerance"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `command_event_id` | ULID | Yes | The `event_id` of the `command_issued` event that is being confirmed. |
+| `report_event_id` | ULID | Yes | The `event_id` of the `state_reported` event that matched the expectation. |
+| `attribute_key` | String | Yes | The attribute that was confirmed. |
+| `expected_value` | Any | Yes | The value the command intended to achieve. |
+| `actual_value` | Any | Yes | The value the device actually reported. |
+| `match_type` | String | Yes | One of: `exact`, `within_tolerance`, `enum_transition`, `any_change`. |
+
 ---
 
 ## 5. Contracts and Invariants
 
 **Every event is immutable once persisted.** The event store does not support UPDATE or DELETE operations on the events table (INV-ES-01). Retention policies remove events by deleting rows, but no event is modified in place. The event_id, payload, and all envelope fields are permanent from the moment of append.
 
-**Per-entity event ordering is gap-free and monotonic.** Within a single entity stream, `entity_sequence` values form a contiguous, monotonically increasing sequence starting at 1. Gaps indicate data loss and are treated as a system integrity failure (INV-ES-03). The EventPublisher is the sole sequencing authority: it assigns `entity_sequence` by reading the current maximum sequence for the subject_ref and incrementing within the same SQLite transaction as the event INSERT. The `UNIQUE(subject_ref, entity_sequence)` constraint serves as a safety net — a constraint violation indicates a sequencing bug, not a normal concurrency condition. Because HomeSynapse uses a single-writer model (LTD-03, LTD-11), concurrent sequence assignment does not arise during normal operation. If a constraint violation does occur, the EventPublisher must re-read the current sequence and retry (§6.7).
+**Per-entity event ordering is gap-free and monotonic.** Within a single entity stream, `subject_sequence` values form a contiguous, monotonically increasing sequence starting at 1. Gaps indicate data loss and are treated as a system integrity failure (INV-ES-03). The EventPublisher is the sole sequencing authority: it assigns `subject_sequence` by reading the current maximum sequence for the subject_ref and incrementing within the same SQLite transaction as the event INSERT. The `UNIQUE(subject_ref, subject_sequence)` constraint serves as a safety net — a constraint violation indicates a sequencing bug, not a normal concurrency condition. Because HomeSynapse uses a single-writer model (LTD-03, LTD-11), concurrent sequence assignment does not arise during normal operation. If a constraint violation does occur, the EventPublisher must re-read the current sequence and retry (§6.7).
 
 **Events are durable before any subscriber processes them.** The WAL commit completes before `EventPublisher.publish()` returns to the caller. No subscriber is notified until the event is on disk (INV-ES-04, LTD-06).
 
@@ -498,7 +655,9 @@ The projection also monitors chain depth. When a chain exceeds the configurable 
 
 **Schema evolution never breaks existing readers.** Events written with schema version N are readable by code that expects version M (where M >= N) through the upcaster chain. Unknown fields in JSON payloads are silently ignored (INV-ES-07, LTD-08 Jackson `FAIL_ON_UNKNOWN_PROPERTIES=false`).
 
-**Ingest time and event time are always distinguishable.** `ingest_time` is the system clock at append. `event_time` is the source-reported time. Consumers that need ordering guarantees use `global_position` or `entity_sequence`, never timestamps (INV-ES-08).
+**Ingest time and event time are always distinguishable.** `ingest_time` is the system clock at append. `event_time` is the source-reported time. Consumers that need ordering guarantees use `global_position` or `subject_sequence`, never timestamps (INV-ES-08).
+
+**Derived event production is bounded.** A single incoming event produces at most two derived events in the same processing cycle (one `state_changed` from the State Projection and one `state_confirmed` from the Pending Command Ledger). No derived event may itself trigger further derived events within the Event Model subsystem. This bound exists to prevent unbounded amplification and to keep throughput calculations predictable.
 
 ---
 
@@ -568,7 +727,7 @@ The projection also monitors chain depth. When a chain exceeds the configurable 
 
 ### 6.7 Optimistic Concurrency Conflict
 
-**Trigger:** Two concurrent producers attempt to append events with the same `(subject_ref, entity_sequence)`. In a single-writer system, this should not occur under normal operation — it indicates a bug in sequence assignment.
+**Trigger:** Two concurrent producers attempt to append events with the same `(subject_ref, subject_sequence)`. In a single-writer system, this should not occur under normal operation — it indicates a bug in sequence assignment.
 
 **Impact:** The SQLite UNIQUE constraint rejects the second insert. The producing component receives an error.
 
@@ -593,6 +752,7 @@ The projection also monitors chain depth. When a chain exceeds the configurable 
 | Configuration System | Provides | YAML configuration (§9) | Retention policy, bus tuning, telemetry boundary | Configuration changes produce config_changed events |
 | Observability & Debugging | Reads from / Subscribes to | EventStore + Event Bus | Metrics, health indicators, trace queries | Causal chain projection enables trace viewer |
 | Startup, Lifecycle & Shutdown | Produces events via | EventPublisher.publishRoot() | system_started, system_stopped | Processing mode transitions (REPLAY→LIVE) coordinated during startup |
+| Device Model & Capability System | Reads from | `EntityRegistry` query | Entity type for subscription filter resolution | Read-only, in-memory lookup. No write dependency. |
 
 ---
 
@@ -859,7 +1019,7 @@ Key log events (JSON format per LTD-15):
 | D11 | Telemetry boundary at 10 seconds sustained rate (configurable default, per-integration overridable) | Prevents high-frequency energy/sensor data from overwhelming the domain event log. The 10-second threshold is a configurable heuristic, not an invariant. Integration declares path at registration. Per-integration override supported. | §3.5 |
 | D12 | Event type namespace supports category-scoped access | Dotted namespace organized by functional domain enables future access-control policies for Data Sovereignty API, insurance attestation, utility settlement, and care monitoring — without requiring event schema changes. | §4.3, §12 |
 | D13 | Pending command timeout emits explicit event, never expires silently | command_confirmation_timed_out (DIAGNOSTIC) is emitted when a pending command's expected state report does not arrive within the timeout. Consistent with the principle that the event log records facts for diagnosis — silent expiry would create evidence gaps. | §3.8, §4.3 |
-| D14 | EventPublisher is the sole sequencing authority; sequence assigned within append transaction | entity_sequence is assigned by reading the current max and incrementing within the same SQLite transaction as the INSERT. The UNIQUE constraint is a safety net, not a concurrency mechanism. Single-writer model (LTD-03) prevents concurrent assignment during normal operation. | §5 |
+| D14 | EventPublisher is the sole sequencing authority; sequence assigned within append transaction | subject_sequence is assigned by reading the current max and incrementing within the same SQLite transaction as the INSERT. The UNIQUE constraint is a safety net, not a concurrency mechanism. Single-writer model (LTD-03) prevents concurrent assignment during normal operation. | §5 |
 
 ---
 
