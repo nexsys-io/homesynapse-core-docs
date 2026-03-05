@@ -22,9 +22,11 @@ Identity is not a formatting concern. It is a structural contract that determine
 |---|---|
 | Glossary v1 | Defines concept terms, UI terms, and API token names. This document specifies the formats, generation rules, uniqueness scopes, and operational semantics for those tokens. |
 | Architecture Invariants v1 | This document operationalizes INV-CS-02 (stable identifiers), INV-CE-04 (protocol agnosticism), INV-TO-02 (automation determinism), and INV-ES-06 (explainable state). Cited by INV-XX-NN. |
-| Locked Technical Decisions Register v1 | LTD-04 (ULID), LTD-05 (per-entity sequences), LTD-03 (SQLite WAL) constrain storage and encoding. Cited by LTD-NN. |
+| Locked Technical Decisions Register v1 | LTD-04 (ULID), LTD-05 (per-subject sequences), LTD-03 (SQLite WAL) constrain storage and encoding. Cited by LTD-NN. |
 | Design Document Template | Subsystem designs reference this document for all identity and addressing rules. |
 | MVP Scope | §4 tiered approach determines which addressing modes are MVP-active vs. reserved. |
+| Event Model & Event Bus (Design Doc 01) | Consumes identity rules for event envelope fields (`subject_ref`, `actor_ref`, `event_id`), subject stream sequencing, and causality chain attribution. The Event Model's `subject_sequence` field implements the per-subject ordering mechanism defined in §9 of this document. |
+| Device Model & Capability System (Design Doc 02) | Consumes identity rules for device adoption (§4.1), entity identity lifecycle, hardware identifier mapping (§6), and device replacement semantics (§5). The Device Model extends §5's capability compatibility model with three-outcome validation (compatible, partially compatible, incompatible). |
 
 ### 0.2 Scope
 
@@ -46,6 +48,8 @@ This document does not define:
 - Event schema structure (owned by Event Model & Event Bus, design document 01)
 - Database table layouts (owned by Persistence Layer, design document 04)
 - API endpoint design (owned by REST API, design document 09)
+- Hardware Identifier storage format, matching algorithms, and discovery deduplication logic (this document defines the identity rules and mapping principles in §6; the Device Model & Capability System defines the concrete data structures, matching algorithms, and discovery pipeline implementation)
+- Capability compatibility validation for device replacement (this document defines the replacement workflow and identity preservation guarantees in §5; the Device Model defines the three-outcome compatibility model, tolerance band semantics, and `ExpectationFactory` contracts)
 
 ### 0.3 Amendment process
 
@@ -215,11 +219,13 @@ Not every concept in HomeSynapse carries a Reference. The following table define
 | Automation | `automation_id` | `automation_slug` | Yes | `hs:.../automation/...` | — |
 | Person | `person_id` | `person_slug` | No | `hs:.../person/...` | Multi-user identity |
 | Label | `label_id` | `label_slug` | No | No | Cross-cutting tag |
-| Integration | `integration_id` | — | No | No | Internal; no slug needed |
+| Integration | `integration_id` | — | No | No | Internal. Uses `integration_type` string (e.g., `zigbee`, `hue`) for log correlation, configuration keys, and event type namespacing — not a slug, but a stable human-readable name. See note below. |
 | Event | `event_id` | — | No | No | Immutable fact; no slug or path |
 | Capability | `capability_id` (string key) | — | No | No | Not ULID; string key by design |
 
 **What identity does not guarantee.** A Reference guarantees stable, opaque identification. It does not guarantee that the object exists, is active, or is reachable. An Entity may be soft-deleted, disabled, or unavailable while its Reference remains valid. Consumers that resolve a Reference must handle absence.
+
+**Integration naming.** Integrations carry a `integration_id` (ULID) for internal identity and a `integration_type` (human-readable string, e.g., `zigbee`, `mqtt`, `hue`) for operational identification. The `integration_type` is used in: structured log fields for correlation (LTD-15), configuration YAML keys (`integrations.zigbee:`), event type namespacing for integration-defined events (`zigbee.network_map_updated` per Event Model §4.3), custom capability namespacing (`zigbee_tuya.datapoint_102` per Device Model §3.9), and Gradle module names (`integration-zigbee` per LTD-17). The `integration_type` is not a slug — it is not derived from a display name, does not participate in the three-layer identity architecture, and has no tombstone or collision resolution semantics. It is a stable, developer-assigned string key that follows `snake_case` convention and is unique per integration type within a HomeSynapse installation.
 
 ---
 
@@ -335,7 +341,13 @@ When a physical device is replaced with compatible hardware, the following are p
 - **Atomicity.** Transfer is atomic per Entity. If a batch transfer covers multiple Entities, each individual transfer either completes fully or does not occur. Automations never observe a half-transferred topology where some Entities reference the old Device and others the new.
 - **Batch correlation.** A multi-Entity replacement produces one `entity_transferred` event per Entity, plus a shared `correlation_id` linking all events in the batch. Debug, replay, and UI can group them as a single replacement operation.
 
-**Capability compatibility.** Replacement requires that the new Device exposes a superset of the replaced Entities' Capability keys. If the new Device lacks a Capability key that the old Device provided (e.g., old device had `color_temperature`, new device is dimmer-only), the affected Entity is flagged as `degraded` and the user is warned. Automations targeting the missing Capability produce eligibility failures (§7.5) rather than silent drops.
+**Capability compatibility.** Before a replacement is executed, the Device Model's `DeviceReplacementService` validates that the new Device's proposed Entities can satisfy the existing Entities' Capability contracts. The validation produces one of three outcomes:
+
+- **Compatible.** The new Device exposes a superset of the existing Capabilities. Replacement proceeds automatically. No user confirmation required beyond the initial replacement request.
+- **Partially compatible.** The new Device is missing one or more optional Capabilities. Replacement proceeds with an explicit warning to the user; Automations referencing the missing Capabilities are flagged for review via `automation_capability_mismatch` events. The affected Entity is not marked as `degraded` in the availability sense (Glossary §8.6) — it remains `available` — but its Capability profile has narrowed.
+- **Incompatible.** The new Device cannot satisfy one or more required Capabilities of the existing Entities. Replacement is blocked unless the user explicitly accepts the Capability loss, at which point affected Automations are flagged and missing-Capability actions produce eligibility failures (§7.5) rather than silent drops.
+
+The three-outcome model is owned and enforced by the Device Model & Capability System (Design Doc 02 §3.13). This document defines the identity preservation guarantees (§5.1, §5.2) and the Entity transfer event (§5.4); the Device Model defines the compatibility validation logic and the `CapabilityCompatibilityReport` data structure.
 
 MVP compatibility checks operate at the Capability key level. Future tiers may introduce **Capability profiles** — structured descriptions of supported features and constraints within a Capability (color temperature range, min/max dim level, supported HVAC modes) — enabling finer-grained compatibility assessment. The current design does not prevent this refinement.
 
@@ -345,17 +357,21 @@ MVP compatibility checks operate at the Capability key level. Future tiers may i
 
 Every Entity transfer produces an `entity_transferred` event:
 
-| Field | Value |
-|---|---|
-| `event_type` | `entity_transferred` |
-| `subject_ref` | The Entity being transferred |
-| `reason` | `device_replacement`, `reorg`, or future-defined reasons |
-| `old_device_ref` | Reference of the source Device |
-| `new_device_ref` | Reference of the destination Device |
-| `old_hardware_ids` | Previous Hardware Identifier set |
-| `new_hardware_ids` | New Hardware Identifier set |
-| `actor_ref` | User who initiated the transfer |
-| `correlation_id` | Shared across all transfers in a batch replacement |
+| Field | Value | Owner |
+|---|---|---|
+| `event_type` | `entity_transferred` | Event Model §4.3 |
+| `subject_ref` | The Entity being transferred | Event Model §4.1 |
+| `reason` | `device_replacement`, `reorg`, or future-defined reasons | This document |
+| `old_device_ref` | Reference of the source Device | This document |
+| `new_device_ref` | Reference of the destination Device | This document |
+| `old_hardware_ids` | Previous Hardware Identifier set | This document |
+| `new_hardware_ids` | New Hardware Identifier set | This document |
+| `capability_diff` | Structured report of Capabilities matched, added, and removed. Produced by the Device Model's `CapabilityCompatibilityReport`. | Device Model §3.13 |
+| `user_confirmation_status` | Whether the user explicitly confirmed Capability loss: `not_required` (compatible), `confirmed` (user accepted loss), `auto_approved` (policy-based). | Device Model §3.13 |
+| `actor_ref` | User who initiated the transfer | Event Model §4.1 (envelope) |
+| `correlation_id` | Shared across all transfers in a batch replacement | Event Model §4.1 (envelope) |
+
+**Payload ownership.** This event's payload is jointly defined by this document (identity and hardware fields) and the Device Model (capability fields). The Event Model §4.3 registers the event type and its envelope-level fields. The `capability_diff` and `user_confirmation_status` fields are additions from the Device Model's replacement workflow that were not present in the original Identity Model specification — they are necessary because the Device Model's three-outcome compatibility model (§5.3 above) produces information that must be recorded in the transfer event for auditability.
 
 Naming this event `entity_transferred` rather than `device_replaced` reflects the operational reality: the Entity is the continuity unit, and the operation is a transfer of that continuity to new backing hardware. The `reason` field distinguishes device replacement from other future transfer scenarios (reorganization, integration migration) without requiring new event types.
 
@@ -390,6 +406,8 @@ Hardware Identifiers are stored as a set of `(namespace, value)` tuples on each 
 
 **Matching is Integration-scoped.** Hardware Identifier matching operates within a single Integration. A Zigbee IEEE address is only compared against other Zigbee Devices. Cross-Integration matching (for Device Replacement) is always user-initiated.
 
+**Authoritative specification.** This section defines the identity-layer rules for Hardware Identifiers: they are internal, mutable, and used for discovery matching. The Device Model & Capability System (Design Doc 02) defines the concrete data structures (`HardwareIdentifier` record as `(namespace, value)` tuple), the `DeviceIdentifiers` registry implementation, the deduplication matching algorithm (including match threshold configuration), and the discovery pipeline that consumes these identifiers during the detection → proposal → adoption lifecycle. Where this document describes Hardware Identifier behavior in identity terms (e.g., "matching is Integration-scoped"), the Device Model describes the implementation mechanics.
+
 ---
 
 ## 7. Address Resolution
@@ -407,6 +425,8 @@ An address is a query that resolves to zero or more Entity References. Addressin
 - An empty set (no entities match the selector)
 
 **Identity is always singular; addressing may be plural.** A Reference identifies exactly one object. An address may identify many. This distinction prevents conflation of "what something is" with "how we find it."
+
+**Dependency note for downstream documents.** The Automation Engine (Design Doc 07) depends on the resolution primitives defined in this section for its selector vocabulary and trigger evaluation semantics. Before the Automation Engine design document is written, this section (§7) should be verified as complete — specifically: label-based resolution behavior when labels are added or removed between trigger and action (§7.2 resolution timing), deduplication guarantees when a selector resolves the same entity through multiple paths (§7.3), and ordering guarantees when a resolved set contains entities from multiple devices (§7.4). The Device Model §3.3 states: "To act on all entities of a device, use label-based or device-based entity resolution — the automation targets the resolved entity set, not the device directly." This confirms that the resolution primitives defined here are the foundation for all automation targeting.
 
 ### 7.2 Resolution Timing
 
@@ -546,7 +566,7 @@ Integrations do not generate or control Entity or Device References. HomeSynapse
 | Path | Home (by construction from unique slugs) | Slug uniqueness + deterministic composition |
 | URN form | Globally | `home_id` (globally unique) + `object_id` (globally unique) |
 | Hardware Identifier | Integration instance | Protocol-defined (IEEE, Matter spec, etc.) |
-| `entity_sequence` | Entity | Monotonic counter per entity (LTD-05) |
+| `subject_sequence` | Subject (Entity, Device, Automation, Person, or System component) | Monotonic counter per subject, assigned within the SQLite append transaction. `UNIQUE(subject_ref, subject_sequence)` constraint in the event store schema (LTD-05). The gap-free integrity guarantee is strongest for Entity streams (gaps indicate data loss); for other subject types, the sequence provides ordering with best-effort integrity. See Glossary §3.3 (Subject Stream). |
 | `global_position` | Home | SQLite rowid auto-increment (LTD-05) |
 | `event_id` | Globally | Monotonic ULID (LTD-04) |
 
@@ -560,16 +580,20 @@ Integrations do not generate or control Entity or Device References. HomeSynapse
 |---|---|
 | **INV-CS-02** (Stable identifiers) | §2.1 (binding key rule), §4.2 (immutability), §4.3 (no reuse), §5 (Device Replacement) |
 | **INV-CE-04** (Protocol agnosticism) | §1 (P5), §6 (Hardware Identifiers), §8.5 (no semantic encoding) |
+| **INV-ES-01** (Immutable events) | §4.5 (no resurrection after purge — events of purged objects remain in the log subject to retention policy) |
 | **INV-ES-02** (State derivable from events) | §4.5 (no resurrection after purge) |
-| **INV-ES-06** (Explainable state) | §5.4 (transfer event), §7.7 (resolution and eligibility in traces) |
+| **INV-ES-06** (Explainable state) | §5.4 (transfer event with capability_diff and user_confirmation_status), §7.7 (resolution and eligibility in traces) |
+| **INV-ES-08** (Event time vs ingest time) | §4.1 (identity creation events use `ingest_time` for the creation timestamp; `event_time` is relevant only for events with external source clocks) |
 | **INV-TO-02** (Automation determinism) | §7.2 (resolution timing), §7.3 (deduplication), §7.4 (ordering) |
 | **INV-TO-03** (No hidden state) | §8.4 (no hidden ID rewrites) |
 | **INV-HO-04** (Self-explaining errors) | §7.5 (no silent failures), §7.6 (execution failure tracing) |
 | **INV-MU-01** (Identity-aware model) | §3 (Person as addressable object), §2.1 (actor_ref in events) |
+| **INV-PR-03** (Bounded resources) | §2.2 (slug tombstone table — 90-day retention for renames, indefinite for soft-deletes; indefinite tombstones are bounded by the soft-delete purge window in §4.4) |
+| **INV-RF-05** (Bounded storage) | §2.2 (slug tombstone expiry prevents unbounded growth), §4.4 (soft-delete retention limits object accumulation) |
 | **LTD-04** (ULID) | §2.1 (Reference format), §2.2 (slug suffix generation) |
-| **LTD-05** (Per-entity sequences) | §9 (uniqueness scopes) |
+| **LTD-05** (Per-subject sequences) | §9 (uniqueness scopes — `subject_sequence` replaces `entity_sequence`) |
 | **LTD-03** (SQLite WAL) | §2.2 (slug uniqueness enforcement), §9 (uniqueness scopes) |
 
 ---
 
-*This document is part of the HomeSynapse Core foundations layer. It governs identifier formats, addressing rules, and operational semantics across all Phase 1 design documents, Phase 2 interface specifications, and Phase 3 implementation. The companion Glossary governs terminology. Amendments follow the process defined in §0.3.*
+*This document is part of the HomeSynapse Core foundations layer. It governs identifier formats, addressing rules, and operational semantics across all Phase 1 design documents, Phase 2 interface specifications, and Phase 3 implementation. The companion Glossary governs terminology. The Event Model & Event Bus (Design Doc 01) and Device Model & Capability System (Design Doc 02) extend and refine concepts defined here — particularly subject stream sequencing (§9), device replacement semantics (§5), and hardware identifier mapping (§6). Where this document defines identity-layer guarantees and those subsystem documents define behavioral contracts, both must be satisfied. Amendments follow the process defined in §0.3.*
