@@ -26,6 +26,8 @@ The glossary defines *what terms mean*. The companion Identity and Addressing Mo
 | Design Document Template | Subsystem designs reference this glossary for all terminology. |
 | DAS Consolidated Reference v1 | Governs general writing vocabulary (§2). This glossary governs domain-specific terms. |
 | MVP Scope | §4 tiered approach determines which terms are MVP-active vs. reserved. |
+| Event Model & Event Bus (Design Doc 01) | Defines the event envelope schema, event type taxonomy, event bus architecture, and processing modes. This glossary defines the vocabulary; the Event Model defines the operational contracts. Where this glossary and the Event Model overlap, the Event Model is authoritative for envelope field semantics, event type definitions, and delivery guarantees. |
+| Device Model & Capability System (Design Doc 02) | Defines device, entity, and capability data structures, lifecycle events, and validation contracts. This glossary defines the vocabulary; the Device Model defines the behavioral contracts. Where this glossary and the Device Model overlap, the Device Model is authoritative for capability schemas, entity type composition rules, and discovery pipeline semantics. |
 
 ### 0.2 The three-layer contract
 
@@ -359,9 +361,11 @@ Events carry a defined Event Envelope (§3.9) containing identity, ordering, cau
 **API tokens.**
 - `event_id` — ULID, monotonic within millisecond (LTD-04: `UlidCreator.getMonotonicUlid()`).
 - `event_type` — String key identifying the event category. See §3.10 for the core taxonomy.
-- `event_time` — ISO 8601 timestamp. The time the fact occurred at its source. May be null for devices without reliable clocks.
-- `ingest_time` — ISO 8601 timestamp. The time HomeSynapse appended the Event to the log. Always present, always system-clock-derived.
+- `event_time` — Timestamp. The time the fact occurred at its source. May be null for devices without reliable clocks.
+- `ingest_time` — Timestamp. The time HomeSynapse appended the Event to the log. Always present, always system-clock-derived.
 - `payload{}` — JSON object containing event-type-specific data.
+
+**Timestamp representation.** Timestamps exist in three forms across the system. Storage: integer microseconds since epoch in SQLite columns (efficient range queries, compact storage). Internal Java: `java.time.Instant` (nanosecond-capable, timezone-free). Wire/API: ISO 8601 string at the REST/WebSocket API boundary and in JSON log output (LTD-08 Jackson serialization). The Event Model §4.2 is authoritative for the storage format; LTD-08 governs API serialization.
 
 **Invariants.** INV-ES-01 (immutable events), INV-ES-04 (write-ahead persistence — durable before subscriber delivery), INV-ES-07 (schema evolution — payloads tolerate unknown fields via Jackson `FAIL_ON_UNKNOWN_PROPERTIES=false`, per LTD-08).
 
@@ -382,15 +386,19 @@ The Event Log is stored in SQLite (LTD-03) in WAL mode for concurrent read acces
 
 ### 3.3 Entity Stream
 
-**Concept.** The ordered subsequence of Events belonging to a single Entity, extracted from the Event Log by filtering on `subject_ref`. The Entity Stream is the basis for computing an Entity's current State and for optimistic concurrency control: each Event carries a monotonically increasing `entity_sequence` number, and a write whose sequence already exists is a conflict (LTD-05).
+**Concept.** The ordered subsequence of Events belonging to a single subject, extracted from the Event Log by filtering on `subject_ref`. The subject may be an Entity, a Device, an Automation, a Person, or a System component — any addressable object that produces or receives Events. Each Event carries a monotonically increasing `subject_sequence` number scoped to its subject, and a write whose sequence already exists is a conflict (LTD-05).
 
-**UI term.** History (when exposed in the Entity detail view)
+The Entity Stream — a Subject Stream where the subject is an Entity — is the primary and most common variant. Entity Streams are the basis for computing an Entity's current State and for optimistic concurrency control. Device Streams carry lifecycle events (`device_adopted`, `device_removed`, `device_metadata_changed`). Automation Streams carry execution events (`automation_triggered`, `automation_completed`). Person Streams carry presence events (`presence_signal`, `presence_changed`). System Streams carry lifecycle and health events (`system_started`, `config_changed`).
+
+The gap-free integrity guarantee (INV-ES-03) is strongest for Entity Streams: a gap in an Entity's sequence indicates data loss and is treated as a system integrity failure. For other subject types, the sequence provides ordering but gaps are treated as warnings, not integrity failures, because system and lifecycle events may be produced by multiple independent services.
+
+**UI term.** History (when exposed in the Entity detail view as an Entity Stream)
 
 **API tokens.**
-- `stream_id` — Equivalent to `entity_ref` (the Entity whose stream this is).
-- `entity_sequence` — Monotonically increasing integer within the stream. Part of the unique constraint `(entity_id, entity_sequence)`.
+- `stream_id` — Equivalent to the subject's Reference (`entity_ref`, `device_id`, `automation_id`, etc.).
+- `subject_sequence` — Monotonically increasing integer within the stream. Part of the unique constraint `(subject_ref, subject_sequence)` in the event store schema. The wire-format name is `subject_sequence`; the legacy alias `entity_sequence` is accepted for backward compatibility during the Draft period but `subject_sequence` is the canonical form.
 
-**Invariants.** INV-ES-03 (per-entity ordering), INV-ES-06 (explainable state changes — every state transition has a corresponding Event in the stream).
+**Invariants.** INV-ES-03 (per-entity ordering — strongest guarantee for Entity Streams), INV-ES-06 (explainable state changes — every state transition has a corresponding Event in the stream).
 
 ### 3.4 State
 
@@ -443,8 +451,8 @@ This pattern follows Greg Young's correlation/causation model for event-sourced 
 **UI term.** "Caused by..." (in trace/audit views), "Trace" (in Automation debugging)
 
 **API tokens.**
-- `correlation_id` — ULID. Nullable. The root Event's `event_id`, propagated to all downstream Events in the same causal chain.
-- `causation_id` — ULID. Nullable. The `event_id` of the immediately preceding Event in the chain.
+- `correlation_id` — ULID. Non-null. The root Event's `event_id`, propagated unchanged to all downstream Events in the same causal chain. For root Events (external stimuli with no prior Event cause), `correlation_id` equals the Event's own `event_id`. This non-null invariant means trace queries never need to special-case root Events — every Event participates in a traceable chain. See Event Model §4.1 for the authoritative specification.
+- `causation_id` — ULID. Nullable. The `event_id` of the immediately preceding Event in the chain. Null for root Events only.
 
 **Invariants.** INV-ES-06 (explainable state changes), INV-TO-01 (system behavior is observable).
 
@@ -464,56 +472,111 @@ The Event Bus supports two subscription modes: global (receive all Events by `gl
 
 ### 3.9 Event Envelope
 
-**Concept.** The standard wrapper structure carried by every Event in the Event Log. The Envelope defines the fields that the core system requires for routing, ordering, storage, querying, and causality tracing. Integration-specific data lives in the `payload{}` field; Envelope fields are owned by the core.
+**Concept.** The standard wrapper structure carried by every Event in the Event Log. The Envelope defines the fields that the core system requires for routing, ordering, storage, querying, and causality tracing. Integration-specific data lives in the `payload{}` field; Envelope fields are owned by the core. The Event Model & Event Bus (Design Doc 01) §4.1 is the authoritative specification for envelope semantics; this entry provides the vocabulary definition.
 
-**Required fields.**
-
-| Field | Type | Description |
-|---|---|---|
-| `event_id` | ULID | Globally unique, monotonic within millisecond |
-| `event_type` | String | Category key (§3.10) |
-| `ingest_time` | Timestamp | System append time. Always present. |
-| `event_time` | Timestamp (nullable) | Source time. Null if unknown. |
-| `subject_ref` | ULID | The Entity, Device, Automation, or system component this Event is about |
-| `entity_sequence` | Integer | Monotonic within the subject's stream (when subject is an Entity) |
-| `global_position` | Integer | SQLite rowid. Cross-Entity ordering. |
-| `payload` | JSON Object | Event-type-specific data |
-
-**Optional fields.**
+**Required fields (non-null on every Event):**
 
 | Field | Type | Description |
 |---|---|---|
-| `actor_ref` | ULID (nullable) | User identity, per INV-MU-01 semantics (§5.4) |
-| `correlation_id` | ULID (nullable) | Root of the Causality Chain |
-| `causation_id` | ULID (nullable) | Immediate cause |
-| `origin` | Enum (nullable) | Source category (§8.9) |
+| `event_id` | ULID | Globally unique, monotonic within millisecond (LTD-04). |
+| `event_type` | String | Category key identifying the Event's type (§3.10). |
+| `schema_version` | Integer | Positive integer identifying the payload schema version for this Event type. Starts at 1. Drives the upcaster chain for schema evolution (INV-ES-07). |
+| `ingest_time` | Timestamp | System clock at append time. Always present. See §3.1 for timestamp representation layers. |
+| `subject_ref` | ULID | The Entity, Device, Automation, Person, or System component this Event is about. |
+| `subject_sequence` | Integer | Monotonically increasing within the subject's stream. Used for optimistic concurrency: `(subject_ref, subject_sequence)` is a unique constraint. See §3.3 for Subject Stream semantics. |
+| `global_position` | Integer | SQLite rowid. Monotonic across all subjects. Subscribers checkpoint against this value. |
+| `priority` | Enum | One of: `CRITICAL`, `NORMAL`, `DIAGNOSTIC`. Governs retention lifetime and delivery urgency. Does not affect append-time durability — all Events are persisted with identical write-ahead guarantees (INV-ES-04). See Event Model §3.3. |
+| `origin` | Enum | One of: `PHYSICAL`, `USER_COMMAND`, `AUTOMATION`, `DEVICE_AUTONOMOUS`, `INTEGRATION`, `SYSTEM`, `UNKNOWN`. Default: `UNKNOWN`. See §8.9 for semantics. |
+| `correlation_id` | ULID | The root Event's `event_id`, propagated unchanged through all downstream Events in the same causal chain. For root Events, equals the Event's own `event_id`. Non-null for all Events — trace queries never need to special-case roots. See §3.7. |
+| `payload` | JSON Object | Event-type-specific data. Structure varies by `(event_type, schema_version)`. |
 
-**Invariants.** INV-MU-01 (optional user identity with defined semantics), LTD-04 (ULID format), LTD-05 (per-Entity sequences + global position), LTD-08 (Jackson JSON serialization).
+**Nullable fields (present on the envelope but may be null):**
 
-### 3.10 Event Type taxonomy (MVP core)
-
-The `event_type` field carries a dotted string identifying the Event's category. The core system defines the following types for MVP. Integrations may define additional types namespaced as `integration_name.event_type`.
-
-| `event_type` | Subject | Description |
+| Field | Type | Description |
 |---|---|---|
-| `state_changed` | Entity | One or more Attributes changed value |
-| `command_issued` | Entity | A Command was dispatched toward the Entity |
-| `command_result` | Entity | The outcome of a Command (acknowledged, rejected, timed out) |
-| `device_discovered` | Device | An Integration detected a new Device on its protocol network |
-| `device_adopted` | Device | A discovered Device was accepted into the system |
-| `entity_transferred` | Entity | Physical hardware was swapped (see Identity and Addressing Model) |
-| `entity_type_changed` | Entity | Entity Type was migrated via governed type migration (§2.11) |
-| `device_removed` | Device | A Device was removed from the system |
-| `availability_changed` | Entity/Device | Reachability status changed |
-| `automation_triggered` | Automation | A Trigger fired, beginning a Run |
-| `automation_completed` | Automation | A Run finished (any terminal status) |
-| `presence_signal` | Person | A raw Presence Signal was received |
-| `presence_changed` | Person | Derived Presence State was updated |
-| `config_changed` | System | Configuration was modified |
-| `system_started` | System | HomeSynapse process started |
-| `system_stopped` | System | HomeSynapse process is shutting down |
-| `migration_applied` | System | A schema migration completed |
-| `snapshot_created` | System | A backup Snapshot was created |
+| `event_time` | Timestamp (nullable) | When the real-world occurrence happened, as reported by the Event source. Null if the source has no reliable clock. See INV-ES-08. |
+| `causation_id` | ULID (nullable) | The `event_id` of the immediately preceding Event in the causal chain. Null for root Events only. See §3.7. |
+| `actor_ref` | ULID (nullable) | The User identity attributable to this Event, per INV-MU-01 semantics (§5.4). Null when no User is attributable. |
+
+**Invariants.** INV-ES-01 (immutable once persisted), INV-ES-03 (per-subject ordering via `subject_sequence`), INV-ES-04 (write-ahead via `global_position`), INV-ES-06 (explainable via `correlation_id` + `causation_id` + `actor_ref` + `origin`), INV-ES-07 (schema evolution via `schema_version`), INV-ES-08 (event_time vs ingest_time distinction), INV-MU-01 (optional user identity with defined semantics), LTD-04 (ULID format), LTD-05 (dual ordering), LTD-08 (Jackson JSON serialization).
+
+### 3.10 Event Type Taxonomy (MVP Core)
+
+**Concept.** The `event_type` field carries a string key identifying the Event's category. The core system defines the types below for MVP. Integrations may define additional types namespaced as `{integration_name}.{event_type}` (e.g., `zigbee.network_map_updated`). The Event Model & Event Bus (Design Doc 01) §4.3 is the authoritative specification for event type definitions, producer boundaries, and priority assignments.
+
+**State lifecycle:**
+
+| `event_type` | Subject | Producer | Default Priority | Description |
+|---|---|---|---|---|
+| `state_reported` | Entity | Integration Adapter | DIAGNOSTIC | Raw attribute observation from an integration. Carries `attribute_key` and `value`. Always DIAGNOSTIC — significance is expressed through derived `state_changed`. |
+| `state_changed` | Entity | State Projection (core) | NORMAL | Derived: the reported value differs from canonical state. Carries `old_value`, `new_value`, and `triggered_by` (the `event_id` of the causal `state_reported`). Automations subscribe to this, not to `state_reported`. |
+| `state_confirmed` | Entity | Pending Command Ledger (core) | NORMAL | Derived: the reported value matches a pending Command's expected outcome within the Capability's tolerance band. Closes the intent-to-observation loop. |
+| `state_report_rejected` | Entity | Device Model Validator (core) | DIAGNOSTIC | An integration produced an attribute value that failed validation against the Capability's attribute schema. |
+
+**Command lifecycle:**
+
+| `event_type` | Subject | Producer | Default Priority | Description |
+|---|---|---|---|---|
+| `command_issued` | Entity | API Layer / Automation Engine | NORMAL | A Command was dispatched toward the Entity. Carries command type, parameters, desired value, and actor reference. |
+| `command_dispatched` | Entity | Command Dispatch Service (core) | DIAGNOSTIC | The Integration adapter accepted the Command for protocol delivery. |
+| `command_result` | Entity | Integration Adapter | NORMAL (success) / CRITICAL (failure, timeout) | The protocol-level outcome: acknowledged, rejected, or timed out. |
+| `command_confirmation_timed_out` | Entity | Pending Command Ledger (core) | DIAGNOSTIC | The expected state report did not arrive within the confirmation timeout. Evidence for diagnosis, not an error. |
+
+**Device lifecycle:**
+
+| `event_type` | Subject | Producer | Default Priority | Description |
+|---|---|---|---|---|
+| `device_discovered` | Device | Integration Adapter | NORMAL | A new Device was detected on the protocol network. |
+| `device_adopted` | Device | Core (user-initiated) | NORMAL | A discovered Device was accepted into the system. |
+| `device_removed` | Device | Core (user-initiated) | NORMAL | A Device was removed from the system. |
+| `device_metadata_changed` | Device | Core | NORMAL | Mutable Device metadata changed (firmware version, area assignment, labels, display name). |
+| `entity_profile_changed` | Entity | Core | NORMAL | An Entity's declared Capability set or feature map changed. |
+| `entity_transferred` | Entity | Core (user-initiated) | NORMAL | Physical hardware was swapped behind a stable Entity identity (see Identity and Addressing Model §5). |
+| `entity_type_changed` | Entity | Core (migration) | NORMAL | Entity Type was migrated via governed type migration (§2.11). |
+| `availability_changed` | Entity/Device | Integration Adapter / Core | CRITICAL (to offline) / NORMAL (to online) | Reachability status changed. |
+
+**Automation lifecycle:**
+
+| `event_type` | Subject | Producer | Default Priority | Description |
+|---|---|---|---|---|
+| `automation_triggered` | Automation | Automation Engine | NORMAL | A Trigger condition was met, beginning a Run. |
+| `automation_completed` | Automation | Automation Engine | NORMAL | A Run finished with a terminal status (success, failure, aborted). |
+| `automation_capability_mismatch` | Automation | Core | NORMAL | An Automation references a Capability that no longer exists on a target Entity. |
+
+**Presence:**
+
+| `event_type` | Subject | Producer | Default Priority | Description |
+|---|---|---|---|---|
+| `presence_signal` | Person | Integration Adapter | DIAGNOSTIC | A raw Presence Signal was received (Wi-Fi probe, BLE beacon, GPS geofence). |
+| `presence_changed` | Person | Presence Projection (core) | NORMAL | Derived Presence state was updated (home, away, unknown). |
+
+**System:**
+
+| `event_type` | Subject | Producer | Default Priority | Description |
+|---|---|---|---|---|
+| `system_started` | System | Core Runtime | CRITICAL | HomeSynapse process started. |
+| `system_stopped` | System | Core Runtime | CRITICAL | HomeSynapse process is shutting down. |
+| `config_changed` | System | Core Runtime | NORMAL | Configuration was modified. |
+| `migration_applied` | System | Core Runtime | CRITICAL | A schema migration completed. |
+| `snapshot_created` | System | Core Runtime | CRITICAL | A backup Snapshot was created. |
+| `system_storage_critical` | System | Core Runtime | CRITICAL | Disk space has fallen below the emergency threshold. |
+| `system_registry_rebuilt` | System | Core Runtime | CRITICAL | The Device/Entity registry was rebuilt from the Event Log. |
+
+**Telemetry:**
+
+| `event_type` | Subject | Producer | Default Priority | Description |
+|---|---|---|---|---|
+| `telemetry_summary` | Entity | Aggregation Engine (core) | DIAGNOSTIC | A periodic summary of telemetry data promoted from the Telemetry Ring Store. |
+
+**Health / Subscriber:**
+
+| `event_type` | Subject | Producer | Default Priority | Description |
+|---|---|---|---|---|
+| `subscriber_checkpoint_expired` | System | Event Bus | CRITICAL | A Subscriber's checkpoint has fallen behind the retention boundary. |
+| `subscriber_falling_behind` | System | Event Bus | NORMAL | A Subscriber's checkpoint is more than a configurable threshold behind the log head. |
+| `causality_depth_warning` | System | Causal Chain Projection | DIAGNOSTIC | A causal chain has exceeded the configured depth threshold. |
+
+**Producer boundary rules.** Integration adapters produce only: `state_reported`, `command_result`, `availability_changed`, `device_discovered`, and `presence_signal`. All derived and lifecycle event types are produced exclusively by core services. This separation ensures that interpretation is centralized — an integration's responsibility ends at raw observation; whether that constitutes a change, confirms a command, or triggers an automation is the core's determination. See Event Model §3.1 for the full producer boundary specification.
 
 ### 3.11 Subscriber
 
@@ -536,6 +599,186 @@ For state-projecting Subscribers (the State Store), idempotency is achieved by c
 **UI term.** *(Not user-facing. Engineering concept.)*
 
 **API tokens.** No dedicated token. Idempotency is a behavioral contract on Subscriber implementations, enforced through testing (design document #01, testing strategy).
+
+### 3.13 State Projection
+
+**Concept.** A core Subscriber that compares incoming `state_reported` Events against canonical State and produces `state_changed` Events when a reported value differs from the current value. The State Projection is the bridge between raw integration observations and meaningful state transitions. It is the sole producer of `state_changed` Events — integrations never produce this type directly.
+
+The State Projection also interacts with the Device Model's validation layer: only `state_reported` Events that pass attribute validation (type, range, unit conformance) are eligible to produce `state_changed` Events. Invalid reports produce `state_report_rejected` Events instead.
+
+**UI term.** *(Not user-facing. Internal architecture concept.)*
+
+**API tokens.** No dedicated token. The State Projection is identified by its Subscriber ID (`state_projection`) in checkpoint and health systems.
+
+**Invariants.** INV-ES-02 (state derivable from events — the State Projection is the mechanism), INV-ES-06 (explainable state — `state_changed` carries `triggered_by` linking to the causal `state_reported`), INV-TO-03 (no hidden state — every value in the State Store traces to a `state_changed` Event).
+
+### 3.14 Pending Command Ledger
+
+**Concept.** A core Subscriber that tracks in-flight Commands and correlates them with incoming state reports. The Ledger exists to answer the question: "did the command work?"
+
+When a `command_issued` Event is appended, the Ledger records the command's target Entity, target attribute, desired value, and a tolerance band (provided by the Capability definition via the Device Model's `ExpectationFactory`). When a subsequent `state_reported` Event carries a value within the tolerance band, the Ledger produces a `state_confirmed` Event linking the original command to the confirming report. If no matching report arrives within the confirmation timeout, the Ledger produces a `command_confirmation_timed_out` Event.
+
+**UI term.** *(Not directly user-facing. Effects are visible in the command status indicator: "Confirmed," "Pending," "Timed out.")*
+
+**API tokens.** No dedicated token. The Ledger is identified by its Subscriber ID (`pending_command_ledger`) in checkpoint and health systems.
+
+**Invariants.** INV-ES-06 (explainable state — the Ledger closes the intent-to-observation loop), INV-TO-01 (observable — command confirmation status is visible in the trace viewer).
+
+### 3.15 Event Priority
+
+**Concept.** A required field on every Event that governs retention lifetime and delivery urgency without affecting append-time durability. All Events are persisted with identical write-ahead guarantees (INV-ES-04) regardless of priority.
+
+| Priority | Retention (default) | Delivery | Examples |
+|---|---|---|---|
+| `CRITICAL` | 365 days | Never coalesced | `system_started`, `availability_changed` (to offline), `subscriber_checkpoint_expired` |
+| `NORMAL` | 90 days | Never coalesced | `state_changed`, `command_issued`, `device_adopted`, `automation_triggered` |
+| `DIAGNOSTIC` | 7 days | May be coalesced under Backpressure (§3.17) | `state_reported`, `command_dispatched`, `presence_signal`, `telemetry_summary` |
+
+Priority assignment is static by default — each Event type has a default priority defined in the taxonomy (§3.10). Integration adapters may elevate a specific Event instance from DIAGNOSTIC to NORMAL but not to CRITICAL, and never downward.
+
+**UI term.** *(Not directly user-facing. The retention policy settings reference priority tiers.)*
+
+**API tokens.**
+- `priority` — Enum: `CRITICAL`, `NORMAL`, `DIAGNOSTIC`.
+
+**Invariants.** INV-ES-04 (write-ahead — priority does not affect durability), INV-RF-05 (bounded storage — priority-based retention prevents unbounded growth).
+
+### 3.16 Processing Mode
+
+**Concept.** A property of a Subscriber's execution context that governs whether side effects are permitted during Event processing. Processing Mode is not an Event-level tag — a replayed Event retains its original Origin (§8.9) and payload.
+
+| Mode | When Active | Side Effects |
+|---|---|---|
+| `LIVE` | Subscriber has reached the log head during normal operation. | Actuator commands permitted; derived Events emitted; external notifications permitted. |
+| `REPLAY` | Subscriber catching up from a checkpoint behind the log head (startup recovery). | Actuator commands suppressed; derived Events emitted (projections need them in the log); notifications suppressed. |
+| `PROJECTION` | Subscriber rebuilding a Materialized View from scratch. | All side effects suppressed — projection is consuming, not producing. |
+| `DRY_RUN` | Automation testing or what-if analysis. | Logged to dry-run audit, not executed. |
+
+**UI term.** *(May appear in diagnostics as "Subscriber mode" or "Replay in progress.")*
+
+**API tokens.**
+- `processing_mode` — Enum: `LIVE`, `REPLAY`, `PROJECTION`, `DRY_RUN`.
+
+**Invariants.** INV-TO-02 (automation determinism — REPLAY mode suppresses actuator commands to prevent unintended physical effects during catch-up).
+
+### 3.17 Backpressure and Coalescing
+
+**Concept.** Backpressure is a Subscriber-local mechanism that activates when a Subscriber's unprocessed backlog exceeds a configurable threshold. During backpressure, the Event Bus may coalesce specific DIAGNOSTIC Event types — delivering only the most recent value per `(subject_ref, attribute_key)` and advancing the Subscriber's checkpoint past intermediate Events.
+
+Only the following DIAGNOSTIC Event types are coalescable: `state_reported`, `presence_signal`, and `telemetry_summary`. All other DIAGNOSTIC Events and all NORMAL and CRITICAL Events are delivered individually regardless of backpressure.
+
+Coalescing means that a Subscriber may never process an intermediate `state_reported` value that was superseded by a newer report during an Event storm (e.g., mesh recovery after a power outage). The Events are still persisted in the Event Log — coalescing affects only the delivery path.
+
+**UI term.** *(Not user-facing.)*
+
+**API tokens.** No dedicated token. Coalescing activation is reported via the `hs_events_coalesced_total` metric and `subscriber_falling_behind` Events.
+
+**Invariants.** INV-ES-05 (at-least-once delivery — the guarantee is unconditional for CRITICAL and NORMAL Events; coalescable DIAGNOSTIC types have weaker delivery semantics under backpressure).
+
+### 3.18 Causal Chain Projection
+
+**Concept.** A core Subscriber that indexes Causality relationships for efficient querying. It maintains an index mapping `correlation_id` to the ordered list of `event_id` values in that chain, enabling the "why did this happen?" trace query.
+
+The projection also monitors chain depth. When a chain exceeds a configurable threshold (default: 50 Events), it produces a `causality_depth_warning` DIAGNOSTIC Event, serving as an early indicator of potential Automation loops.
+
+**UI term.** *(Powers the "Trace" view in the observability UI.)*
+
+**API tokens.** No dedicated token. Exposed through the trace query API endpoint.
+
+**Invariants.** INV-ES-06 (explainable state — the projection is the query mechanism), INV-TO-01 (observable — makes causal chains navigable).
+
+### 3.19 Telemetry Ring Store
+
+**Concept.** A separate persistence path for high-frequency raw samples that would overwhelm the domain Event Log if treated as full Events. The Telemetry Ring Store is a separate SQLite database (`homesynapse-telemetry.db`) that stores raw measurements without the full Event Envelope — no sequence numbers, no causality metadata, no Subscriber delivery.
+
+The boundary criterion: if a data source produces more than one sample per 10 seconds sustained for a single Entity, it is a telemetry stream candidate. An aggregation engine (owned by the Persistence Layer) reads from the ring store on configurable intervals and produces domain Events (`telemetry_summary`) when meaningful thresholds are crossed.
+
+Telemetry data is not covered by INV-ES-01 through INV-ES-05. Losing telemetry means losing raw granularity within the retention window, not losing canonical state.
+
+**UI term.** *(Not directly user-facing. May appear in storage diagnostics.)*
+
+**API tokens.** No dedicated token. Telemetry data is accessed through the unified query API.
+
+**Invariants.** INV-RF-05 (bounded storage — separate file isolates write pressure), INV-EI-01 (energy as first-class domain — energy monitoring at per-second frequency uses the telemetry path).
+
+### 3.20 Capability Instance
+
+**Concept.** A Capability (§2.3) as instantiated on a specific Entity, including its `version`, `namespace`, and `feature_map`. A Capability Instance represents what a particular Entity actually supports — which may be a subset of the Capability's full contract. For example, the `brightness` Capability defines a `transition_ms` parameter guarded by feature bit 1; a specific bulb's Capability Instance may have `feature_map = 0` (transition not supported).
+
+**Feature Map.** A bitmask declaring which optional features of the Capability are supported on this Entity. Feature maps are stable per Entity — changes require an `entity_profile_changed` Event. Feature maps may differ across Entities sharing the same Capability type.
+
+**UI term.** *(Implicit. The UI uses the feature map to show or hide optional controls.)*
+
+**API tokens.**
+- `capability_id` — String key identifying the Capability type.
+- `feature_map` — Integer bitmask.
+- `version` — Integer. The Capability schema version this Entity was adopted against.
+- `namespace` — String. `core` for standard Capabilities; `{integration_type}.{name}` for custom.
+
+### 3.21 Attribute Schema
+
+**Concept.** The type, constraints, unit, permissions, and nullability definition for a single attribute within a Capability. Attribute schemas enable generated UI controls, automated validation, and deterministic Pending Command Ledger behavior.
+
+| Schema Property | Description |
+|---|---|
+| `type` | One of: `BOOLEAN`, `INT`, `FLOAT`, `STRING`, `ENUM`. |
+| `minimum`, `maximum`, `step` | Numeric constraints. |
+| `valid_values` | Enum constraint: the set of permitted string values. |
+| `unit` | Physical unit (per JSR 385 or lightweight equivalent). Present for physical quantities. |
+| `permissions` | Set of: `READ`, `WRITE`, `NOTIFY`. |
+| `nullable` | Whether the attribute may carry a null value. |
+| `persistent` | Whether the attribute's value survives device power cycles. |
+
+**Tolerance Band and Expected Outcome.** Each Command defined by a Capability declares expected outcomes: the attribute changes it should produce, with tolerance bands. A tolerance band defines the range within which a reported value is considered to match a commanded value. For example, `set_brightness(75%)` with tolerance `±2` considers brightness values 73–77 as confirmation. Tolerance bands are Capability-owned — they are not defined ad hoc by automations or users. The Pending Command Ledger (§3.14) consumes tolerance bands via `Expectation` objects to evaluate command confirmation.
+
+**UI term.** *(Implicit. Attribute schemas drive control rendering: sliders for numeric ranges, toggles for booleans, dropdowns for enums.)*
+
+**API tokens.**
+- `attribute_key` — String identifying the attribute within a Capability.
+- `type`, `minimum`, `maximum`, `step`, `valid_values`, `unit`, `permissions`, `nullable`, `persistent` — Schema properties.
+
+### 3.22 Custom Capability
+
+**Concept.** A Capability registered at runtime through the `CapabilityRegistry` service, defined via JSON schema rather than as a compiled sealed interface. Custom Capabilities enable Integrations to expose protocol-specific features that are not covered by standard Capabilities.
+
+Custom Capabilities are namespaced: `{integration_type}.{capability_name}` (e.g., `zigbee_tuya.datapoint_102`). They must declare a stability level (`EXPERIMENTAL`, `STABLE`, or `DEPRECATED`), may not shadow standard Capability IDs, and participate in the Event system identically to standard Capabilities.
+
+**UI term.** *(Labeled with the stability level in the UI to prevent portability illusions.)*
+
+**API tokens.**
+- `capability_id` — String key with namespace prefix.
+- `stability` — Enum: `EXPERIMENTAL`, `STABLE`, `DEPRECATED`.
+- `namespace` — String. Always matches the Integration type.
+
+### 3.23 Discovery Pipeline
+
+**Concept.** The staged process by which a physical device becomes a managed Device with Entities in HomeSynapse. The pipeline has three stages:
+
+**Stage 1 — Detection.** An Integration detects a device on its protocol network and produces a `device_discovered` Event carrying protocol-specific identity, hardware identifiers, proposed Capabilities, and proposed Entity structure.
+
+**Stage 2 — Proposal.** The discovered device enters a "proposed" state. The system checks hardware identifiers against the `DeviceIdentifiers` registry for deduplication: if a match is found, the device is recognized as an existing device (re-pairing) and re-linked without user intervention.
+
+**Stage 3 — Adoption.** The user accepts a proposed device. The system generates `device_id` and `entity_id` values, registers hardware identifiers, validates Capability compositions, and produces a `device_adopted` Event.
+
+Discovery does not create identity. Until adoption, the device carries only Hardware Identifiers. References (§8.1) are assigned at adoption time.
+
+**UI term.** *(The proposal stage is surfaced as "New devices found" in the dashboard.)*
+
+**API tokens.** No dedicated tokens beyond the Event types: `device_discovered`, `device_adopted`.
+
+**Invariants.** INV-CS-02 (stable identifiers — identity assigned at adoption, not discovery), INV-CE-04 (protocol agnosticism — hardware identifiers are internal).
+
+### 3.24 Entity Type Composition
+
+**Concept.** The rules governing which Capabilities are required and optional for a given Entity Type (§2.11). Entity Type composition follows Matter's device type model: each Entity Type declares a set of required Capabilities that must be present for the type to be valid, and a set of optional Capabilities that may be present. Capabilities not in either set are permitted but generate a validation warning.
+
+Entity Type determines required Capabilities. If an Integration proposes an Entity with Capabilities that match a known type's required set, the system auto-classifies. If the Capabilities do not match any known type, the Entity requires explicit type assignment.
+
+**UI term.** *(Implicit. The UI uses Entity Type composition to validate device setup and surface warnings.)*
+
+**API tokens.** No dedicated tokens. Entity Type composition is defined in the Device Model & Capability System design document §3.10.
+
+**Invariants.** INV-CE-04 (protocol agnosticism — Entity Types are protocol-independent classifications).
 
 ---
 
@@ -860,7 +1103,7 @@ For the operational specification (step-by-step semantics, event recording, cros
 **UI term.** Replace Device
 
 **API tokens.**
-- `device_replaced` — Event type.
+- `entity_transferred` — Event type. Named from the system's perspective: the Entity is the continuity unit, and the operation transfers that continuity to new backing hardware. See Identity and Addressing Model §5.4 for the event payload specification.
 
 **Invariants.** INV-CS-02 (stable identity survives replacement), INV-CE-04 (protocol change does not affect identity), INV-ES-06 (replacement is an auditable Event).
 
@@ -917,20 +1160,28 @@ For the format specification, see the Identity and Addressing Model.
 
 ### 8.9 Origin
 
-**Concept.** An optional field in the Event Envelope (§3.9) identifying the category of the Event's source. Origin enables queries like "show me all Events caused by Automations" or "show me all user-initiated Commands" without parsing the Causality Chain.
+**Concept.** A required field in the Event Envelope (§3.9) recording the semantic source category of an Event. Origin uses an evidence-based enum — the value is set only when the producer has direct evidence of the origin. Origin enables queries like "show me all Events caused by Automations" or "show me all physical interactions" without parsing the Causality Chain. The Event Model §3.9 is the authoritative specification for origin semantics.
 
-| Value | Meaning |
-|---|---|
-| `device` | Event originates from a physical Device via an Integration (sensor readings, state reports). |
-| `user` | Event originates from a direct User action (dashboard click, API call, physical button press attributed to a User). |
-| `automation` | Event originates from an Automation Run's Action. |
-| `system` | Event originates from a HomeSynapse internal process (startup, migration, retention, health check). |
-| `import` | Event was ingested from an external source during data migration or replay. |
+| Value | Meaning | Evidence Required |
+|---|---|---|
+| `PHYSICAL` | A human physically interacted with a Device. | Protocol-level indicator (Zigbee: ZCL frame type, Z-Wave: button press notification). |
+| `USER_COMMAND` | A User issued a Command through the HomeSynapse UI or API. | API request carries authenticated User identity. |
+| `AUTOMATION` | An Automation rule produced this Event. | Automation Engine sets this when executing Actions. |
+| `DEVICE_AUTONOMOUS` | The Device generated this Event without external stimulus. | Device-initiated reports (battery level, firmware update, scheduled report). |
+| `INTEGRATION` | The Integration adapter generated this Event during its own processing. | Adapter self-identifies (initialization, polling cycle, error handling). |
+| `SYSTEM` | The HomeSynapse core runtime generated this Event. | Core services self-identify (startup, shutdown, migration, retention). |
+| `UNKNOWN` | The origin cannot be determined with confidence. | Default. Assigned when none of the above can be established with evidence. |
 
-**UI term.** *(Displayed as a source indicator in event detail views: "From device," "By user," "By automation.")*
+`UNKNOWN` is the default. The system never guesses origin from heuristics. If an Integration receives a protocol frame and cannot determine whether it was triggered by a physical button press or a periodic report, the origin is `UNKNOWN`.
+
+There is no `REPLAY` origin value. The Processing Mode (Event Model §3.7) governs replay behavior, not event-level tagging. A replayed Event retains its original origin.
+
+**UI term.** *(Displayed as a source indicator in event detail views: "Physical," "By user," "By automation," "Device," "System.")*
 
 **API tokens.**
-- `origin` — Enum (nullable): `device`, `user`, `automation`, `system`, `import`.
+- `origin` — Enum (non-null, default `UNKNOWN`): `PHYSICAL`, `USER_COMMAND`, `AUTOMATION`, `DEVICE_AUTONOMOUS`, `INTEGRATION`, `SYSTEM`, `UNKNOWN`.
+
+**Invariants.** INV-ES-06 (explainable state — origin provides classification without requiring full causal chain traversal), INV-HO-01 (physical control — `PHYSICAL` origin enables distinguishing physical interactions from all other sources).
 
 ---
 
@@ -994,6 +1245,11 @@ These patterns were observed in competing platforms and deliberately avoided. De
 | UUID v4 for event identity | Various | Not time-ordered. ULIDs provide lexicographic time ordering that aids debugging without sacrificing uniqueness (LTD-04). |
 | `roomHint` string for room assignment | Google Home | Name-based, not ID-based. Fragile under rename. |
 | Opaque developer-assigned IDs | Google, Alexa | Shifts identity management to third-party developers, leading to inconsistent formats and deduplication problems. |
+| Single `state_changed` without raw `state_reported` separation | Home Assistant | Conflates raw observation with derived transition. Prevents the core from determining significance — integrations would need to track and compare state, duplicating core logic and creating divergent interpretations across protocols. |
+| Global event sequence without per-entity ordering | N/A (anti-pattern) | Creates a single serialization bottleneck on constrained hardware. Per-subject sequences with global position (LTD-05) provide both aggregate consistency and cross-subject ordering without contention. |
+| Mutable events or event deletion for correction | N/A (anti-pattern) | Violates append-only immutability (INV-ES-01). Corrections are modeled as new events that supersede previous facts, preserving the complete audit trail. |
+| External message broker for internal event dispatch | Enterprise event systems | Anti-pattern for event-sourced systems where the event store IS the durable log (LTD-11). Adds operational complexity with no benefit at HomeSynapse's scale. |
+| Nullable `correlation_id` requiring NULL special-casing in trace queries | Home Assistant (Context) | Root events set `correlation_id` to their own `event_id`, making the field non-null for all events. Trace queries never need to special-case roots. |
 
 ---
 
@@ -1008,9 +1264,11 @@ Every glossary term that participates in an architectural invariant or locked te
 | **INV-CE-05** (Extension model) | Integration (§2.9), Capability (§2.3) |
 | **INV-ES-01** (Immutable events) | Event (§3.1), Event Log (§3.2), Retention Policy (§6.2) |
 | **INV-ES-03** (Per-entity ordering) | Entity Stream (§3.3), Event Envelope (§3.9) |
+| **INV-ES-04** (Write-ahead persistence) | Event (§3.1), Event Bus (§3.8), Event Envelope (§3.9), State Projection (§3.13), Pending Command Ledger (§3.14) |
 | **INV-ES-05** (At-least-once delivery) | Event Bus (§3.8), Subscriber (§3.11), Idempotency (§3.12) |
 | **INV-ES-06** (Explainable state) | Causality Chain (§3.7), Trace (§7.1), Run (§4.5), Actor (§5.4) |
 | **INV-ES-07** (Schema evolution) | Event (§3.1), Event Envelope (§3.9) |
+| **INV-ES-08** (Event time vs ingest time) | Event (§3.1), Event Envelope (§3.9) |
 | **INV-MU-01** (Identity-aware model) | Actor (§5.4), Person (§5.2), Entity (§2.2), Event Envelope (§3.9) |
 | **INV-MU-02** (Spatial presence) | Presence (§5.6), Presence Signal (§5.7), Area (§1.2), Zone (§1.4) |
 | **INV-MU-05** (Graceful degradation) | Identity Degradation (§5.8) |
@@ -1020,9 +1278,11 @@ Every glossary term that participates in an architectural invariant or locked te
 | **INV-TO-03** (No hidden state) | State (§3.4) |
 | **INV-HO-01** (Physical control never blocked) | Identity Degradation (§5.8) |
 | **INV-RF-01** (Integration isolation) | Integration (§2.9) |
+| **INV-RF-05** (Bounded storage) | Event Log (§3.2), Retention Policy (§6.2), Event Priority (§3.15), Telemetry Ring Store (§3.16) |
+| **INV-PR-03** (Bounded resources) | Subject Stream (§3.3), Event Priority (§3.15), Causal Chain Projection (§3.18) |
 | **LTD-03** (SQLite WAL) | Event Log (§3.2), Checkpoint (§3.6), Materialized View (§3.5) |
 | **LTD-04** (ULID) | Reference (§8.1), Event (§3.1), all `*_id` fields |
-| **LTD-05** (Per-entity sequences) | Entity Stream (§3.3), Event Envelope (§3.9), Causality Chain (§3.7) |
+| **LTD-05** (Per-entity sequences) | Subject Stream (§3.3), Event Envelope (§3.9), Causality Chain (§3.7) |
 | **LTD-06** (Write-ahead persistence) | Event Bus (§3.8), Subscriber (§3.11), Idempotency (§3.12) |
 | **LTD-08** (Jackson JSON) | Event (§3.1), Event Envelope (§3.9) |
 | **LTD-09** (YAML 1.2) | Configuration (§6.1) |
@@ -1041,27 +1301,37 @@ Quick-reference lookup. Section numbers point to the primary definition.
 | Actor | §5.4 |
 | Area | §1.2 |
 | Attribute | §2.4 |
+| Attribute Schema | §3.20 |
 | Automation | §4.1 |
 | Availability | §8.6 |
+| Backpressure | §3.17 |
 | Bridge | §2.8 |
 | Capability | §2.3 |
+| Capability Instance | §3.19 |
+| Causal Chain Projection | §3.18 |
 | Causality Chain | §3.7 |
 | Checkpoint | §3.6 |
 | Command | §2.5 |
 | Condition | §4.3 |
 | Configuration | §6.1 |
+| Custom Capability | §3.22 |
 | Device | §2.1 |
 | Device Replacement | §8.4 |
 | Discovery | §2.7 |
+| Discovery Pipeline | §3.23 |
 | Display Name | §8.5 |
 | Entity | §2.2 |
 | Entity Stream | §3.3 |
 | Entity Type | §2.11 |
+| Entity Type Composition | §3.24 |
 | Event | §3.1 |
 | Event Bus | §3.8 |
 | Event Envelope | §3.9 |
 | Event Log | §3.2 |
+| Event Priority | §3.15 |
 | Event Type | §3.10 |
+| Expected Outcome | §3.21 |
+| Feature Map | §3.19 |
 | Floor | §1.3 |
 | Hardware Identifier | §8.7 |
 | Health | §7.2 |
@@ -1076,10 +1346,12 @@ Quick-reference lookup. Section numbers point to the primary definition.
 | Migration | §6.3 |
 | Origin | §8.9 |
 | Path | §8.3 |
+| Pending Command Ledger | §3.14 |
 | Permission | §5.5 |
 | Person | §5.2 |
 | Presence | §5.6 |
 | Presence Signal | §5.7 |
+| Processing Mode | §3.16 |
 | Protocol Binding | §2.6 |
 | Reference | §8.1 |
 | Retention Policy | §6.2 |
@@ -1089,7 +1361,11 @@ Quick-reference lookup. Section numbers point to the primary definition.
 | Slug | §8.2 |
 | Snapshot | §6.4 |
 | State | §3.4 |
+| State Projection | §3.13 |
+| Subject Stream | §3.3 |
 | Subscriber | §3.11 |
+| Telemetry Ring Store | §3.16 |
+| Tolerance Band | §3.21 |
 | Trace | §7.1 |
 | Trigger | §4.2 |
 | URN Form | §8.8 |
