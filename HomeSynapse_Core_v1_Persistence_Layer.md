@@ -4,7 +4,7 @@
 **Status:** Draft
 **Subsystem:** Persistence Layer
 **Dependencies:** Event Model & Event Bus (§3.5 telemetry boundary, §4.2 domain event store schema, §4.3 event type taxonomy, §3.3 retention tiers, §3.4 subscription model, §6.5 emergency retention), State Store & State Projection (§8.3 CheckpointStore interface, §3.3 checkpoint strategy), Device Model & Capability System (§3.1 entity registry storage), Identity and Addressing Model (§2.1 ULID references in storage), Glossary v1 (§3.19 Telemetry Ring Store)
-**Dependents:** Integration Runtime (telemetry write path), Automation Engine (historical query access), REST API (event history endpoints, telemetry query), WebSocket API (event position references), Observability & Debugging (storage health metrics), Startup, Lifecycle & Shutdown (initialization sequence, backup triggers)
+**Dependencies:** Event Model & Event Bus (§3.5 telemetry boundary, §4.2 domain event store schema, §4.3 event type taxonomy, §3.3 retention tiers, §3.4 subscription model, §6.5 emergency retention), State Store & State Projection (§8.3 CheckpointStore interface, §3.3 checkpoint strategy), Device Model & Capability System (§3.1 entity registry structure, §6.6 registry rebuild logic), Identity and Addressing Model (§2.1 ULID references in storage), Glossary v1 (§3.19 Telemetry Ring Store)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-05
 

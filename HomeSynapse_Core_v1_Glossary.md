@@ -460,7 +460,7 @@ This pattern follows Greg Young's correlation/causation model for event-sourced 
 
 **Concept.** The internal publish-subscribe mechanism that distributes Events to Subscribers after they are persisted to the Event Log. The Event Bus is not a separate message broker — it is an in-process notification layer built on top of the Event Log (LTD-11: no external message broker dependency). Persistence happens first (write-ahead, INV-ES-04); the Event Bus then notifies Subscribers that new Events are available.
 
-The Event Bus supports two subscription modes: global (receive all Events by `global_position`) and per-Entity (receive Events for a specific `entity_ref` by `entity_sequence`). Both modes are pull-based with notification: Subscribers maintain their own checkpoint and request Events from their last-processed position forward.
+The Event Bus supports a single subscription model: pull-based with notification. Subscribers register with a filter (event types, minimum priority, optional entity type prefix) and a checkpoint position. The bus notifies Subscribers when matching Events exist beyond their checkpoint; Subscribers then poll the Event Store for batches from their last-processed `global_position` forward. Per-Entity reads (Events for a specific `subject_ref` by `subject_sequence`) are served by the `EventStore` query interface, not by a bus subscription mode. See Event Model §3.4 for the authoritative subscription specification.
 
 **UI term.** *(Not user-facing. Operational concept only.)*
 
@@ -529,7 +529,7 @@ The Event Bus supports two subscription modes: global (receive all Events by `gl
 | `device_discovered` | Device | Integration Adapter | NORMAL | A new Device was detected on the protocol network. |
 | `device_adopted` | Device | Core (user-initiated) | NORMAL | A discovered Device was accepted into the system. |
 | `device_removed` | Device | Core (user-initiated) | NORMAL | A Device was removed from the system. |
-| `device_metadata_changed` | Device | Core | NORMAL | Mutable Device metadata changed (firmware version, area assignment, labels, display name). |
+| `device_metadata_changed` | Device | Core | DIAGNOSTIC | Mutable Device metadata changed (firmware version, configuration parameters reported by the device). Does not cover identity fields (manufacturer, model, serial) which are immutable registry properties. |
 | `entity_profile_changed` | Entity | Core | NORMAL | An Entity's declared Capability set or feature map changed. |
 | `entity_transferred` | Entity | Core (user-initiated) | NORMAL | Physical hardware was swapped behind a stable Entity identity (see Identity and Addressing Model §5). |
 | `entity_type_changed` | Entity | Core (migration) | NORMAL | Entity Type was migrated via governed type migration (§2.11). |
@@ -1023,7 +1023,7 @@ Retention does not violate the immutability invariant (INV-ES-01): expired Event
 
 ### 6.4 Snapshot
 
-**Concept.** A complete, restorable backup of the system state taken before an upgrade or on demand. Snapshots include the SQLite database file (Event Log + Materialized Views), configuration directory, and metadata. They are the foundation of update safety (INV-CS-05).
+**Concept.** A complete, restorable backup of the system state taken before an upgrade or on demand. Snapshots include the SQLite database file (Event Log + Materialized Views), configuration directory, and metadata. They are the foundation of update safety (INV-CS-05). Snapshots include the SQLite database files (the domain Event Log with Materialized View checkpoints, and optionally the Telemetry Ring Store), the configuration directory, and metadata. The domain Event Log backup is mandatory for correctness; the Telemetry Ring Store backup is optional — its absence means losing raw telemetry granularity, not domain state.
 
 **UI term.** Backup
 
@@ -1307,7 +1307,7 @@ Quick-reference lookup. Section numbers point to the primary definition.
 | Backpressure | §3.17 |
 | Bridge | §2.8 |
 | Capability | §2.3 |
-| Capability Instance | §3.19 |
+| Capability Instance | §3.20 |
 | Causal Chain Projection | §3.18 |
 | Causality Chain | §3.7 |
 | Checkpoint | §3.6 |
@@ -1364,7 +1364,7 @@ Quick-reference lookup. Section numbers point to the primary definition.
 | State Projection | §3.13 |
 | Subject Stream | §3.3 |
 | Subscriber | §3.11 |
-| Telemetry Ring Store | §3.16 |
+| Telemetry Ring Store | §3.19 |
 | Tolerance Band | §3.21 |
 | Trace | §7.1 |
 | Trigger | §4.2 |
