@@ -4,7 +4,7 @@
 **Status:** Draft
 **Subsystem:** Device Model & Capability System
 **Dependencies:** Event Model & Event Bus (§3.1 producer boundaries, §3.3 priority model, §3.8 Pending Command Ledger, §4.1 event envelope, §4.3 event type taxonomy), Identity and Addressing Model (§2 three-layer identity, §5 Device Replacement, §6 Hardware Identifier mapping), Glossary v1 (§2 Device Model vocabulary)
-**Dependents:** State Store (entity state shape), Persistence Layer (device/entity registry schema), Integration Runtime (Integration API surface), Automation Engine (capability-based targeting), Zigbee Adapter (capability mapping from ZCL), REST API (device/entity endpoints), WebSocket API (state change streaming), Web UI (capability-driven control rendering)
+**Dependents:** State Store (entity state shape), Persistence Layer (registry snapshot storage via CheckpointStore §8.1), Integration Runtime (Integration API surface), Automation Engine (capability-based targeting), Zigbee Adapter (capability mapping from ZCL), REST API (device/entity endpoints), WebSocket API (state change streaming), Web UI (capability-driven control rendering)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-05
 
@@ -442,7 +442,19 @@ Device discovery follows a staged pipeline: detection → proposal → adoption.
 
 **Deduplication.** The `DeviceIdentifiers` registry maintains a mapping from `(namespace, value)` tuples to `device_id`. Matching is integration-scoped (a Zigbee IEEE address is only compared against other Zigbee devices). Cross-integration matching is always user-initiated (for device replacement scenarios).
 
-### 3.13 Device Replacement
+### 3.13 Device Removal
+
+Device removal is user-initiated. When a user removes a device, the system executes a cascading lifecycle sequence:
+
+1. **Entity disablement.** For each entity belonging to the device, the system produces an `entity_disabled` event with `actor_ref` set to the user who initiated the removal. This freezes each entity's state in the State Store and prevents further automation evaluation against these entities. The `entity_disabled` events are produced before the `device_removed` event to ensure downstream subscribers (State Store, Automation Engine) process the entity lifecycle transitions before the device-level event.
+
+2. **Device removal.** After all child entity `entity_disabled` events are persisted, the system produces a `device_removed` event for the device. This event carries the device_id, entity count, and the user who initiated the removal.
+
+3. **Registry cleanup.** The `DeviceRegistry` marks the device and its entities as removed. Hardware identifiers are retained in a tombstone state for a configurable period (default: 30 days) to prevent re-discovery of the removed device from being treated as a new device.
+
+This cascade ensures that no subscriber observes a `device_removed` event for a device whose entities are still in an enabled state. The State Store handles entity removal entirely through the `entity_disabled` events and does not need to subscribe to `device_removed`.
+
+### 3.14 Device Replacement
 
 Device replacement preserves entity identity when physical hardware is swapped. The workflow is defined in the Identity and Addressing Model §5; this subsystem provides the capability compatibility validation.
 
@@ -724,7 +736,7 @@ This order is critical. Persisting before validation means the raw fact is never
 | Automation Engine | Provides to | `EntityRegistry`, `CapabilityRegistry` query interfaces | Entity capability metadata for trigger/condition/action validation and selector resolution | Automation Engine validates that referenced capabilities exist before accepting automation definitions |
 | REST API | Provides to | `DeviceRegistry`, `EntityRegistry`, `CapabilityRegistry` read interfaces | Device/entity records, capability schemas for API serialization | API Layer shapes are derived from the data model defined here |
 | Configuration System | Receives from | YAML configuration | Custom capability overrides, default tolerance tuning, discovery behavior | Configuration changes produce `config_changed` events |
-| Persistence Layer | Delegates to | Registry storage interface | Device/entity registry persistence to SQLite | This subsystem defines the data model; Persistence owns the storage mechanics |
+| Persistence Layer | Delegates to | `CheckpointStore` interface with `viewName = "device_registry"` | Device/entity registry snapshot for faster startup | This subsystem defines the data model and serialization; Persistence stores the opaque checkpoint via the same interface used by the State Store (see Persistence Layer §3.12, §8.1) |
 | Web UI | Provides to | API (via REST/WebSocket) | Capability metadata for control rendering, attribute constraints for input validation | UI generates controls from capability definitions — no per-device UI code |
 
 ---
