@@ -4,7 +4,7 @@
 **Status:** Draft
 **Subsystem:** Event Model & Event Bus
 **Dependencies:** None (foundational)
-**Dependents:** Device Model & Capability System (§4.3 event type taxonomy, §3.1 producer boundaries), State Store (§3.2 state event lifecycle, §3.4 subscription model), Persistence Layer (§3.3 retention tiers, §3.5 telemetry boundary, §4.2 domain event store schema, §6.5 emergency retention, §9 retention configuration), Integration Runtime (§3.1 producer boundaries, §3.9 origin model), Automation Engine (§3.2 state_changed subscription, §3.7 processing modes), Configuration System (§9 YAML schema), REST API (§4.1 event envelope, §4.3 event type taxonomy), WebSocket API (§3.4 subscription model), Observability & Debugging (§11 metrics and health), Startup, Lifecycle & Shutdown (§3.7 processing modes, §6 failure recovery)
+**Dependents:** Device Model & Capability System (§4.3 event type taxonomy, §3.1 producer boundaries), State Store (§3.2 state event lifecycle, §3.4 subscription model), Persistence Layer (§3.3 retention tiers, §3.5 telemetry boundary, §4.2 domain event store schema, §6.5 emergency retention, §9 retention configuration), Integration Runtime (§3.1 producer boundaries, §3.9 origin model), Automation Engine (§3.2 state_changed subscription, §3.7 processing modes), Configuration System (§9 YAML schema), REST API (§4.1 event envelope, §4.3 event type taxonomy), WebSocket API (§3.4 subscription model), Observability & Debugging (§11 metrics and health), Startup, Lifecycle & Shutdown (§3.7 processing modes, §6 failure recovery), Persistence Layer (§3.3 retention tiers, §3.5 telemetry boundary, §4.2 domain event store schema, §6.5 emergency retention, §9 retention configuration)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-04
 
@@ -193,7 +193,9 @@ public record SubscriptionFilter(
 
 The bus maintains per-subscriber filters and only notifies a subscriber when events matching its filter have been appended. This prevents waking the automation engine for `state_reported` events that did not result in `state_changed`.
 
-**`entity_type_prefix` filter semantics.** The `entity_type_prefix` field enables a subscriber to receive events only for entities whose `entity_type` starts with a given prefix. This is useful for subsystem-scoped subscriptions: a lighting dashboard subscribes with prefix `light` to receive events for `light` entities without processing `sensor`, `switch`, or `climate` events.
+**`entity_type_prefix` semantics.** The `entity_type_prefix` field in `SubscriptionFilter` performs a prefix match against the `event_type` string, not the entity type. The name is a misnomer inherited from early design — it filters events whose `event_type` starts with the given prefix. For example, `entity_type_prefix = "state"` matches `state_reported`, `state_changed`, and `state_confirmed`. A prefix of `"command"` matches `command_issued`, `command_dispatched`, and `command_result`. This filter operates at the bus level before event delivery, reducing the number of events a subscriber must inspect and discard. The filter is optional; omitting it delivers all events matching the `event_types` and `minimum_priority` criteria.
+
+**Naming clarification.** Despite the name `entity_type_prefix`, this field does not filter by the Entity Type of the event's subject. Filtering by Entity Type (e.g., "only events about `light` entities") requires the subscriber to inspect the event's `subject_ref`, resolve it against the Entity Registry, and apply the filter in subscriber code. Bus-level entity-type filtering is a potential future optimization but is not implemented in MVP due to the registry lookup cost per event.
 
 The filter operates on the `entity_type` field stored in the entity registry, not on any field within the event envelope. When the Event Bus evaluates a subscription filter, it resolves the event's `subject_ref` to its entity type via the entity registry and applies the prefix match. Events whose `subject_ref` refers to a non-entity subject (Device, Automation, Person, System) are **not matched** by entity type prefix filters — they pass through only if the filter's `entity_type_prefix` is null (meaning "all subjects").
 
@@ -209,6 +211,8 @@ This resolution requires that the Event Bus has read access to the entity regist
 6. Checkpoint is stored in the domain event store database (same file, different table — atomic with the same SQLite connection).
 
 **Re-entrant event production.** Core subscribers — specifically the State Projection and the Pending Command Ledger — produce derived events (`state_changed`, `state_confirmed`, `state_report_rejected`) in response to events they consume. This creates a re-entrant write path: a subscriber's event handler calls `EventPublisher.publish()`, which appends to the event store and triggers notification of other subscribers (and potentially the same subscriber, if the derived event matches its filter).
+
+**Re-entrant write contention.** The EventPublisher is the sole writer to the domain event store (single-writer model, LTD-03 WAL). However, correctness-critical subscribers — specifically the State Projection and the Pending Command Ledger — produce derived events by calling `EventPublisher.publish()` during their event processing. This creates a re-entrant write pattern: the subscriber processes event N, calls `publish()` to append derived event N+1, then resumes processing. Because the EventPublisher acquires the SQLite write lock for each append and virtual threads do not hold OS-level locks across suspension points, this pattern is safe under the single-writer discipline as long as the subscriber's `publish()` call completes before the subscriber processes the next event. The subscriber's event processing loop is sequential (not concurrent), which guarantees this ordering. The potential contention arises only if a second subscriber also calls `publish()` concurrently — the SQLite write lock serializes these calls, with the second caller blocking until the first completes. At MVP event rates (< 500 events/sec), this serialization adds negligible latency (< 1 ms per contended write).
 
 The single-writer model (LTD-03, LTD-11) serializes all writes through one thread. Re-entrant writes are safe because:
 
@@ -258,9 +262,9 @@ When a subscriber's unprocessed backlog exceeds a configurable threshold (defaul
 
 Coalescing means: if multiple coalescable events for the same `(subject_ref, attribute_key)` exist in the unprocessed backlog, only the most recent one is delivered. The subscriber's checkpoint advances past the coalesced events. This means coalescable DIAGNOSTIC events have weaker delivery semantics than CRITICAL and NORMAL events — a subscriber may never process an intermediate `state_reported` value that was superseded by a newer report during backpressure.
 
-NORMAL and CRITICAL events are never coalesced under any condition.
+NORMAL and CRITICAL events are never coalesced. Every `state_changed`, `command_issued`, `automation_triggered`, and other NORMAL/CRITICAL event is delivered individually.
 
-**Coalescing exemption for the Pending Command Ledger.** The Pending Command Ledger subscription is exempt from DIAGNOSTIC coalescing. The Ledger requires every `state_reported` event — including DIAGNOSTIC-priority reports that did not change state — to evaluate whether a pending command's expected outcome has been reached. If coalescing drops intermediate `state_reported` events for an entity with a pending command, the Ledger may incorrectly time out or miss the confirming report.
+**Coalescing exemption for the Pending Command Ledger.** The State Projection (`state_projection` subscriber) and the Pending Command Ledger (`pending_command_ledger` subscriber) are exempt from coalescing regardless of backlog depth. These are correctness-critical subscribers where every event must be processed individually. Coalescing `state_reported` events for the State Projection would cause missed state transitions. Coalescing for the Pending Command Ledger would cause missed confirmation matches. The exemption is configured per-subscriber at registration time.
 
 Implementation: the Pending Command Ledger registers its subscription with coalescing disabled. The Event Bus respects this per-subscriber setting. Other subscribers (Trace Viewer, observability dashboards) may use coalescing freely.
 
@@ -271,7 +275,7 @@ The processing mode is a property of the subscriber's execution context, not of 
 | Mode | When Active | Actuator Commands | Derived Events | External Notifications |
 |---|---|---|---|---|
 | LIVE | Subscriber has reached the log head during normal operation | Permitted | Emitted normally | Permitted |
-| REPLAY | Subscriber catching up from a checkpoint that is behind the log head (startup recovery) | Suppressed | Emitted (projections need them in the log) | Suppressed |
+| REPLAY | Subscriber catching up from a checkpoint that is behind the log head (startup recovery) | Suppressed | Not emitted — projections consume existing derived events from the log | Suppressed |
 | PROJECTION | Subscriber rebuilding a materialized view from scratch (manual rebuild or snapshot invalidation) | Suppressed | Not emitted (projection is consuming, not producing) | Suppressed |
 | DRY_RUN | Automation testing or what-if analysis | Logged to dry-run audit, not executed | Recorded to dry-run audit, not the event store | Suppressed |
 
@@ -411,7 +415,7 @@ CREATE INDEX idx_events_subject     ON events(subject_ref, subject_sequence);
 CREATE INDEX idx_events_type        ON events(event_type, global_position);
 CREATE INDEX idx_events_correlation ON events(correlation_id, global_position);
 CREATE INDEX idx_events_ingest_time ON events(ingest_time);
-CREATE INDEX idx_events_event_time  ON events(event_time);
+CREATE INDEX idx_events_event_time  ON events(COALESCE(event_time, ingest_time));
 ```
 
 **Design notes:**
@@ -460,12 +464,22 @@ The `event_type` field carries a string identifier. Core event types use undersc
 | `command_dispatched` | Entity | Command Dispatch Service | DIAGNOSTIC | The integration adapter accepted the command for protocol delivery. Carries integration_id and protocol metadata. |
 | `command_result` | Entity | Integration Adapter | NORMAL (success) / CRITICAL (failure, timeout) | The protocol-level outcome: acknowledged, rejected, or timed_out. |
 | `command_confirmation_timed_out` | Entity | Pending Command Ledger (core) | DIAGNOSTIC | The expected state report did not arrive within the confirmation timeout. References the command_issued and any command_result. Not an error — evidence for diagnosis. |
+| `target_ref` | ULID | Yes | The Entity Reference of the command target. |
+| `command_name` | String | Yes | The capability-defined command name (e.g., `set_on_off`, `set_level`, `lock`). |
+| `parameters` | JSON Object | Yes (may be empty `{}`) | Command parameters as defined by the capability's `CommandDefinition`. |
+| `expected_outcome` | JSON Object, nullable | No | The expected attribute state after successful execution, as computed by the capability's `ExpectationFactory`. Used by the Pending Command Ledger for confirmation matching. Null if the capability does not define expectations. |
+| `confirmation_timeout_ms` | Integer | Yes | Maximum time to wait for `state_confirmed` before producing `command_confirmation_timed_out`. Value from the capability's `CommandDefinition.default_timeout`. |
+| `idempotency_class` | Enum string | Yes | One of: `IDEMPOTENT`, `NOT_IDEMPOTENT`, `CONDITIONAL`. From the capability's `CommandDefinition`. |
 
 **State lifecycle:**
 
 | Event Type | Subject | Producer | Default Priority | Description |
 |---|---|---|---|---|
+| `entity_profile_changed` | Entity | Core | NORMAL | An Entity's capability set was modified (capability added, removed, or version changed). Carries `old_capabilities` and `new_capabilities` for diffing. |
+| `entity_enabled` | Entity | Core (user-initiated) | NORMAL | An Entity was re-enabled after being disabled. State Projection resumes producing `state_changed` events. |
+| `entity_disabled` | Entity | Core (user-initiated) | NORMAL | An Entity was disabled. State Projection freezes attributes but continues tracking `lastReported`. |
 | `state_reported` | Entity | Integration Adapter | DIAGNOSTIC | Raw attribute observation. Carries attribute_key and value. Always DIAGNOSTIC; significance is expressed through derived state_changed (NORMAL). |
+| `state_report_rejected` | Entity | Core (State Projection) | DIAGNOSTIC | A `state_reported` event failed attribute validation (type mismatch, out-of-range, unknown attribute). Carries `reason`, `reported_value`, and `validation_rule`. |
 | `state_changed` | Entity | State Projection (core) | NORMAL | Derived: the reported value differs from canonical state. Carries old_value, new_value, and triggered_by (event_id of the state_reported). |
 | `state_confirmed` | Entity | Pending Command Ledger (core) | NORMAL | Derived: the reported value matches a pending command's expected outcome. Carries command_event_id and report_event_id. |
 
@@ -476,6 +490,7 @@ The `event_type` field carries a string identifier. Core event types use undersc
 | `device_discovered` | Device | Integration Adapter | NORMAL | A new device was detected on the protocol network. |
 | `device_adopted` | Device | Core (user-initiated) | NORMAL | A discovered device was accepted into the system. |
 | `device_removed` | Device | Core (user-initiated) | NORMAL | A device was removed from the system. |
+| `device_metadata_changed` | Device | Core (user or integration-initiated) | NORMAL | Device metadata (manufacturer, model, firmware, display name) was updated. |
 | `entity_transferred` | Entity | Core (user-initiated) | NORMAL | Physical hardware was swapped behind a stable entity identity. |
 | `entity_type_changed` | Entity | Core (migration) | NORMAL | Entity type was migrated via governed type migration. |
 | `availability_changed` | Entity/Device | Integration Adapter / Core | CRITICAL (to offline) / NORMAL (to online) | Reachability status changed. |
@@ -504,7 +519,7 @@ The `event_type` field carries a string identifier. Core event types use undersc
 | `presence_signal` | Person | Integration Adapter | DIAGNOSTIC | A raw presence signal was received (Wi-Fi probe, BLE beacon, GPS geofence). |
 | `presence_changed` | Person | Presence Projection (core) | NORMAL | Derived presence state was updated (home, away, unknown). |
 
-**System:**
+**System lifecycle:**
 
 | Event Type | Subject | Producer | Default Priority | Description |
 |---|---|---|---|---|
@@ -514,6 +529,9 @@ The `event_type` field carries a string identifier. Core event types use undersc
 | `migration_applied` | System | Core Runtime | CRITICAL | A schema migration completed. |
 | `snapshot_created` | System | Core Runtime | CRITICAL | A backup snapshot was created. |
 | `system_storage_critical` | System | Core Runtime | CRITICAL | Disk space has fallen below the emergency threshold. |
+| `system_registry_rebuilt` | System | Core | CRITICAL | The device/entity registry was rebuilt from the event log after corruption or loss. Carries `devices_restored`, `entities_restored`, `rebuild_duration_ms`. |
+| `system_integrity_failure` | System | Persistence Layer | CRITICAL | A database integrity check failed. Carries `file_name`, `check_type`, `error_detail`, `recovery_action`. |
+| `storage_pressure_changed` | System | Persistence Layer | NORMAL | Storage pressure level transitioned (HEALTHY → WARNING → CRITICAL → EMERGENCY or vice versa). Carries `old_level`, `new_level`, `disk_usage_bytes`, `threshold_bytes`. |
 
 **Persistence and storage health:**
 
@@ -537,7 +555,8 @@ The `event_type` field carries a string identifier. Core event types use undersc
 
 | Event Type | Subject | Producer | Default Priority | Description |
 |---|---|---|---|---|
-| `telemetry_summary` | Entity | Aggregation Engine (core) | DIAGNOSTIC | A periodic summary of telemetry data promoted from the telemetry ring store. |
+| `telemetry_summary` | Entity | Persistence Layer (Aggregation Engine) | DIAGNOSTIC | Aggregated summary of raw telemetry samples promoted to the domain event path. Carries `min`, `max`, `mean`, `sum`, `count`, `period_start`, `period_end`, `partial` flag. |
+| `telemetry_store_rebuilt` | System | Persistence Layer | NORMAL | The telemetry ring store was recreated after corruption or file loss. Carries `reason`, `previous_max_seq`. |
 
 **Health / Subscriber:**
 
@@ -557,9 +576,7 @@ This supports the "why did this happen?" query: given any event, follow its `cor
 
 The projection also monitors chain depth. When a chain exceeds the configurable threshold (default: 50 events), it emits a `causality_depth_warning` DIAGNOSTIC event. This serves as an early indicator of potential automation loops — a well-behaved automation chain rarely exceeds 10 events.
 
-**Memory bound.** The causal chain projection maintains an in-memory index of active causal chains (chains with at least one event within the last N minutes, where N is configurable, default 60). Chains older than the configured window are evicted from the in-memory index. Historical chain queries beyond the window fall back to a database query on the `idx_events_correlation` index, which is slower but correct.
-
-The memory bound is: one entry per active `correlation_id`, each carrying a chain depth counter and the `event_id` of the chain's most recent event. At 50 devices with typical automation activity, the active chain count is estimated at 200–500 chains, consuming less than 100 KB. The configured maximum chain depth (default: 50 events) triggers a `causality_depth_warning` event (DIAGNOSTIC) when exceeded. This prevents runaway automation loops from consuming unbounded memory in the projection.
+**Memory bound.** The causal chain projection maintains an in-memory map of active correlation chains (correlation_id → chain metadata). A chain is considered "active" from the root event until either: (a) a terminal event in the chain is observed (automation run completes, command confirmed/timed out), or (b) a configurable inactivity timeout expires (default: 5 minutes). Expired chains are evicted from memory. The map is bounded at 10,000 active chains; if this limit is reached, the oldest chains are evicted with a structured log warning. The eviction does not affect event persistence or subscriber delivery — it only limits the real-time chain-length tracking available for diagnostic queries. Historical chain reconstruction remains available by querying the event log by `correlation_id`.
 
 Configuration:
 ```yaml
@@ -722,7 +739,31 @@ This section defines payload schemas for event types where the structure is owne
 
 **Impact:** If not addressed, SQLite will fail to write. Event appends will fail. The system is non-functional.
 
-**Recovery:** Emergency retention activates (owned by Persistence Layer, see **Persistence Layer** §3.5 for the complete escalation protocol). The Persistence Layer first disables telemetry ring store writes, then purges events in order: DIAGNOSTIC first (progressively reducing retention to 1 day, then 1 hour), then backup generations beyond the most recent, then NORMAL events (progressively reducing retention to 7 days, then 1 day). CRITICAL events are never subject to emergency retention — the append-only guarantee (INV-ES-01) holds even under storage pressure. If the threshold cannot be reached after purging all DIAGNOSTIC and NORMAL events, the system enters a degraded state where only CRITICAL events are accepted. Committed events are never overwritten or replaced.
+### Emergency Retention Under Disk Space Exhaustion
+
+When the Persistence Layer detects storage pressure exceeding the CRITICAL threshold, it engages emergency retention. Emergency retention is a graduated escalation that sacrifices retention depth to preserve operational continuity. It never modifies existing events (INV-ES-01).
+
+**Drop order under emergency retention (most expendable first):**
+
+1. Telemetry raw samples — ring store writes disabled (zero-cost, immediate)
+2. DIAGNOSTIC domain events older than 1 day
+3. DIAGNOSTIC domain events older than 1 hour
+4. Backup generations beyond the most recent 1
+5. NORMAL domain events older than 7 days
+6. NORMAL domain events older than 1 day
+
+**CRITICAL domain events are never dropped by emergency retention.** The system continues operating in degraded mode, recording only CRITICAL events if necessary, until the operator addresses the storage situation.
+
+If the domain event store remains full after all emergency retention steps are exhausted, the system enters a degraded state where:
+- Only CRITICAL events are accepted for persistence
+- All non-CRITICAL events are rejected with a structured error
+- The `storage_pressure_changed` event (CRITICAL) records the transition
+- The health indicator reports UNHEALTHY with a human-readable explanation
+- The REST API health endpoint includes the pressure level and recommended action
+
+The system does not overwrite committed events, does not reuse event log space occupied by existing events, and does not silently drop events without recording the degradation. Overwriting committed events would violate INV-ES-01 (events are immutable facts, removed only by explicit retention). The correct behavior under extreme storage pressure is to degrade visibly, not to corrupt history.
+
+See **Persistence Layer** §3.5 for the complete storage pressure management implementation, threshold values, and the telemetry-first drop strategy rationale.
 
 **Events produced:** `system_storage_critical` (CRITICAL) when emergency threshold is breached.
 

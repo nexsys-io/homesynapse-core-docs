@@ -4,7 +4,7 @@
 **Status:** Draft
 **Subsystem:** Device Model & Capability System
 **Dependencies:** Event Model & Event Bus (§3.1 producer boundaries, §3.3 priority model, §3.8 Pending Command Ledger, §4.1 event envelope, §4.3 event type taxonomy), Identity and Addressing Model (§2 three-layer identity, §5 Device Replacement, §6 Hardware Identifier mapping), Glossary v1 (§2 Device Model vocabulary)
-**Dependents:** State Store (entity state shape), Persistence Layer (registry snapshot storage via CheckpointStore §8.1), Integration Runtime (Integration API surface), Automation Engine (capability-based targeting), Zigbee Adapter (capability mapping from ZCL), REST API (device/entity endpoints), WebSocket API (state change streaming), Web UI (capability-driven control rendering)
+**Dependents:** State Store (entity state shape), Persistence Layer (registry snapshot storage via CheckpointStore §8.1), Integration Runtime (Integration API surface), Automation Engine (capability-based targeting), Zigbee Adapter (capability mapping from ZCL), REST API (device/entity endpoints), WebSocket API (state change streaming), Web UI (capability-driven control rendering), Persistence Layer (registry snapshot storage via CheckpointStore §8.1)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-05
 
@@ -176,11 +176,11 @@ A Capability is a typed contract that defines what an entity can do or report. T
 
 **Level 3 — Availability.** Runtime truth about whether a declared capability is currently actionable. Availability is a function of device reachability (the `availability` state per Glossary §8.6), transient error conditions (e.g., a lock is jammed), and integration health. Availability is dynamic and does not affect the declared capability set. An unavailable entity still has its declared capabilities — it just cannot act on them right now.
 
-**Availability scope.** Availability is an entity-level property, not a per-capability property. An entity is either available (the integration can communicate with the underlying device function) or unavailable (communication has been lost). There is no "partially available" state where some capabilities work and others do not within the same entity.
+**Availability scope.** **Availability scope.** Availability (`available`, `unavailable`, `unknown`) is tracked at the Entity level, not the Capability level. An Entity is either reachable or not — individual capabilities within an Entity do not have independent availability. This reflects the physical reality: if a Zigbee multi-sensor is unreachable, all of its capabilities (temperature, humidity, motion) are simultaneously unreachable because they share a single radio link.
+
+If a device has a partial hardware failure where some capabilities work but others do not (e.g., a sensor's temperature reading is valid but its humidity reading is stuck), this is modeled as the Entity being `available` with specific attributes producing `state_report_rejected` events for the failing capability. The Entity's availability reflects protocol-level reachability; attribute-level health is tracked through validation outcomes.
 
 This design choice is deliberate. Per-capability availability would require the integration to report individual capability reachability — information that most protocols (Zigbee, Z-Wave, Matter) do not provide at that granularity. A Zigbee endpoint is either reachable or not; individual clusters within an endpoint do not have independent reachability. Modeling per-capability availability would create false precision.
-
-If a device genuinely has independently-available functions (e.g., a dual-radio device where Wi-Fi and Zigbee radios are independent), those functions should be modeled as separate entities with separate availability tracking, which the multi-entity device model (§3.11) already supports.
 
 Post-MVP, if protocols emerge that provide per-capability health (e.g., Matter's cluster-level status attributes), a `capability_health` concept may be introduced as an extension of the availability model. The current entity-level availability does not prevent this addition.
 
@@ -263,7 +263,7 @@ The MVP ships with a sealed set of standard capabilities sufficient to exercise 
 | `motion` | `detected` (boolean) | *(read-only)* | N/A |
 | `occupancy` | `occupied` (boolean) | *(read-only)* | N/A |
 
-**Diagnostic capabilities:**
+**Registry property:**
 
 | capability_id | Attributes | Commands | Confirmation Mode |
 |---|---|---|---|
@@ -329,6 +329,14 @@ AttributeSchema {
 ```
 
 Presentation conversion (°C → °F for US users) is exclusively a query/view concern, never a storage concern. Historical data is never reinterpreted through a different unit lens. This directly prevents the Home Assistant unit-change data corruption problem where changing `native_unit_of_measurement` corrupts historical graphs.
+
+**Processing order for `state_reported` events.** When an integration produces a `state_reported` event, the following processing order applies:
+
+1. **Persistence.** The event is appended to the domain event store by the EventPublisher (INV-ES-04 — write-ahead). The event is now durable.
+2. **Bus delivery.** The Event Bus notifies subscribers that a new event is available.
+3. **State Projection processing.** The State Projection subscriber receives the event and performs attribute validation against the Entity's capability schema (type checking, range checking, unit conformance). If validation fails, a `state_report_rejected` event is produced and the `state_reported` event does not update canonical state. If validation passes, the projection compares the reported value against canonical state and, if different, produces a `state_changed` event.
+
+The critical ordering property: persistence happens before validation. An invalid `state_reported` event is still persisted in the event log — it is a fact about what the integration reported, even if the value is invalid. The `state_report_rejected` event records the validation failure. This preserves the event log's role as a complete record of system activity and enables diagnosis of misbehaving integrations by querying rejected reports.
 
 ### 3.8 Command Model and Expected Outcomes
 
@@ -444,15 +452,23 @@ Device discovery follows a staged pipeline: detection → proposal → adoption.
 
 ### 3.13 Device Removal
 
-Device removal is user-initiated. When a user removes a device, the system executes a cascading lifecycle sequence:
+Device removal is user-initiated. When a Device is removed from the system (by user via the API or UI), the following cascade executes atomically within a single event transaction:
 
-1. **Entity disablement.** For each entity belonging to the device, the system produces an `entity_disabled` event with `actor_ref` set to the user who initiated the removal. This freezes each entity's state in the State Store and prevents further automation evaluation against these entities. The `entity_disabled` events are produced before the `device_removed` event to ensure downstream subscribers (State Store, Automation Engine) process the entity lifecycle transitions before the device-level event.
+1. **All Entities owned by the Device are soft-deleted.** Each Entity produces an `entity_deleted` event (NORMAL priority) with `reason: device_removed` and `actor_ref` from the initiating user. Soft-deleted Entities enter the retention window defined in the Identity and Addressing Model §4.4 (default: 30 days).
 
-2. **Device removal.** After all child entity `entity_disabled` events are persisted, the system produces a `device_removed` event for the device. This event carries the device_id, entity count, and the user who initiated the removal.
+2. **The Device itself is soft-deleted.** The Device produces a `device_removed` event (NORMAL priority) with `actor_ref` from the initiating user.
 
-3. **Registry cleanup.** The `DeviceRegistry` marks the device and its entities as removed. Hardware identifiers are retained in a tombstone state for a configurable period (default: 30 days) to prevent re-discovery of the removed device from being treated as a new device.
+3. **Hardware Identifiers are released.** The Device's Hardware Identifier tuples are disassociated from the Device record. This allows a re-paired device with the same protocol addresses to be proposed as a new adoption rather than matched to the removed Device. The previous mapping is recorded in the `device_removed` event payload for audit purposes.
 
-This cascade ensures that no subscriber observes a `device_removed` event for a device whose entities are still in an enabled state. The State Store handles entity removal entirely through the `entity_disabled` events and does not need to subscribe to `device_removed`.
+4. **Automations referencing removed Entities are not modified.** Automation bindings reference Entity References, which remain valid (soft-deleted). The Automation Engine's resolution logic treats soft-deleted Entities as "target unavailable" — the automation logs a warning and skips the action, per Identity and Addressing Model §7.5 (resolution-time eligibility). The user receives a notification that automations reference unavailable entities. No automation is silently broken or silently modified.
+
+5. **State Store entries are marked unavailable.** The State Projection processes the `entity_deleted` events and sets `availability: unavailable` on each affected EntityState. The `lastReported` timestamp is preserved for diagnostic purposes.
+
+**Atomicity guarantee.** Steps 1–3 are wrapped in a single `EventPublisher` transaction (all events share a single `correlation_id` rooted in the user's removal request). If any event in the cascade fails to persist, none are persisted. The Device remains in its pre-removal state.
+
+**Restore behavior.** During the soft-delete retention window, a removed Device can be restored. Restoration produces `device_restored` and `entity_restored` events, re-activates Hardware Identifier mappings, and transitions State Store entries back to their pre-removal availability. Automations that were logging "target unavailable" resume normal operation without modification.
+
+**Purge behavior.** After the retention window, soft-deleted objects are permanently purged. Their References are retired (never reused, per Identity and Addressing Model §4.3). Their events remain in the Event Log subject to standard retention policy.
 
 ### 3.14 Device Replacement
 
@@ -719,6 +735,11 @@ This order is critical. Persisting before validation means the raw fact is never
 
 **Recovery:** The registry is rebuilt by replaying the following event types from the event log: `device_adopted`, `device_removed`, `entity_profile_changed`, `entity_type_changed`, `entity_transferred`, `device_metadata_changed`, `entity_enabled`, and `entity_disabled`. The event log is the source of truth (INV-ES-02); the registry is a materialized view. Rebuilding produces identical registry state because every mutable property of the registry (device metadata, entity capability profiles, entity type, entity enabled/disabled status, and device-entity associations) is captured by at least one of these event types.
 
+- `device_metadata_changed` — restores device metadata (manufacturer, model, firmware, display name)
+- `entity_enabled` / `entity_disabled` — restores administrative state
+- `entity_profile_changed` — restores capability set modifications
+- `device_removed` / `entity_deleted` — restores soft-delete state
+
 **Events produced:** `system_registry_rebuilt` (CRITICAL) recording the rebuild trigger, duration, and entity count.
 
 ---
@@ -736,7 +757,7 @@ This order is critical. Persisting before validation means the raw fact is never
 | Automation Engine | Provides to | `EntityRegistry`, `CapabilityRegistry` query interfaces | Entity capability metadata for trigger/condition/action validation and selector resolution | Automation Engine validates that referenced capabilities exist before accepting automation definitions |
 | REST API | Provides to | `DeviceRegistry`, `EntityRegistry`, `CapabilityRegistry` read interfaces | Device/entity records, capability schemas for API serialization | API Layer shapes are derived from the data model defined here |
 | Configuration System | Receives from | YAML configuration | Custom capability overrides, default tolerance tuning, discovery behavior | Configuration changes produce `config_changed` events |
-| Persistence Layer | Delegates to | `CheckpointStore` interface with `viewName = "device_registry"` | Device/entity registry snapshot for faster startup | This subsystem defines the data model and serialization; Persistence stores the opaque checkpoint via the same interface used by the State Store (see Persistence Layer §3.12, §8.1) |
+| Persistence Layer | Implements interface | `CheckpointStore` interface with `viewName = "device_registry"` | Device and entity registry snapshot data (opaque byte arrays) | Persistence stores and retrieves without interpreting registry content. Same-transaction semantics with subscriber checkpoints. Uses the same checkpoint infrastructure as the State Store. |
 | Web UI | Provides to | API (via REST/WebSocket) | Capability metadata for control rendering, attribute constraints for input validation | UI generates controls from capability definitions — no per-device UI code |
 
 ---

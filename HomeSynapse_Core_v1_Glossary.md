@@ -392,11 +392,13 @@ The Entity Stream — a Subject Stream where the subject is an Entity — is the
 
 The gap-free integrity guarantee (INV-ES-03) is strongest for Entity Streams: a gap in an Entity's sequence indicates data loss and is treated as a system integrity failure. For other subject types, the sequence provides ordering but gaps are treated as warnings, not integrity failures, because system and lifecycle events may be produced by multiple independent services.
 
+**Subject Stream.** A generalization of the Entity Stream concept: the ordered subsequence of Events belonging to any single addressable subject (Entity, Device, Automation, Person, or System component), extracted from the Event Log by filtering on `subject_ref`. When the subject is an Entity, the Subject Stream is identical to the Entity Stream. The term "Subject Stream" is used in design documents and schemas; "Entity Stream" remains the user-facing concept in the History view. See Identity and Addressing Model §9 for uniqueness scope semantics.
+
 **UI term.** History (when exposed in the Entity detail view as an Entity Stream)
 
 **API tokens.**
 - `stream_id` — Equivalent to the subject's Reference (`entity_ref`, `device_id`, `automation_id`, etc.).
-- `subject_sequence` — Monotonically increasing integer within the stream. Part of the unique constraint `(subject_ref, subject_sequence)` in the event store schema. The wire-format name is `subject_sequence`; the legacy alias `entity_sequence` is accepted for backward compatibility during the Draft period but `subject_sequence` is the canonical form.
+- `subject_sequence` — Monotonically increasing integer within the Subject Stream. Part of the unique constraint `(subject_ref, subject_sequence)`. The name reflects that subjects may be Entities, Devices, Automations, Persons, or System components — not exclusively Entities. See Identity and Addressing Model §9. See Glossary §3.3 (Subject Stream).
 
 **Invariants.** INV-ES-03 (per-entity ordering — strongest guarantee for Entity Streams), INV-ES-06 (explainable state changes — every state transition has a corresponding Event in the stream).
 
@@ -460,7 +462,7 @@ This pattern follows Greg Young's correlation/causation model for event-sourced 
 
 **Concept.** The internal publish-subscribe mechanism that distributes Events to Subscribers after they are persisted to the Event Log. The Event Bus is not a separate message broker — it is an in-process notification layer built on top of the Event Log (LTD-11: no external message broker dependency). Persistence happens first (write-ahead, INV-ES-04); the Event Bus then notifies Subscribers that new Events are available.
 
-The Event Bus supports a single subscription model: pull-based with notification. Subscribers register with a filter (event types, minimum priority, optional entity type prefix) and a checkpoint position. The bus notifies Subscribers when matching Events exist beyond their checkpoint; Subscribers then poll the Event Store for batches from their last-processed `global_position` forward. Per-Entity reads (Events for a specific `subject_ref` by `subject_sequence`) are served by the `EventStore` query interface, not by a bus subscription mode. See Event Model §3.4 for the authoritative subscription specification.
+The Event Bus supports one subscription mode: global (receive all Events by `global_position`). Subscribers maintain their own checkpoint and request Events from their last-processed position forward. Per-Entity reads (Events for a specific `subject_ref` by `subject_sequence`) are served by the `EventStore` query interface, not by a bus subscription mode. See Event Model §3.4 for the authoritative subscription specification.
 
 **UI term.** *(Not user-facing. Operational concept only.)*
 
@@ -483,7 +485,7 @@ The Event Bus supports a single subscription model: pull-based with notification
 | `schema_version` | Integer | Positive integer identifying the payload schema version for this Event type. Starts at 1. Drives the upcaster chain for schema evolution (INV-ES-07). |
 | `ingest_time` | Timestamp | System clock at append time. Always present. See §3.1 for timestamp representation layers. |
 | `subject_ref` | ULID | The Entity, Device, Automation, Person, or System component this Event is about. |
-| `subject_sequence` | Integer | Monotonically increasing within the subject's stream. Used for optimistic concurrency: `(subject_ref, subject_sequence)` is a unique constraint. See §3.3 for Subject Stream semantics. |
+| `subject_sequence` | Integer | Monotonically increasing within the subject's event stream. Used for optimistic concurrency: `(subject_ref, subject_sequence)` is a unique constraint. See §3.3 for Subject Stream semantics. |
 | `global_position` | Integer | SQLite rowid. Monotonic across all subjects. Subscribers checkpoint against this value. |
 | `priority` | Enum | One of: `CRITICAL`, `NORMAL`, `DIAGNOSTIC`. Governs retention lifetime and delivery urgency. Does not affect append-time durability — all Events are persisted with identical write-ahead guarantees (INV-ES-04). See Event Model §3.3. |
 | `origin` | Enum | One of: `PHYSICAL`, `USER_COMMAND`, `AUTOMATION`, `DEVICE_AUTONOMOUS`, `INTEGRATION`, `SYSTEM`, `UNKNOWN`. Default: `UNKNOWN`. See §8.9 for semantics. |
@@ -1024,6 +1026,8 @@ Retention does not violate the immutability invariant (INV-ES-01): expired Event
 ### 6.4 Snapshot
 
 **Concept.** A complete, restorable backup of the system state taken before an upgrade or on demand. Snapshots include the SQLite database file (Event Log + Materialized Views), configuration directory, and metadata. They are the foundation of update safety (INV-CS-05). Snapshots include the SQLite database files (the domain Event Log with Materialized View checkpoints, and optionally the Telemetry Ring Store), the configuration directory, and metadata. The domain Event Log backup is mandatory for correctness; the Telemetry Ring Store backup is optional — its absence means losing raw telemetry granularity, not domain state.
+
+The Telemetry Ring Store (§3.19) is not included in the standard Snapshot/Checkpoint scope. Loss of telemetry samples means losing raw numeric granularity, not canonical state. The backup system treats telemetry inclusion as optional (see Persistence Layer §3.10).
 
 **UI term.** Backup
 
