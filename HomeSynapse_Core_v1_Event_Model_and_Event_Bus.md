@@ -4,7 +4,7 @@
 **Status:** Draft
 **Subsystem:** Event Model & Event Bus
 **Dependencies:** None (foundational)
-**Dependents:** Device Model & Capability System (§4.3 event type taxonomy, §3.1 producer boundaries), State Store (§3.2 state event lifecycle, §3.4 subscription model), Persistence Layer (§3.5 telemetry boundary, §4.2 domain event store schema), Integration Runtime (§3.1 producer boundaries, §3.9 origin model), Automation Engine (§3.2 state_changed subscription, §3.7 processing modes), Configuration System (§9 YAML schema), REST API (§4.1 event envelope, §4.3 event type taxonomy), WebSocket API (§3.4 subscription model), Observability & Debugging (§11 metrics and health), Startup, Lifecycle & Shutdown (§3.7 processing modes, §6 failure recovery)
+**Dependents:** Device Model & Capability System (§4.3 event type taxonomy, §3.1 producer boundaries), State Store (§3.2 state event lifecycle, §3.4 subscription model), Persistence Layer (§3.3 retention tiers, §3.5 telemetry boundary, §4.2 domain event store schema, §6.5 emergency retention, §9 retention configuration), Integration Runtime (§3.1 producer boundaries, §3.9 origin model), Automation Engine (§3.2 state_changed subscription, §3.7 processing modes), Configuration System (§9 YAML schema), REST API (§4.1 event envelope, §4.3 event type taxonomy), WebSocket API (§3.4 subscription model), Observability & Debugging (§11 metrics and health), Startup, Lifecycle & Shutdown (§3.7 processing modes, §6 failure recovery)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-04
 
@@ -187,7 +187,7 @@ Subscribers are pull-based with notification. Each subscriber registers with an 
 public record SubscriptionFilter(
     Set<String> eventTypes,          // empty = all types
     EventPriority minimumPriority,   // DIAGNOSTIC = receive everything
-    @Nullable String entityTypePrefix // e.g., "device." for device events only
+    @Nullable String entityTypePrefix // e.g., "light" for light entities only
 ) {}
 ```
 
@@ -411,6 +411,7 @@ CREATE INDEX idx_events_subject     ON events(subject_ref, subject_sequence);
 CREATE INDEX idx_events_type        ON events(event_type, global_position);
 CREATE INDEX idx_events_correlation ON events(correlation_id, global_position);
 CREATE INDEX idx_events_ingest_time ON events(ingest_time);
+CREATE INDEX idx_events_event_time  ON events(event_time);
 ```
 
 **Design notes:**
@@ -422,6 +423,8 @@ ULID fields are stored as BLOB(16) per LTD-04. SQLite byte-comparison on BLOB(16
 The `UNIQUE(subject_ref, subject_sequence)` constraint enforces optimistic concurrency. An attempt to append an event with a sequence number that already exists for that subject is a conflict, indicating a concurrent modification.
 
 The `payload` field stores the event-type-specific JSON object. The full envelope is not stored as a single JSON blob — envelope fields are promoted to columns for indexed querying. The payload is the only unstructured column.
+
+**Event time index.** The `idx_events_event_time` index supports retention queries in the Persistence Layer (§3.4), which determine retention eligibility using `COALESCE(event_time, ingest_time)` per INV-ES-08. Since `event_time` is nullable, SQLite includes NULL values in the index by default. The retention query's use of `COALESCE` means both the `event_time` index and the `ingest_time` index contribute to query planning depending on whether the column is NULL for a given row. Rows where `event_time IS NULL` fall through to the `ingest_time` index path.
 
 **Subscriber checkpoint table (same database file):**
 
@@ -447,7 +450,7 @@ All subject types share the same SQLite table and the same `UNIQUE` constraint. 
 
 ### 4.3 Event Type Taxonomy
 
-The `event_type` field carries a dotted string. Core event types are listed below. Integration-defined types follow the namespace convention `{integration_name}.{event_type}`.
+The `event_type` field carries a string identifier. Core event types use underscored names (e.g., `state_reported`, `device_adopted`). Integration-defined types follow a dotted namespace convention: `{integration_name}.{event_type}` (e.g., `zigbee.network_map_updated`).
 
 **Command lifecycle:**
 
@@ -511,6 +514,16 @@ The `event_type` field carries a dotted string. Core event types are listed belo
 | `migration_applied` | System | Core Runtime | CRITICAL | A schema migration completed. |
 | `snapshot_created` | System | Core Runtime | CRITICAL | A backup snapshot was created. |
 | `system_storage_critical` | System | Core Runtime | CRITICAL | Disk space has fallen below the emergency threshold. |
+
+**Persistence and storage health:**
+
+| Event Type | Subject | Producer | Default Priority | Description |
+|---|---|---|---|---|
+| `system_integrity_failure` | System | Core (Persistence Layer) | CRITICAL | Database integrity check failed. Carries file name, check type, error detail, and recovery action taken. |
+| `system_backup_failed` | System | Core (Persistence Layer) | CRITICAL | Backup creation or validation failed. Carries reason, backup path, and last valid backup timestamp. |
+| `telemetry_store_rebuilt` | System | Core (Persistence Layer) | NORMAL | Telemetry ring store was recreated due to corruption or missing file. Carries reason and previous max sequence if known. |
+| `persistence_vacuum_failed` | System | Core (Persistence Layer) | NORMAL | Full VACUUM operation failed or was cancelled. Carries database file, reason, and fragmentation ratio. |
+| `persistence_retention_incomplete` | System | Core (Persistence Layer) | NORMAL | Retention pass could not complete within its maintenance window. Carries tier, counts, and reason. |
 
 **Cross-subsystem diagnostic events:**
 
@@ -709,7 +722,7 @@ This section defines payload schemas for event types where the structure is owne
 
 **Impact:** If not addressed, SQLite will fail to write. Event appends will fail. The system is non-functional.
 
-**Recovery:** Emergency retention activates (owned by Persistence Layer). The Persistence Layer purges events in order: DIAGNOSTIC first, then NORMAL, then CRITICAL. Each purge pass frees space and re-checks the threshold. If the threshold cannot be reached even after purging all non-CRITICAL events, the system logs an error and continues operating in a degraded mode where new events replace the oldest events.
+**Recovery:** Emergency retention activates (owned by Persistence Layer, see **Persistence Layer** §3.5 for the complete escalation protocol). The Persistence Layer first disables telemetry ring store writes, then purges events in order: DIAGNOSTIC first (progressively reducing retention to 1 day, then 1 hour), then backup generations beyond the most recent, then NORMAL events (progressively reducing retention to 7 days, then 1 day). CRITICAL events are never subject to emergency retention — the append-only guarantee (INV-ES-01) holds even under storage pressure. If the threshold cannot be reached after purging all DIAGNOSTIC and NORMAL events, the system enters a degraded state where only CRITICAL events are accepted. Committed events are never overwritten or replaced.
 
 **Events produced:** `system_storage_critical` (CRITICAL) when emergency threshold is breached.
 
