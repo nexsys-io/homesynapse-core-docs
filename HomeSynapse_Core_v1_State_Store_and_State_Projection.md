@@ -55,6 +55,7 @@ The State Store is a projection, never the source of truth. If the in-memory sta
 - Automation state (enabled/disabled, last run, last trigger) — owned by the **Automation Engine** (doc 07) as an internal projection.
 - Person presence state — a future dedicated projection. Not modeled in the entity state view.
 - Pending command tracking and `state_confirmed` production — owned by the **Pending Command Ledger** within the Event Model subsystem (doc 01 §3.8). The State Store does not track in-flight commands.
+- Raw telemetry streams (sustained rate > 1 sample per 10 seconds, per **Event Model & Event Bus** §3.5) — routed to the Telemetry Ring Store, not to the domain event path. The State Store processes only domain events. Telemetry influences entity state only through promoted domain events (`state_reported` produced by the aggregation engine after crossing the telemetry boundary). The `lastReported` field reflects domain-path `state_reported` events, not raw telemetry samples.
 
 ---
 
