@@ -24,11 +24,11 @@ The Persistence Layer does not define what data means. The Event Model owns the 
 
 **Storage commitments are bounded at design time.** Every persistent data structure in the system has a calculable maximum size. The domain event store is bounded by retention policy. The telemetry ring store is bounded by its fixed-size ring buffer. Checkpoint storage is bounded by the number of materialized views (small and enumerable). No data path is permitted to grow without limit. This principle exists because unbounded growth is the root cause of every major persistence failure observed in competitive platforms (INV-RF-05, INV-PR-03).
 
-**Maintenance never blocks recording.** Retention execution, space reclamation, integrity checks, and backup operations run on separate virtual threads with separate database connections. They yield to the write path by operating in small batches with explicit pauses. The single-writer model (LTD-03, LTD-11) means maintenance and recording compete for the write lock, but maintenance acquires it in short bursts rather than holding it for extended operations. Home Assistant's critical failure — purge and recording sharing a single thread, causing silent event loss when the queue overflows — is the specific failure mode this principle prevents.
+**Maintenance never blocks recording for extended or unbounded periods.** Retention execution, space reclamation, integrity checks, and backup operations run on separate virtual threads with separate database connections. They yield to the write path by operating in small batches with explicit pauses. The single-writer model (LTD-03, LTD-11) means maintenance and recording compete for the write lock, but maintenance acquires it in short bursts rather than holding it for extended operations. Two operations create bounded blocking windows: weekly WAL TRUNCATE checkpoint (milliseconds to low seconds) and opt-in full VACUUM (administrator-triggered, with pre-verified disk space and duration estimates). Both are scheduled during low-activity windows and are bounded — they cannot run indefinitely. Home Assistant's critical failure — purge and recording sharing a single thread, causing silent event loss when the queue overflows — is the specific failure mode this principle prevents.
 
 **The write path is the durability boundary.** An event is durable when SQLite confirms the INSERT. A checkpoint is durable when the same SQLite transaction commits both the checkpoint data and the subscriber position update. A telemetry sample is written with weaker guarantees — its loss means losing raw granularity, not losing facts. Each store's durability contract is explicit and distinct. This principle operationalizes INV-ES-04 (write-ahead persistence) and INV-PD-06 (offline integrity).
 
-**Backup is continuous and validated, not periodic and assumed.** The system does not depend on users remembering to back up. Pre-upgrade snapshots are mandatory (LTD-14). Routine backups run on a configurable schedule with post-backup integrity verification. A backup that fails validation is discarded and the failure is surfaced. Restore is a first-class operation that handles multi-file atomicity and post-restore consistency verification.
+**Backup is continuous and validated, not periodic and assumed.** The system does not depend on users remembering to back up. Pre-upgrade snapshots are mandatory (LTD-14). Routine backups run on a configurable schedule with post-backup integrity verification. A backup that fails validation is discarded and the failure is surfaced. Restore is a first-class operation with post-restore consistency verification. Correctness is atomic within the domain event store; the telemetry ring store backup is best-effort and may lag or lead backup boundaries without affecting replay correctness.
 
 **Degrade visibly, never silently.** When storage pressure rises, the system accelerates retention, drops telemetry before domain events, and surfaces the degradation through health indicators and CRITICAL events. It never silently drops domain events, never silently skips retention, and never allows a maintenance failure to go unreported. This is the persistence-level expression of INV-RF-06 (graceful degradation under partial failure).
 
@@ -183,7 +183,7 @@ Full VACUUM is an opt-in operation, triggered by the administrator via CLI (`hom
 
 ### 3.4 Retention Execution
 
-Retention removes events that have exceeded their priority-tier lifetime. The priority tiers and default retention periods are defined by **Event Model & Event Bus** §3.3:
+Retention removes events that have exceeded their priority-tier lifetime. The priority tiers, default retention periods, and per-event-type overrides are defined by **Event Model & Event Bus** §3.3 and §9. The Persistence Layer reads retention configuration from the `event_model.retention` namespace — it does not define retention periods independently.
 
 | Priority | Default Retention | Configurable Range |
 |---|---|---|
@@ -191,20 +191,25 @@ Retention removes events that have exceeded their priority-tier lifetime. The pr
 | NORMAL | 90 days | 7–3,650 days |
 | CRITICAL | 365 days | 30–3,650 days |
 
-Retention runs on a dedicated virtual thread during a configurable low-activity window (default: 04:12 local time, matching Home Assistant's schedule for familiarity). The time is configurable via `persistence.retention.schedule_time`.
+Per-event-type overrides (e.g., `command_result: 180`, `state_reported: 3`) take precedence over the priority-tier default for matching event types. The Persistence Layer loads these overrides from `event_model.retention.overrides` at startup and applies them during retention execution.
+
+Retention runs on a dedicated virtual thread during a configurable low-activity window (default: 04:12 local time, selected as a typical lowest-activity period for residential households). The time is configurable via `persistence.retention.schedule_time`.
+
+**Retention uses event time, not ingest time.** Per INV-ES-08, retention policies operate on `event_time` to prevent delayed events from being retained longer than intended because they arrived late. Since `event_time` is nullable in the event schema (Doc 01 §4.2), the retention query uses `COALESCE(event_time, ingest_time)` as the timestamp for retention eligibility. Events whose source cannot provide `event_time` have it set equal to `ingest_time` with an `estimated` flag per INV-ES-08, so in practice the COALESCE is a safety net for schema correctness, not a common path. An index on `event_time` (`idx_events_event_time`) is required as an initial schema migration to support efficient retention queries.
 
 **Execution mechanics:**
 
 The retention thread opens its own read-write SQLite connection (separate from the EventPublisher's write connection). It acquires the single-writer lock via `busy_timeout` for each batch operation, releasing it between batches.
 
-1. For each priority tier, starting with DIAGNOSTIC: query `SELECT MIN(global_position), MAX(global_position) FROM events WHERE priority = ? AND ingest_time < ?` where the timestamp threshold is `now - retention_period`.
-2. If no eligible events exist, skip to the next tier.
-3. **Subscriber checkpoint safety check:** query `SELECT MIN(last_position) FROM subscriber_checkpoints WHERE subscriber_id IN (SELECT subscriber_id FROM subscriber_checkpoints WHERE last_position > 0)`. If any active subscriber's `last_position` falls within the deletion range, the behavior depends on the subscriber's activity:
+1. **Per-event-type override pass.** For each entry in `event_model.retention.overrides`, query eligible events: `SELECT MIN(global_position), MAX(global_position) FROM events WHERE event_type = ? AND COALESCE(event_time, ingest_time) < ?` where the timestamp threshold is `now - override_period`. Process deletions for each override type before the tier-based pass. This ensures that a `state_reported` event with a 3-day override is deleted at 3 days even though its DIAGNOSTIC tier default is 7 days, and a `command_result` event with a 180-day override survives past the NORMAL tier's 90-day default.
+2. **Per-priority-tier pass.** For each priority tier, starting with DIAGNOSTIC: query `SELECT MIN(global_position), MAX(global_position) FROM events WHERE priority = ? AND COALESCE(event_time, ingest_time) < ? AND event_type NOT IN (?)` where the NOT IN clause excludes event types already handled by the override pass, and the timestamp threshold is `now - tier_retention_period`.
+3. If no eligible events exist for a tier, skip to the next.
+4. **Subscriber checkpoint safety check:** query `SELECT MIN(last_position) FROM subscriber_checkpoints WHERE subscriber_id IN (SELECT subscriber_id FROM subscriber_checkpoints WHERE last_position > 0)`. If any active subscriber's `last_position` falls within the deletion range, the behavior depends on the subscriber's activity:
    - If the subscriber's `last_updated` is within the grace period (default: 24 hours, configurable via `persistence.retention.subscriber_grace_period`), skip the events between the subscriber's checkpoint and the retention boundary. Emit `subscriber_falling_behind` (NORMAL). These events are retained until the subscriber catches up or the grace period expires.
    - If the subscriber's `last_updated` exceeds the grace period, the subscriber is considered stalled. Emit `subscriber_checkpoint_expired` (CRITICAL) and proceed with deletion. This is a degraded durability condition for that specific subscriber — the subscriber's at-least-once delivery guarantee is weakened, but this is acceptable because subscribers are idempotent by contract (INV-ES-05). The alternative — allowing a stalled subscriber to prevent all retention indefinitely — would violate INV-RF-05 (bounded storage).
-4. Delete in batches of 1,000 rows per transaction: `DELETE FROM events WHERE global_position BETWEEN ? AND ? AND priority = ? LIMIT 1000`. After each batch, yield for 50 ms (`Thread.sleep(50)` or virtual thread park) to allow the EventPublisher's write transactions to proceed. This interleaving prevents the retention thread from holding the write lock long enough to cause observable append latency.
-5. After all tiers are processed, run incremental vacuum (§3.3, Tier 1).
-6. Log a structured summary: events deleted per tier, duration, freelist pages reclaimed.
+5. Delete in batches of 1,000 rows per transaction: `DELETE FROM events WHERE global_position BETWEEN ? AND ? LIMIT 1000`. After each batch, yield for 50 ms (`Thread.sleep(50)` or virtual thread park) to allow the EventPublisher's write transactions to proceed. This interleaving prevents the retention thread from holding the write lock long enough to cause observable append latency.
+6. After all tiers are processed, run incremental vacuum (§3.3, Tier 1).
+7. Log a structured summary: events deleted per tier, events deleted per override, duration, freelist pages reclaimed.
 
 **Retention never deletes events newer than the oldest active view checkpoint.** Before beginning any deletion pass, the retention thread queries `SELECT MIN(position) FROM view_checkpoints`. Events at or after this position are exempt from retention regardless of their age and priority, because deleting them would invalidate a materialized view's ability to rebuild from its checkpoint. This check is in addition to the subscriber checkpoint safety check and provides a second layer of protection for the State Store and future projections.
 
@@ -217,13 +222,17 @@ HomeSynapse operates on hardware with finite storage. The Persistence Layer moni
 
 **Three-threshold escalation:**
 
+The emergency retention mechanism uses an absolute free-space threshold as the primary trigger, consistent with **Event Model & Event Bus** §6.5 and §9 (`emergency_threshold_mb: 500`). The percentage-based thresholds below provide earlier warning and graduated response before the absolute threshold is reached.
+
 | Threshold | Name | Trigger | Action |
 |---|---|---|---|
-| 80% of storage budget used | WARNING | `system_storage_warning` (NORMAL) | Accelerate next scheduled retention to run immediately. Log storage breakdown per database file. |
-| 90% of storage budget used | CRITICAL | `system_storage_critical` (CRITICAL) | Run emergency retention: delete DIAGNOSTIC events older than 1 day (overriding the configured 7-day default). Disable telemetry ring store writes (telemetry samples are silently dropped; the aggregation engine produces partial or empty summaries). |
-| 95% of storage budget used | EMERGENCY | `system_storage_emergency` (CRITICAL) | Run emergency retention against NORMAL events: reduce NORMAL retention to 7 days. If still above threshold, reduce to 1 day. CRITICAL events are never subject to emergency retention — if the system cannot store a CRITICAL event, the underlying hardware has failed, not the software. |
+| 80% of storage budget used | WARNING | Structured log `persistence.storage_pressure` (WARN) | Accelerate next scheduled retention to run immediately. Log storage breakdown per database file. No domain event produced — this is an operational signal, not a system state change. |
+| Free space < `emergency_threshold_mb` (default: 500 MB, per Event Model §9) | CRITICAL | `system_storage_critical` (CRITICAL, per Event Model §4.3) | Run emergency retention: delete DIAGNOSTIC events older than 1 day (overriding the configured default). Disable telemetry ring store writes (telemetry samples are silently dropped; the aggregation engine produces partial or empty summaries). |
+| Free space < 50% of `emergency_threshold_mb` | EMERGENCY | `system_storage_critical` (CRITICAL, same event type with `severity: emergency` in payload) | Run emergency retention against NORMAL events: reduce NORMAL retention to 7 days. If still below threshold, reduce to 1 day. CRITICAL events are never subject to emergency retention — if the system cannot store a CRITICAL event, the underlying hardware has failed, not the software. |
 
-The "storage budget" is the total disk space allocated to `/var/lib/homesynapse/`. On first run, the system calculates the budget as 80% of the partition's total capacity (reserving 20% for the operating system, logs, and other services). The budget is configurable via `persistence.storage.budget_bytes`. If the configured budget exceeds 90% of partition capacity, the system logs a warning and caps at 90%.
+The storage budget calculation (80% of partition capacity by default, configurable via `persistence.storage.budget_bytes`) determines the WARNING threshold. The CRITICAL and EMERGENCY thresholds use the absolute MB value from `event_model.retention.emergency_threshold_mb` to maintain consistency with **Event Model & Event Bus** §6.5.
+
+**Cross-document reconciliation note.** **Event Model & Event Bus** §6.5 states that if emergency retention cannot free sufficient space, "the system logs an error and continues operating in a degraded mode where new events replace the oldest events." This document's position differs: CRITICAL events are never automatically purged, and the system never silently overwrites committed domain events. Overwriting committed events would violate INV-ES-01 (events are immutable facts, removed only by explicit retention). If the system reaches a point where CRITICAL facts cannot be persisted, the correct behavior is to enter an explicit degraded state, not to mutate history. **Event Model & Event Bus** §6.5 should be amended to match this position. Until that amendment is applied, this document's behavior is authoritative for the Persistence Layer's implementation.
 
 **Per-store budgets.** Within the total budget, the Persistence Layer tracks per-file usage:
 
@@ -269,6 +278,7 @@ CREATE TABLE telemetry_samples (
     seq           INTEGER  NOT NULL      -- Monotonic write counter
 );
 CREATE INDEX idx_telemetry_entity_ts ON telemetry_samples(entity_ref, ts);
+CREATE INDEX idx_telemetry_entity_seq ON telemetry_samples(entity_ref, seq);
 CREATE INDEX idx_telemetry_seq ON telemetry_samples(seq);
 
 -- Schema version tracking (separate migration track)
@@ -287,7 +297,11 @@ The ring buffer uses `INSERT OR REPLACE` with `slot = sequence % max_rows`. The 
 
 Each write computes `slot = next_seq % max_rows` and executes `INSERT OR REPLACE INTO telemetry_samples (slot, entity_ref, attribute_key, value, ts, seq) VALUES (?, ?, ?, ?, ?, ?)`. The `INSERT OR REPLACE` overwrites the existing row at that slot, replacing old data with new data. No DELETE operations occur. No freelist pages accumulate. The B-tree structure remains stable. The database file size is fixed at approximately `max_rows × row_size + index_overhead`.
 
+**`INSERT OR REPLACE` semantics note.** In SQLite, `INSERT OR REPLACE` (equivalently `REPLACE`) performs a delete-then-insert when a conflict occurs on the PRIMARY KEY. This is safe for the telemetry ring store because the table has no triggers, no autoincrement, no foreign keys, and no dependent rows in other tables. The alternative — `INSERT INTO ... ON CONFLICT(slot) DO UPDATE SET ...` (UPSERT) — is semantically equivalent for this table and avoids the implicit delete. Either implementation satisfies the design; the key constraint is that the `slot` primary key is the only conflict target and no cascading side effects exist.
+
 The `max_rows` parameter is configurable via `persistence.telemetry.max_rows` (default: 100,000). At 30 bytes per row plus index entries, the default produces a database file of approximately 5–8 MB. At 1 sample/second from 8 energy circuits (691,200 samples/day), a 100,000-row ring holds approximately 3.5 hours of data per circuit. For deployments with fewer high-frequency sources, the effective retention per entity is proportionally longer.
+
+**Sizing recommendation for energy-focused deployments.** The `max_rows` value should be at least `2 × aggregation_interval_seconds × max_write_rate × source_count` to ensure the aggregation engine has a full interval of headroom before the ring buffer wraps. For example, with a 5-minute aggregation interval, 1 Hz write rate, and 8 energy circuits: `2 × 300 × 1 × 8 = 4,800` rows minimum. The 100,000 default provides substantial headroom at this scale. Deployments with more sources or higher rates should increase `max_rows` proportionally. The formula ensures the aggregation engine can tolerate one full missed cycle (due to stall, GC pause, or backpressure) without losing data.
 
 **Non-numeric data exclusion.** The telemetry ring store accepts only numeric (`REAL`) values. Non-numeric telemetry (string states, enum values, complex objects) flows through the domain event path as `state_reported` events at DIAGNOSTIC priority. The `value REAL NOT NULL` constraint enforces this at the schema level. The rationale: aggregation operations (min, max, mean, sum) are meaningful only for numeric data. Non-numeric state changes are inherently semantic events and belong in the domain event store.
 
@@ -377,7 +391,7 @@ LTD-02 mandates NVMe storage for production. The Persistence Layer operationaliz
 |---|---|---|
 | NVMe (`nvme*`) | Production | Full configuration per LTD-03. mmap enabled. All maintenance operations enabled. |
 | USB SSD (`sd*`, rotational = 0) | Acceptable | Full configuration. mmap enabled. Log INFO noting USB SSD detected. |
-| SD card (`mmcblk*`) | Degraded | Emit `system_storage_warning` (CRITICAL) at startup. Disable mmap (`PRAGMA mmap_size = 0`) to avoid SIGBUS crashes on failing sectors. Increase `commit_interval` recommendation in logs. System operates but with degraded performance and reduced durability confidence. |
+| SD card (`mmcblk*`) | Degraded | Emit `system_storage_critical` (CRITICAL, per Event Model §4.3) at startup with `reason: degraded_storage_media` in payload. Disable mmap (`PRAGMA mmap_size = 0`) to avoid SIGBUS crashes on failing sectors. Increase `commit_interval` recommendation in logs. System operates but with degraded performance and reduced durability confidence. |
 | USB HDD (`sd*`, rotational = 1) | Degraded | Same as SD card behavior. Rotational storage has acceptable endurance but poor random I/O. |
 | Unknown | Default | Treat as NVMe (full configuration). Log a DEBUG message noting the storage type could not be determined. |
 
@@ -387,13 +401,17 @@ The system does not refuse to start on SD card storage — that would violate IN
 
 **Startup integrity validation:**
 
+The startup integrity strategy balances thoroughness against the 30-second startup target (MVP §8.2). A 1–2 GB event store makes unconditional `quick_check` on every startup incompatible with fast restart — the same startup-time failure mode that Home Assistant's RPi users experience.
+
 On every startup, regardless of storage type:
 
-1. `PRAGMA quick_check` on the domain event store. This verifies B-tree structure integrity and completes in approximately 1–5 minutes per GB on NVMe. If quick_check fails, the system logs a CRITICAL error, emits `system_integrity_failure`, and attempts to open the most recent backup as a fallback (§3.10).
-2. WAL recovery runs automatically when SQLite opens the database file. No application logic required.
-3. Verify the `hs_schema_version` table is consistent (no failed migrations recorded). If a migration was recorded as failed, halt startup and direct the operator to restore from the pre-migration backup.
+1. WAL recovery runs automatically when SQLite opens the database file. No application logic required. This handles the most common corruption vector (incomplete WAL writes from unclean shutdown).
+2. Verify the `hs_schema_version` table is consistent (no failed migrations recorded). If a migration was recorded as failed, halt startup and direct the operator to restore from the pre-migration backup.
+3. **Unclean shutdown detection.** On startup, the Persistence Layer checks for a marker file (`/var/lib/homesynapse/.running`). If the marker exists, the previous shutdown was unclean (crash, power loss, SIGKILL). The Persistence Layer writes this marker on successful startup and deletes it during graceful shutdown.
+   - **After clean shutdown:** No integrity check. Startup proceeds immediately.
+   - **After unclean shutdown:** Run `PRAGMA quick_check` on the domain event store. If quick_check passes, log an INFO message and continue. If quick_check fails, log a CRITICAL error, emit `system_integrity_failure`, and attempt to open the most recent backup as a fallback (§3.10).
 
-`PRAGMA integrity_check` (full O(N log N) verification including index-to-table consistency) is too expensive for every startup. It runs on a configurable schedule — default monthly — via the maintenance scheduler (§3.3).
+`PRAGMA quick_check` also runs on a daily schedule during the maintenance window (§3.3) for proactive detection of silent corruption. `PRAGMA integrity_check` (full O(N log N) verification including index-to-table consistency) runs on a configurable schedule — default monthly — via the maintenance scheduler. Both scheduled checks run without blocking startup.
 
 ### 3.10 Backup and Restore Lifecycle
 
@@ -428,7 +446,7 @@ The backup process for each scenario:
 6. Validate the backup: run `PRAGMA quick_check` on the backed-up database files. If validation fails, discard the backup directory, log a CRITICAL error, and emit `system_backup_failed`. A backup that fails validation is never counted toward the retention limit.
 7. Prune old backups: retain the most recent N valid backups (default: 3, per LTD-14, configurable via `persistence.backup.retention_count`).
 
-**Backup atomicity.** The domain event store and telemetry ring store are backed up sequentially, not simultaneously. Events appended between the two backup operations create a minor inconsistency — the telemetry backup may contain samples that are slightly newer than the event store backup. This is acceptable because the event log is append-only and replay handles surplus events gracefully. The `events_global_position` in the snapshot metadata records the exact position at backup time, enabling the restore process to reason about what was captured.
+**Backup sequencing and consistency.** The domain event store and telemetry ring store are backed up sequentially, not simultaneously — there is no cross-file atomic snapshot. Events appended between the two backup operations create a minor inconsistency — the telemetry backup may contain samples that are slightly newer than the event store backup. This is acceptable because correctness is atomic within the domain event store (the single file that contains events, subscriber checkpoints, and view checkpoints), and the telemetry ring store is explicitly non-canonical (its loss does not affect domain correctness). The `events_global_position` in the snapshot metadata records the exact position at backup time, enabling the restore process to reason about what was captured.
 
 **Restore process:**
 
@@ -548,7 +566,7 @@ The Persistence Layer owns the following tables. Tables owned by other subsystem
 | `ts` | INTEGER | NOT NULL | Unix microseconds of the sample |
 | `seq` | INTEGER | NOT NULL | Monotonic write counter for ordering and aggregation cursor tracking |
 
-Indexes: `(entity_ref, ts)` for time-range queries per entity, `(seq)` for aggregation cursor queries.
+Indexes: `(entity_ref, ts)` for time-range queries per entity, `(entity_ref, seq)` for the aggregation engine's primary query pattern (`WHERE entity_ref = ? AND seq > ? ORDER BY seq`), `(seq)` for global sequence queries.
 
 **`aggregation_cursors`** (in `homesynapse-telemetry.db`):
 
@@ -581,7 +599,7 @@ All identity references in persistence tables use ULID stored as BLOB(16) per LT
 
 **Every committed event survives process crash.** With `journal_mode = WAL` and `synchronous = NORMAL`, SQLite guarantees that committed transactions are durable across process crashes. Under power loss, the data loss window is limited to the last uncommitted WAL frame — at most one in-flight event. This satisfies INV-ES-04 (write-ahead persistence) and INV-RF-04 (crash safety). The Persistence Layer does not weaken this guarantee under any condition including storage pressure.
 
-**Retention removes, never modifies.** Events deleted by retention are removed via `DELETE` statements. No event is ever updated in place (INV-ES-01). Retention operates on `global_position` ranges filtered by `priority` and `ingest_time`, using the indexes defined in **Event Model & Event Bus** §4.2.
+**Retention removes, never modifies.** Events deleted by retention are removed via `DELETE` statements. No event is ever updated in place (INV-ES-01). Retention eligibility is determined by `COALESCE(event_time, ingest_time)` per INV-ES-08, which requires retention policies to operate on event time. Per-event-type overrides (defined in `event_model.retention.overrides`) take precedence over priority-tier defaults.
 
 **Retention never deletes events referenced by an active checkpoint.** The minimum `position` across all entries in `view_checkpoints` establishes a floor below which no events are deleted. This guarantees that any materialized view can rebuild from its checkpoint without encountering gaps in the event log. This is a hard constraint, not a best-effort policy.
 
@@ -623,9 +641,9 @@ All identity references in persistence tables use ULID stored as BLOB(16) per LT
 
 **Impact:** The current event append fails. The EventPublisher cannot persist the event, which means it cannot be delivered to subscribers (INV-ES-04 — persist before notify).
 
-**Recovery:** The storage pressure management system (§3.5) should prevent this condition through proactive retention. If it occurs despite proactive management, the Persistence Layer immediately executes emergency retention (§3.5, EMERGENCY level): disable telemetry writes, aggressively purge DIAGNOSTIC events, and retry the failed append. If the append still fails after emergency retention, the system enters a critical failure state where only CRITICAL events are accepted. Emit `system_storage_emergency` (CRITICAL).
+**Recovery:** The storage pressure management system (§3.5) should prevent this condition through proactive retention. If it occurs despite proactive management, the Persistence Layer immediately executes emergency retention (§3.5, EMERGENCY level): disable telemetry writes, aggressively purge DIAGNOSTIC and then NORMAL events, and retry the failed append. If the append still fails after emergency retention, the system enters a degraded state where only CRITICAL events are accepted. CRITICAL events are never purged — the system does not silently overwrite committed domain events (INV-ES-01). Emit `system_storage_critical` (CRITICAL).
 
-**Events produced:** `system_storage_emergency` (CRITICAL) with fields: `available_bytes`, `events_file_size`, `telemetry_file_size`, `retention_action_taken`.
+**Events produced:** `system_storage_critical` (CRITICAL, per Event Model §4.3) with fields: `available_bytes`, `events_file_size`, `telemetry_file_size`, `retention_action_taken`, `severity: emergency`.
 
 ### 6.4 VACUUM Failure
 
@@ -685,7 +703,7 @@ All identity references in persistence tables use ULID stored as BLOB(16) per LT
 |---|---|---|---|---|
 | Event Model & Event Bus | Reads/Writes | Direct SQLite access | `events` table, `subscriber_checkpoints` table | Schema owned by Event Model. Persistence executes retention, WAL tuning, VACUUM. Single-writer lock shared with EventPublisher. |
 | State Store & State Projection | Implements interface | `CheckpointStore` interface (§8.1) | Opaque checkpoint byte arrays, `view_name`, `position` | Persistence stores and retrieves without interpreting checkpoint content. Same-transaction semantics with subscriber checkpoints. |
-| Device Model & Capability System | Provides storage | Registry storage interface (§8.2) | Device and entity registry data | Registry content is rebuilt from events; persistence provides the storage layer. |
+| Device Model & Capability System | Provides storage | `CheckpointStore` interface (§8.1) with `viewName = "device_registry"` | Device and entity registry snapshot data | Registry is a materialized view; its snapshot uses the same checkpoint infrastructure as the State Store. |
 | Integration Runtime | Receives telemetry | Telemetry write interface (§8.3) | Raw numeric samples: entity_ref, attribute_key, value, timestamp | Numeric values only. Non-numeric data uses the domain event path. |
 | Aggregation Engine (internal) | Produces domain events | `EventPublisher.publish()` | `telemetry_summary` events at DIAGNOSTIC priority | The aggregation engine is internal to this subsystem but produces domain events via the standard event publication mechanism. |
 | Startup, Lifecycle & Shutdown | Called by | Lifecycle interface (§8.4) | Initialization, shutdown, backup triggers | Persistence initializes before Event Bus and State Store. Persistence shuts down after all subscribers have checkpointed. |
@@ -721,25 +739,9 @@ public interface CheckpointStore {
 }
 ```
 
-### 8.2 RegistryStorageService
+### 8.2 Registry Storage via CheckpointStore
 
-```java
-public interface RegistryStorageService {
-
-    /**
-     * The registry is an in-memory materialized view rebuilt from events.
-     * This interface provides optional persistence for faster startup —
-     * the registry can always be rebuilt from the event log if needed.
-     *
-     * Storage is in the domain event store database for transactional
-     * consistency with event replay.
-     */
-    void writeRegistrySnapshot(byte[] data, long eventPosition);
-    Optional<RegistrySnapshot> readLatestRegistrySnapshot();
-}
-
-public record RegistrySnapshot(byte[] data, long eventPosition, Instant writtenAt) {}
-```
+The Device Model's entity registry is an in-memory materialized view rebuilt from events (**Device Model & Capability System** §3.1). For faster startup, the registry can persist a snapshot using the same `CheckpointStore` interface (§8.1) with `viewName = "device_registry"`. This eliminates the need for a separate interface or table — the `view_checkpoints` table already supports multiple view names, and a registry snapshot is conceptually identical to a materialized view checkpoint: an opaque byte array keyed by a view name with a position marker. The Device Model writes and reads its snapshot through `CheckpointStore.writeCheckpoint("device_registry", position, data)` and `CheckpointStore.readLatestCheckpoint("device_registry")`, receiving the same same-transaction atomicity guarantees as the State Store's checkpoint.
 
 ### 8.3 TelemetryWriter
 
@@ -886,11 +888,11 @@ All Persistence Layer configuration lives under the `persistence:` key in the Ho
 ```yaml
 persistence:
 
-  # --- Retention ---
+  # --- Retention execution ---
+  # Retention period values (diagnostic_days, normal_days, critical_days) and
+  # per-event-type overrides are read from event_model.retention (Event Model §9).
+  # This section configures only the execution mechanics.
   retention:
-    diagnostic_days: 7          # Range: 1-365. Default: 7
-    normal_days: 90             # Range: 7-3650. Default: 90
-    critical_days: 365          # Range: 30-3650. Default: 365
     schedule_time: "04:12"      # Local time, HH:MM. Default: "04:12"
     batch_size: 1000            # Rows per delete transaction. Range: 100-10000. Default: 1000
     yield_ms: 50                # Milliseconds to yield between batches. Range: 10-1000. Default: 50
@@ -914,11 +916,11 @@ persistence:
     retention_count: 3          # Backup generations to keep. Range: 1-10. Default: 3
 
   # --- Storage pressure ---
+  # The emergency_threshold_mb is read from event_model.retention.emergency_threshold_mb
+  # (Event Model §9, default: 500 MB). This section configures the warning-level budget.
   storage:
     budget_bytes: 0             # 0 = auto (80% of partition). Explicit value overrides auto.
-    warning_percent: 80         # Default: 80
-    critical_percent: 90        # Default: 90
-    emergency_percent: 95       # Default: 95
+    warning_percent: 80         # Percentage of budget that triggers WARNING. Default: 80
 
   # --- Maintenance ---
   maintenance:
@@ -936,7 +938,7 @@ All settings take effect at startup. Changes require a restart. Future versions 
 
 ## 10. Performance Targets
 
-All targets are specified for the primary deployment target: Raspberry Pi 4 (4 GB RAM), NVMe SSD via M.2 HAT (LTD-02, INV-PR-01).
+All targets are specified for the primary deployment target: Raspberry Pi 5, 4 GB RAM, NVMe SSD storage, running the JVM configuration in LTD-01.
 
 | Metric | Target | Context | Justification |
 |---|---|---|---|
@@ -991,6 +993,7 @@ All targets are specified for the primary deployment target: Raspberry Pi 4 (4 G
 | `persistence.backup_failed` | ERROR | `reason`, `backup_path` | Backup creation or validation failed. |
 | `persistence.storage_pressure` | WARN/ERROR | `level`, `used_bytes`, `budget_bytes`, `action_taken` | Storage pressure threshold breached. |
 | `persistence.integrity_check` | INFO/ERROR | `check_type`, `database_file`, `result`, `duration_ms` | Result of `quick_check` or `integrity_check`. |
+| `persistence.unclean_shutdown_detected` | WARN | `marker_file`, `running_since` | Previous shutdown was unclean; triggering `quick_check`. |
 | `persistence.migration_applied` | INFO | `database_file`, `version`, `description`, `duration_ms` | Schema migration completed successfully. |
 | `persistence.migration_failed` | ERROR | `database_file`, `version`, `description`, `error` | Schema migration failed. |
 | `aggregation.cycle_completed` | DEBUG | `entities_processed`, `summaries_produced`, `duration_ms` | Each aggregation cycle. |
@@ -1046,7 +1049,7 @@ The Persistence Layer handles the most sensitive data in the system: the complet
 - **Backup and restore round-trip.** Populate the event store with 5,000 events, several checkpoints, and a populated telemetry ring. Create a backup. Append 100 more events. Restore from the backup. Verify: the event store is at the backup's position (the 100 extra events are gone), subscriber checkpoints are at the backup's values, the telemetry ring is restored, and the system starts normally with views replaying from the restored checkpoints.
 - **Storage pressure emergency retention.** Populate the event store until the storage pressure reaches CRITICAL. Verify: emergency retention fires automatically, DIAGNOSTIC events are purged below normal retention limits, telemetry writes are disabled, `system_storage_critical` event is produced.
 - **Multi-file migration.** Create databases at schema version N. Deploy migrations for version N+1 for both databases. Verify: the migration runner executes both migration tracks, updates both `hs_schema_version` tables, and the system starts normally. Repeat with a failing telemetry migration: verify the system halts with a clear error, and the pre-migration backup allows recovery.
-- **SD card detection.** Mock the `/sys/block/` filesystem to simulate an SD card device. Verify: mmap is disabled, `system_storage_warning` is emitted, and all other functionality operates normally.
+- **SD card detection.** Mock the `/sys/block/` filesystem to simulate an SD card device. Verify: mmap is disabled, `system_storage_critical` is emitted with `reason: degraded_storage_media`, and all other functionality operates normally.
 
 ### 13.3 Performance Tests
 
@@ -1109,16 +1112,18 @@ The Persistence Layer handles the most sensitive data in the system: the complet
 |---|---|---|---|
 | Database file topology | Domain events + subscriber checkpoints + view checkpoints in one SQLite file; telemetry in a separate file | Same-database checkpointing enables atomic rollback of projection + checkpoint updates. Separate telemetry file isolates write pressure and allows independent maintenance schedules. | §3.1 |
 | Durability contract | Full write-ahead for domain events; best-effort for telemetry with explicit loss semantics | Domain events satisfy INV-ES-04 via SQLite WAL + synchronous=NORMAL. Telemetry loss means losing raw granularity, not facts. Each store's contract is explicit. | §3.2 |
-| Space reclamation | Incremental vacuum (routine) + full VACUUM (quarterly, opt-in) | Incremental vacuum is low-impact and runs after every retention pass. Full VACUUM requires 2× disk space and exclusive lock — unsuitable as routine maintenance on constrained hardware. HA's VACUUM-as-routine-maintenance is the specific failure mode avoided. | §3.3 |
-| Retention mechanics | Batch deletes on a dedicated virtual thread with yield intervals and subscriber checkpoint safety checks | Separate thread prevents retention from blocking event recording (HA's critical failure). Yield intervals interleave with write transactions. Subscriber safety check with grace-period escape hatch balances bounded storage against at-least-once delivery. | §3.4 |
-| Storage pressure | Three-threshold cascade (warning/critical/emergency) with progressive retention escalation | Explicit thresholds prevent silent disk-full failures. Drop order (telemetry → DIAGNOSTIC → NORMAL, never CRITICAL) matches data value hierarchy. | §3.5 |
-| Telemetry ring store | Modular-rowid ring buffer (INSERT OR REPLACE with slot = seq % max_rows), single table with composite index | Zero DELETE operations, fixed file size, stable B-tree. Per-entity tables rejected due to SQLite schema parsing overhead above ~500 tables. | §3.6 |
+| Space reclamation | Incremental vacuum (routine) + full VACUUM (quarterly, opt-in) | Incremental vacuum is low-impact and runs after every retention pass. Full VACUUM requires 2× disk space and creates a bounded blocking window — unsuitable as routine maintenance on constrained hardware. HA's VACUUM-as-routine-maintenance is the specific failure mode avoided. | §3.3 |
+| Retention timestamp | `COALESCE(event_time, ingest_time)` per INV-ES-08 | INV-ES-08 requires retention to operate on event time to prevent delayed events from being retained longer than intended. COALESCE handles nullable event_time defensively. Requires `idx_events_event_time` index. | §3.4 |
+| Retention mechanics | Per-type overrides first, then per-tier batch deletes on a dedicated virtual thread with yield intervals and subscriber checkpoint safety checks | Per-type overrides (from `event_model.retention.overrides`) take precedence. Separate thread prevents retention from blocking event recording (HA's critical failure). Subscriber safety check with grace-period escape hatch balances bounded storage against at-least-once delivery. | §3.4 |
+| Storage pressure | MB-based emergency threshold (from Event Model §9) with percentage-based warning | Consistent with Event Model §6.5. CRITICAL events are never automatically purged — the system enters degraded state rather than overwriting committed events (INV-ES-01). Doc 01 §6.5's "replace oldest" language is superseded by this document pending amendment. | §3.5 |
+| Telemetry ring store | Modular-rowid ring buffer (INSERT OR REPLACE with slot = seq % max_rows), single table with composite indexes including (entity_ref, seq) | Zero DELETE operations, fixed file size, stable B-tree. The (entity_ref, seq) index supports the aggregation engine's dominant query pattern. Per-entity tables rejected due to SQLite schema parsing overhead above ~500 tables. | §3.6 |
 | Aggregation engine | Batch aggregation on timer (5-minute default), not trigger-based | Trigger-based adds 20–50% overhead per insert at high write rates. Batch concentrates I/O in scheduled windows. High-water mark per entity detects ring overwrite gaps. | §3.7 |
 | Domain vs. telemetry routing | Semantic decision table extending the rate-based threshold | Rate alone is insufficient. "If this data point were lost, would automation replay produce a different result?" is the deciding question. Discrete state transitions always use domain path regardless of rate. | §3.8 |
 | Storage detection | Detect media type at startup; disable mmap on SD card | mmap converts I/O errors to SIGBUS on failing sectors. NVMe sector failures are rare; SD card failures are common. Conditional mmap prevents unrecoverable crashes on degraded storage. | §3.9 |
-| Backup strategy | SQLite backup API with single-step copy, post-backup validation, 3-generation retention | Single-step avoids restart-on-modification. Post-backup `quick_check` catches corrupt backups before they enter the retention pool. Multi-file sequential backup is acceptable because event log is append-only. | §3.10 |
+| Startup integrity | Unclean-shutdown-triggered `quick_check`, not unconditional on every boot | Unconditional quick_check at 1–5 min/GB conflicts with the 30-second startup target. WAL recovery is automatic; unclean shutdown detection via marker file triggers quick_check only when crash risk is real. Scheduled daily quick_check provides ongoing coverage. | §3.9 |
+| Backup strategy | SQLite backup API with single-step copy, post-backup validation, 3-generation retention | Single-step avoids restart-on-modification. Post-backup `quick_check` catches corrupt backups. Correctness is atomic within the domain event store; telemetry backup is best-effort and sequenced, not simultaneously captured. | §3.10 |
 | Schema compatibility | Indexes independent of payload content; checkpoint versioning via consuming subsystem; multi-file migration tracks | Payload-independent indexes prevent HA-style migration pain. Checkpoint version mismatch triggers rebuild from events (the ES safety net), not migration. | §3.11 |
-| View checkpoint storage | `view_checkpoints` table in the domain event store database | Same-database transaction with subscriber checkpoint update provides strongest correctness guarantee. Multi-view support via `view_name` key. | §3.12 |
+| View checkpoint storage | `view_checkpoints` table in the domain event store database, shared by State Store and Device Registry | Same-database transaction with subscriber checkpoint update provides strongest correctness guarantee. Multi-view support via `view_name` key. Device registry uses `view_name = "device_registry"` — no separate interface needed. | §3.12 |
 | Metadata-ID compression | Rejected for MVP | 16-byte BLOB(16) ULIDs are already compact. Integer compression saves ~10 bytes/row but adds cache management complexity. Reversal criteria: event store consistently exceeds 5 GB. | §4.3 |
 | Maintenance operations | Scheduled tasks (ANALYZE, REINDEX), not schema migrations | Maintenance operations are idempotent and periodic. The migration runner (LTD-07) is for forward-only schema changes. Conflating them would prevent re-running maintenance when needed. | §3.3 |
 
