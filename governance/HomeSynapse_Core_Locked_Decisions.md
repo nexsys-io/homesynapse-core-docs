@@ -327,7 +327,7 @@ Validation: `networknt:json-schema-validator` validates parsed YAML against publ
 
 Published JSON Schema files enable VS Code auto-completion via the Red Hat YAML extension — a significant developer-experience improvement.
 
-Configuration files live in `/etc/homesynapse/` (per LTD-11). All configuration is human-readable, version-controllable (diffable, mergeable, suitable for Git), and the sole source of truth (INV-CE-01).
+Configuration files live in `/etc/homesynapse/` (per LTD-13). All configuration is human-readable, version-controllable (diffable, mergeable, suitable for Git), and the sole source of truth (INV-CE-01).
 
 **Rationale:** Smart home configuration is deeply hierarchical (rooms → devices → settings → automations), which suits YAML's nesting model. Comments are essential for user-facing config (ruling out JSON). YAML is familiar to smart home enthusiasts from Home Assistant exposure. TOML's flat `[section.subsection]` syntax is unwieldy at the nesting depth smart home configs require. The YAML 1.2 mandate is a direct lesson from Home Assistant's well-documented pain: device states like "on"/"off", country codes like "NO", and boolean-like strings silently converting to `true`/`false` under YAML 1.1.
 

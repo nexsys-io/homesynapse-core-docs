@@ -1,7 +1,7 @@
 # HomeSynapse — Architecture & Directional Invariants (v1)
 
 **Document type:** Governance — foundational architectural contract
-**Status:** Draft (targeting Locked)
+**Status:** Locked
 **Scope:** Governs all architectural, product, and data decisions across all versions
 **Applies to:** MVP v1 and all future versions unless explicitly revised through the amendment process defined in §15
 **Effective date:** 2026-02-21 (revised)

@@ -1,7 +1,7 @@
 # HomeSynapse Core — Identity and Addressing Model
 
 **Document type:** Governance (Foundations Layer)
-**Status:** Draft
+**Status:** Locked
 **Version:** 1.0
 **Effective date:** 2026-02-22
 **Owner:** nick@nexsys.io
