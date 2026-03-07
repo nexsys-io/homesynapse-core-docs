@@ -533,7 +533,6 @@ The `event_type` field carries a string identifier. Core event types use undersc
 | `snapshot_created` | System | Core Runtime | CRITICAL | A backup snapshot was created. |
 | `system_storage_critical` | System | Core Runtime | CRITICAL | Disk space has fallen below the emergency threshold. |
 | `system_registry_rebuilt` | System | Core | CRITICAL | The device/entity registry was rebuilt from the event log after corruption or loss. Carries `devices_restored`, `entities_restored`, `rebuild_duration_ms`. |
-| `system_integrity_failure` | System | Persistence Layer | CRITICAL | A database integrity check failed. Carries `file_name`, `check_type`, `error_detail`, `recovery_action`. |
 | `storage_pressure_changed` | System | Persistence Layer | NORMAL | Storage pressure level transitioned (HEALTHY → WARNING → CRITICAL → EMERGENCY or vice versa). Carries `old_level`, `new_level`, `disk_usage_bytes`, `threshold_bytes`. |
 
 **Persistence and storage health:**
@@ -551,15 +550,12 @@ The `event_type` field carries a string identifier. Core event types use undersc
 | Event Type | Subject | Producer | Default Priority | Description |
 |---|---|---|---|---|
 | `automation_capability_mismatch` | Automation | Automation Engine | NORMAL | An automation references a capability that no longer exists on one or more of its target entities (typically after a device replacement that reduced capabilities). Carries the automation ID, affected entity IDs, and missing capability IDs. |
-| `system_registry_rebuilt` | System | Core (Device Model) | CRITICAL | The device/entity registry was rebuilt from the event log due to corruption or data loss. Carries the rebuild trigger, duration, and entity count. |
-| `system_storage_critical` | System | Core (Persistence Layer) | CRITICAL | Disk usage has exceeded a critical threshold. The system may begin emergency retention to preserve operability. |
 
 **Telemetry:**
 
 | Event Type | Subject | Producer | Default Priority | Description |
 |---|---|---|---|---|
 | `telemetry_summary` | Entity | Persistence Layer (Aggregation Engine) | DIAGNOSTIC | Aggregated summary of raw telemetry samples promoted to the domain event path. Carries `min`, `max`, `mean`, `sum`, `count`, `period_start`, `period_end`, `partial` flag. |
-| `telemetry_store_rebuilt` | System | Persistence Layer | NORMAL | The telemetry ring store was recreated after corruption or file loss. Carries `reason`, `previous_max_seq`. |
 
 **Health / Subscriber:**
 
@@ -760,7 +756,7 @@ When the Persistence Layer detects storage pressure exceeding the CRITICAL thres
 If the domain event store remains full after all emergency retention steps are exhausted, the system enters a degraded state where:
 - Only CRITICAL events are accepted for persistence
 - All non-CRITICAL events are rejected with a structured error
-- The `storage_pressure_changed` event (CRITICAL) records the transition
+- A `system_storage_critical` event (CRITICAL) records the transition to degraded-accept-only mode; a `storage_pressure_changed` event (NORMAL) records the pressure level change for general observability
 - The health indicator reports UNHEALTHY with a human-readable explanation
 - The REST API health endpoint includes the pressure level and recommended action
 
@@ -907,7 +903,7 @@ event_model:
 
 All targets are specified for the primary deployment target: Raspberry Pi 5, 4 GB RAM, NVMe SSD storage, running the JVM configuration in LTD-01.
 
-| Metric | Target | Rationale | Test Method |
+| Metric | Target (Raspberry Pi 5, 4 GB RAM) | Rationale | Test Method |
 |---|---|---|---|
 | Event append latency (p99) | < 10 ms | Device state changes must be recorded within the time budget that makes automation trigger-to-action feel instant. This is the write-path contribution to the 50 ms trigger-to-action budget. | Benchmark: append 10,000 events in sequence, measure p99 latency. |
 | Event append throughput (sustained) | > 500 events/sec | 10x expected peak for a 50-device home. Provides headroom for event storms during mesh recovery. | Benchmark: sustain 500 events/sec for 60 seconds, verify no events lost and no subscriber falls behind. |

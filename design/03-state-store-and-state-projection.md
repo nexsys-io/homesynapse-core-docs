@@ -660,7 +660,7 @@ All options have sensible defaults. HomeSynapse runs correctly with zero configu
 
 All targets are specified for the primary deployment target: Raspberry Pi 5, 4 GB RAM, NVMe SSD storage, running the JVM configuration in LTD-01.
 
-| Metric | Target (RPi4 4GB) | Rationale | Test Method |
+| Metric | Target (Raspberry Pi 5, 4 GB RAM) | Rationale | Test Method |
 |---|---|---|---|
 | State query latency, single entity (p99) | < 1 ms | ConcurrentHashMap get + immutable record read. Must be effectively free. Constitutional target INV-PR-02 sets < 10 ms for state queries; this subsystem's contribution is a fraction of that budget. | Benchmark: 10,000 sequential `getState()` calls against a populated view, measure p99. |
 | State query latency, full snapshot (p99) | < 5 ms | Creates an immutable copy of the map — O(N) at 150 entities. The 5 ms budget accounts for map copy overhead and GC jitter. Matches the MVP project document's state query target (§8.2). | Benchmark: 10,000 sequential `getSnapshot()` calls, measure p99. |
