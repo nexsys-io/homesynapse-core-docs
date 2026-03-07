@@ -4,7 +4,7 @@
 **Status:** Locked
 **Subsystem:** Event Model & Event Bus
 **Dependencies:** None (foundational)
-**Dependents:** Device Model & Capability System (§4.3 event type taxonomy, §3.1 producer boundaries), State Store (§3.2 state event lifecycle, §3.4 subscription model), Persistence Layer (§3.3 retention tiers, §3.5 telemetry boundary, §4.2 domain event store schema, §6.5 emergency retention, §9 retention configuration), Integration Runtime (§3.1 producer boundaries, §3.9 origin model), Automation Engine (§3.2 state_changed subscription, §3.7 processing modes), Configuration System (§9 YAML schema), REST API (§4.1 event envelope, §4.3 event type taxonomy), WebSocket API (§3.4 subscription model), Observability & Debugging (§11 metrics and health), Startup, Lifecycle & Shutdown (§3.7 processing modes, §6 failure recovery)
+**Dependents:** Device Model & Capability System (§4.3 event type taxonomy, §3.1 producer boundaries), State Store (§3.2 state event lifecycle, §3.4 subscription model), Persistence Layer (§3.3 retention tiers, §3.5 telemetry boundary, §4.2 domain event store schema, §6.5 emergency retention, §9 retention configuration), Integration Runtime (§3.1 producer boundaries, §3.9 origin model), Automation Engine (§3.2 state_changed subscription, §3.7 processing modes), Configuration System (§3.2 schema composition consumes §9 YAML schema convention, §3.3 reload pipeline produces config_changed events via §8.3 EventPublisher, §3.6 validation error model produces config_error events per §4.3 taxonomy, §4.4 event payload follows §3.9 event envelope contract, §5 C6 depends on §4.2 write-ahead persistence guarantee), REST API (§4.1 event envelope, §4.3 event type taxonomy), WebSocket API (§3.4 subscription model), Observability & Debugging (§11 metrics and health), Startup, Lifecycle & Shutdown (§3.7 processing modes, §6 failure recovery)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-04
 
@@ -125,7 +125,7 @@ Rule T1: Integration adapters produce only `state_reported` for attribute observ
 
 Rule T2: `state_changed`, `state_confirmed`, and `command_dispatched` are emitted exclusively by core projections and services. The State Projection produces `state_changed` and `state_confirmed`. The command dispatch service produces `command_dispatched`.
 
-Rule T3: System lifecycle events (`system_started`, `system_stopped`, `migration_applied`, `snapshot_created`, `config_changed`) are produced exclusively by the core runtime. Integrations must not produce these types.
+Rule T3: System lifecycle events (system_started, system_stopped, migration_applied, snapshot_created, config_changed, config_error) are produced exclusively by the core runtime. Integrations must not produce these types.
 
 The core runtime also produces `entity_enabled` and `entity_disabled` events when a user or automation enables or disables an entity. These are entity lifecycle events, not state events — they do not flow through the state event lifecycle (§3.2). Automations may trigger enable/disable as an action (e.g., "disable the outdoor camera entity when the privacy mode automation activates"). The enable/disable state is stored as a registry property on the entity record, not as a state attribute — it is not observable through the `state_reported` → `state_changed` pathway.
 
@@ -528,6 +528,7 @@ The `event_type` field carries a string identifier. Core event types use undersc
 | `system_started` | System | Core Runtime | CRITICAL | HomeSynapse process started. |
 | `system_stopped` | System | Core Runtime | CRITICAL | HomeSynapse process is shutting down. |
 | `config_changed` | System | Core Runtime | NORMAL | Configuration was modified. |
+ `config_error` | System | Configuration System | DIAGNOSTIC | A configuration validation issue caused a key to revert to its schema-defined default at startup. Carries `path`, `severity`, `message`, and `applied_default`. Produced once per ERROR-severity issue during startup loading. Not produced during reload (reload rejects entirely on ERROR). |
 | `migration_applied` | System | Core Runtime | CRITICAL | A schema migration completed. |
 | `snapshot_created` | System | Core Runtime | CRITICAL | A backup snapshot was created. |
 | `system_storage_critical` | System | Core Runtime | CRITICAL | Disk space has fallen below the emergency threshold. |

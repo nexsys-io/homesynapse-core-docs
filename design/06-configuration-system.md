@@ -3,7 +3,7 @@
 **Document type:** Subsystem design
 **Status:** Draft
 **Subsystem:** Configuration System
-**Dependencies:** Event Model & Event Bus (§4.3 `config_changed` event type, §8.3 EventPublisher, §9 YAML schema convention), Glossary v1 (§6.1 Configuration concept), LTD-09 (YAML 1.2, SnakeYAML Engine, JSON Schema, `/etc/homesynapse/`), Architecture Invariants v1 (§8 INV-CE-01 through INV-CE-06, §10 INV-SE-03)
+**Dependencies:** Event Model & Event Bus (§4.3 `config_changed` event type, §8.3 EventPublisher, §9 YAML schema convention), Integration Runtime (§3.8 ConfigurationAccess interface contract, §9 override precedence for integration health parameters, IntegrationDescriptor schema declaration), Glossary v1 (§6.1 Configuration concept), LTD-09 (YAML 1.2, SnakeYAML Engine, JSON Schema, `/etc/homesynapse/`), Architecture Invariants v1 (§8 INV-CE-01 through INV-CE-06, §10 INV-SE-03)
 **Dependents:** Automation Engine (§3.2 schema registration, §3.5 well-known file path for automation definitions), Zigbee Adapter (§3.2 integration schema via IntegrationDescriptor), REST API (§8.1 ConfigurationService for config read/write/reload endpoints), Startup, Lifecycle & Shutdown (§3.1 config loading as first stage in startup sequence)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-06
@@ -46,7 +46,7 @@ A second failure mode this subsystem addresses is YAML 1.1 type coercion, where 
 - Composing the unified JSON Schema from static core schemas and dynamic integration schemas.
 - Validating parsed configuration against the composed schema.
 - Maintaining the typed in-memory configuration model.
-- Orchestrating reload: re-parsing, diffing, classifying changes, applying hot changes, producing `config_changed` events.
+- Orchestrating reload: re-parsing, diffing, classifying changes, applying hot changes, producing `config_changed` events and `config_error` diagnostic events.
 - The UI/API write path: mutating the in-memory model and atomically flushing to disk with optimistic concurrency control.
 - Publishing the composed JSON Schema to a well-known path for VS Code auto-completion.
 - Implementing the `ConfigurationAccess` interface defined in **Integration Runtime** §3.8.
@@ -102,6 +102,8 @@ Tag resolution produces a fully materialized map with no unresolved references. 
 
 **Stage 4: Default merge.** The composed JSON Schema (§3.2) declares a `default` value for every property. The merge walks the schema tree and inserts defaults for any key absent from the parsed map. This is how INV-CE-02 is satisfied: an empty file produces a complete configuration using only schema defaults.
 
+**Integration health override merge.** The four-layer integration override precedence defined in **Integration Runtime** §9 (`health_defaults → IntegrationDescriptor → overrides.{type} → user YAML`) is resolved during this stage. For each registered integration type, the merge proceeds in precedence order: code-level health defaults from the integration runtime are applied first, then IntegrationDescriptor-declared values overlay those defaults, then per-type overrides from the `overrides.{type}:` section of the YAML are applied, and finally any user-specified values under the integration's section take highest precedence. This merge occurs after the general schema default merge and before schema validation, so the composed result passes through validation as a unified map. The Integration Runtime defines the semantics of each layer; this subsystem implements the mechanical merge.
+
 **Stage 5: Schema validation.** The merged map is validated against the composed JSON Schema using `networknt:json-schema-validator` (LTD-09). Validation runs with `allErrors` mode to collect every issue in a single pass. Each issue is classified per §3.6 (FATAL, ERROR, or WARNING). If any FATAL issues exist, loading aborts. ERROR issues cause the affected key to revert to its schema default; a `ConfigIssue` record is retained for reporting. WARNING issues are recorded but do not alter values.
 
 **Stage 6: Model construction.** The validated, defaulted map is projected into a typed, immutable `ConfigModel` (§4.1). The model is the sole runtime representation of configuration. All subsystem access goes through this model; no subsystem re-reads the YAML file.
@@ -110,7 +112,7 @@ Tag resolution produces a fully materialized map with no unresolved references. 
 
 The Configuration System manages two categories of schema:
 
-**Core schemas** are static JSON Schema files bundled in the HomeSynapse distribution. One file per subsystem: `event-bus.schema.json`, `device-model.schema.json`, `state-store.schema.json`, `persistence.schema.json`, `integration-runtime.schema.json`. Each corresponds to a top-level YAML key defined in Docs 01–05 §9. A shared `definitions.schema.json` holds reusable types (durations, byte sizes, log levels). These files carry a `$schema` draft and a `version` property that tracks the config schema version (INV-CE-03).
+**Core schemas** are static JSON Schema files bundled in the HomeSynapse distribution. One file per subsystem: `event-bus.schema.json`, `device-model.schema.json`, `state-store.schema.json`, `persistence.schema.json`, `integration-runtime.schema.json`, `config-system.schema.json`. Each corresponds to a top-level YAML key defined in Docs 01–05 §9 and this document's §9 respectively. A shared `definitions.schema.json` holds reusable types (durations, byte sizes, log levels). These files carry a `$schema` draft and a `version` property that tracks the config schema version (INV-CE-03).
 
 **Integration schemas** are contributed at runtime. Each `IntegrationDescriptor` (see **Integration Runtime** §3.8) may declare a JSON Schema fragment for the `integrations.{type}:` section. The `SchemaRegistry` accepts these fragments during integration registration and stores them keyed by integration type.
 
@@ -188,12 +190,12 @@ The write path satisfies INV-CE-01: the UI and API modify the same YAML file tha
 
 **Write protocol:**
 
-1. **Read current model.** The caller obtains the active `ConfigModel` and the file's recorded last-modified timestamp (the "expected version").
-2. **Compute mutation.** The caller specifies the changes as a set of (section_path, key, new_value) tuples.
+1. **Read current model.** The caller obtains the active `ConfigModel` and the file's `fileModifiedAt` timestamp (the concurrency token recorded at load time).
+2. **Compute mutation.** The caller specifies the changes as a `List<ConfigMutation>` — a set of (sectionPath, key, newValue) tuples.
 3. **Acquire write lock.** A single `ReentrantLock` serializes all write operations. Only one writer at a time.
-4. **Concurrency check.** Before writing, stat the config file. If the current last-modified timestamp differs from the expected version, reject the write with a `ConcurrentModificationException`. This detects external edits (text editor, `scp`, Git pull) that occurred between the read and the write.
+4. **Concurrency check.** Before writing, stat the config file. If the current last-modified timestamp differs from the `fileModifiedAt` concurrency token, reject the write with a `ConcurrentModificationException`. This detects external edits (text editor, `scp`, Git pull) that occurred between the read and the write.
 5. **Apply and validate.** Apply the mutations to a copy of the current in-memory map. Run schema validation on the mutated copy. If validation produces FATAL or ERROR issues, reject the write.
-6. **Atomic flush.** Serialize the mutated map to YAML using SnakeYAML Engine's emitter. Write to a temporary file in the same directory (`config.yaml.tmp`). Call `fsync()`. Rename to `config.yaml` (atomic on POSIX). Update the recorded last-modified timestamp.
+6. **Atomic flush.** Serialize the mutated map to YAML using SnakeYAML Engine's emitter. Write to a temporary file in the same directory (`config.yaml.tmp`). Call `fsync()`. Rename to `config.yaml` (atomic on POSIX). Update the recorded `fileModifiedAt` timestamp.
 7. **Reload.** Trigger the reload pipeline (§3.3) to activate the new configuration.
 8. **Release write lock.**
 
@@ -207,7 +209,7 @@ Validation produces a list of `ConfigIssue` records (§4.5), each classified int
 
 **FATAL.** The configuration cannot be loaded at all. Examples: YAML syntax error (malformed file), unresolvable `!secret` reference (key not in secrets store), unresolvable `!env` reference (variable not set, no default), `schema_version` incompatible with the running HomeSynapse version. On startup, FATAL issues cause the process to exit with code 2. On reload, FATAL issues cause the reload to be rejected; the active configuration remains unchanged.
 
-**ERROR.** A specific configuration value is invalid, but the rest of the configuration is usable. Examples: negative integer where a positive integer is required, string value where an enum is expected, value outside the declared `minimum`/`maximum` range. The affected key reverts to its JSON Schema default value. A `ConfigIssue` record is retained. A `config_error` diagnostic event is produced. The dashboard displays a persistent notification identifying the key, the invalid value, and the applied default. On startup, ERROR issues allow the process to start (exit code 0, but with warnings logged). On reload, ERROR issues cause the reload to be rejected entirely; a partially corrected configuration is never applied.
+**ERROR.** A specific configuration value is invalid, but the rest of the configuration is usable. Examples: negative integer where a positive integer is required, string value where an enum is expected, value outside the declared `minimum`/`maximum` range. The affected key reverts to its JSON Schema default value. A `ConfigIssue` record is retained. A `config_error` diagnostic event is produced for each ERROR-severity issue (see **Event Model & Event Bus** §4.3 — `config_error` is a System lifecycle event with DIAGNOSTIC priority and SYSTEM origin, using the well-known system subject reference). The dashboard displays a persistent notification identifying the key, the invalid value, and the applied default. On startup, ERROR issues allow the process to start (exit code 0, but with warnings logged). On reload, ERROR issues cause the reload to be rejected entirely; a partially corrected configuration is never applied.
 
 **WARNING.** The configuration is valid but contains something worth noting. Examples: deprecated key (still functional, scheduled for removal per INV-CS-06), unknown key (possible typo — detected because JSON Schema uses `additionalProperties: false` on known sections), value near the boundary of its valid range. No value is changed. The issue is logged and surfaced in the dashboard.
 
@@ -227,17 +229,21 @@ The in-memory representation of a validated, complete configuration. The `Config
 public record ConfigModel(
     int schemaVersion,
     Instant loadedAt,
+    Instant fileModifiedAt,           // file mtime at read time; concurrency token for write path (§3.5)
     EventBusConfig eventBus,
     DeviceModelConfig deviceModel,
     StateStoreConfig stateStore,
     PersistenceConfig persistence,
     IntegrationRuntimeConfig integrationRuntime,
+    ConfigSystemConfig configSystem,
     Map<String, IntegrationConfig> integrations,
     Map<String, Object> rawMap        // full parsed map for ConfigurationAccess
 ) {}
 ```
 
-Each subsystem-specific record (`EventBusConfig`, `DeviceModelConfig`, etc.) is a typed Java record mirroring the JSON Schema for that section, with field types enforced at construction. Integration-specific configs are stored as `Map<String, IntegrationConfig>` keyed by integration type, where `IntegrationConfig` is a thin wrapper over the validated subtree (satisfying the `ConfigurationAccess` contract from **Integration Runtime** §3.8).
+Each subsystem-specific record (`EventBusConfig`, `DeviceModelConfig`, `ConfigSystemConfig`, etc.) is a typed Java record mirroring the JSON Schema for that section, with field types enforced at construction. Integration-specific configs are stored as `Map<String, IntegrationConfig>` keyed by integration type, where `IntegrationConfig` is a thin wrapper over the validated subtree (satisfying the `ConfigurationAccess` contract from **Integration Runtime** §3.8).
+
+The `fileModifiedAt` field records the file's last-modified timestamp at the time of the file read (§3.1 stage 1). This serves as the optimistic concurrency token for the UI/API write path (§3.5). It is distinct from `loadedAt`, which records the wall-clock time when the `ConfigModel` was constructed.
 
 ### 4.2 ConfigSection
 
@@ -282,11 +288,12 @@ public enum ReloadClassification {
 
 ### 4.4 config_changed Event Payload
 
-The `config_changed` event is defined in **Event Model & Event Bus** §4.3 as a system lifecycle event with subject type System, producer Core Runtime, and NORMAL priority. The Configuration System produces one event per changed section during a reload.
+The `config_changed` event is defined in **Event Model & Event Bus** §4.3 as a system lifecycle event with subject type System, producer Core Runtime, and NORMAL priority. The Configuration System produces one event per changed section during a reload. All `config_changed` events use the well-known system subject reference — the same singleton system ULID used by `system_started` and `system_stopped` events (see **Event Model & Event Bus** §4.2).
 
 ```json
 {
   "event_type": "config_changed",
+  "subject_ref": "<well-known-system-subject-ulid>",
   "subject_type": "system",
   "priority": "NORMAL",
   "origin": "SYSTEM",
@@ -301,7 +308,30 @@ The `config_changed` event is defined in **Event Model & Event Bus** §4.3 as a 
 
 The `trigger` field records how the reload was initiated: `api`, `cli`, `signal`, or `startup` (initial load). The `reload_classification` field carries the most restrictive classification among the changed keys in the section (if one key is `hot` and another is `process-restart`, the section-level classification is `process-restart`).
 
-### 4.5 ConfigIssue
+### 4.5 config_error Event Payload
+
+The `config_error` event is a System lifecycle event with DIAGNOSTIC priority, SYSTEM origin, and the well-known system subject reference. The Configuration System produces one event per ERROR-severity validation issue at startup. This event type is distinct from `config_changed` to avoid overloading the semantics of normal configuration changes with error reporting.
+
+```json
+{
+  "event_type": "config_error",
+  "subject_ref": "<well-known-system-subject-ulid>",
+  "subject_type": "system",
+  "priority": "DIAGNOSTIC",
+  "origin": "SYSTEM",
+  "payload": {
+    "path": "/persistence/retention/normal_days",
+    "severity": "ERROR",
+    "message": "Value -5 is less than minimum 1",
+    "applied_default": 90,
+    "trigger": "startup"
+  }
+}
+```
+
+The `config_error` type is registered in the **Event Model & Event Bus** §4.3 taxonomy via Round 5 upstream amendment A-01-R5-1.
+
+### 4.6 ConfigIssue
 
 A single validation finding.
 
@@ -318,7 +348,19 @@ public record ConfigIssue(
 public enum Severity { FATAL, ERROR, WARNING }
 ```
 
-### 4.6 SecretEntry
+### 4.7 ConfigMutation
+
+A single key-level mutation for the UI/API write path (§3.5). Used by `ConfigurationService.write()` (§8.3).
+
+```java
+public record ConfigMutation(
+    String sectionPath,               // e.g., "persistence.retention"
+    String key,                       // e.g., "normal_days"
+    Object newValue                   // the new value; null to remove the key (revert to default)
+) {}
+```
+
+### 4.8 SecretEntry
 
 Internal representation within the decrypted secrets store.
 
@@ -405,7 +447,7 @@ The serialized form is a JSON object `{ "entries": [...], "version": 1 }`, encry
 
 **Impact:** FATAL issues prevent startup. ERROR issues cause the affected keys to revert to schema defaults; the system starts with those defaults applied. WARNING issues are logged.
 
-**Recovery:** Each `ConfigIssue` carries the JSON Schema path, the invalid value, the human-readable explanation, and (for ERROR) the default that was applied. A `config_error` diagnostic event is produced for each ERROR. The dashboard shows persistent notifications.
+**Recovery:** Each `ConfigIssue` carries the JSON Schema path, the invalid value, the human-readable explanation, and (for ERROR) the default that was applied. A `config_error` diagnostic event is produced for each ERROR-severity issue. The dashboard shows persistent notifications.
 
 ### 6.6 Schema Validation Failure on Reload
 
@@ -417,7 +459,7 @@ The serialized form is a JSON object `{ "entries": [...], "version": 1 }`, encry
 
 ### 6.7 Concurrent File Modification Detected
 
-**Trigger:** A UI/API write is attempted, but the file's last-modified timestamp does not match the expected version recorded at read time. This means an external editor modified the file between the UI read and the UI write.
+**Trigger:** A UI/API write is attempted, but the file's last-modified timestamp does not match the `fileModifiedAt` concurrency token recorded at read time. This means an external editor modified the file between the UI read and the UI write.
 
 **Impact:** The write is rejected with a `ConcurrentModificationException`. No data is lost.
 
@@ -445,7 +487,7 @@ The serialized form is a JSON object `{ "entries": [...], "version": 1 }`, encry
 
 | Subsystem | Direction | Mechanism | Data | Constraints |
 |---|---|---|---|---|
-| Event Model & Event Bus | Produces events via | `EventPublisher.publishRoot()` | `config_changed` events (NORMAL priority, SYSTEM origin, system subject) per changed section after reload | Events are persisted before subscribers are notified (C6, INV-ES-04). One event per changed section, not per changed key. |
+| Event Model & Event Bus | Produces events via | `EventPublisher.publishRoot()` | `config_changed` events (NORMAL priority, SYSTEM origin, well-known system subject) per changed section after reload; `config_error` events (DIAGNOSTIC priority, SYSTEM origin, well-known system subject) per ERROR-severity validation issue at startup | Events are persisted before subscribers are notified (C6, INV-ES-04). One `config_changed` per changed section, not per changed key. `config_error` events produced only at startup when ERROR issues cause default reversion. |
 | Event Model & Event Bus (Doc 01 §9) | Manages schema for | Schema composition (§3.2) | `event_bus:` section schema | Core schema, static, bundled in distribution. |
 | Device Model (Doc 02 §9) | Manages schema for | Schema composition (§3.2) | `device_model:` section schema | Core schema, static, bundled in distribution. |
 | State Store (Doc 03 §9) | Manages schema for | Schema composition (§3.2) | `state_store:` section schema | Core schema, static, bundled in distribution. |
@@ -477,10 +519,11 @@ The serialized form is a JSON object `{ "entries": [...], "version": 1 }`, encry
 
 | Type | Kind | Responsibility |
 |---|---|---|
-| `ConfigModel` | Record | Immutable, typed, validated in-memory configuration. The runtime representation. |
+| `ConfigModel` | Record | Immutable, typed, validated in-memory configuration. The runtime representation. Includes `fileModifiedAt` concurrency token. |
 | `ConfigSection` | Record | A subtree of the configuration identified by dotted path. |
 | `ConfigChangeSet` | Record | The diff between two ConfigModels, with per-key reload classification. |
 | `ConfigChange` | Record | A single key change with old/new values and reload classification. |
+| `ConfigMutation` | Record | A single key-level mutation for the write path: sectionPath, key, newValue. |
 | `ReloadClassification` | Enum | `HOT`, `INTEGRATION_RESTART`, `PROCESS_RESTART`. |
 | `ConfigIssue` | Record | A validation finding with severity, path, message, and applied default. |
 | `Severity` | Enum | `FATAL`, `ERROR`, `WARNING`. |
@@ -496,7 +539,7 @@ The serialized form is a JSON object `{ "entries": [...], "version": 1 }`, encry
 
 `getSection(String path)` — Return a `ConfigSection` for the given dotted path (e.g., `"persistence.retention"`). Returns `Optional.empty()` if the path does not exist.
 
-`write(List<ConfigMutation> mutations, Instant expectedVersion)` — Apply mutations through the write path (§3.5). The `expectedVersion` is the `loadedAt` timestamp of the model the caller read. Throws `ConcurrentModificationException` if the file was modified externally. Throws `ConfigurationValidationException` if the mutated configuration fails validation.
+`write(List<ConfigMutation> mutations, Instant fileModifiedAt)` — Apply mutations through the write path (§3.5). The `fileModifiedAt` parameter is the `fileModifiedAt` timestamp from the `ConfigModel` the caller read — the file's last-modified time at the point the model was loaded. This serves as the optimistic concurrency token. Throws `ConcurrentModificationException` if the file was modified externally since the model was loaded. Throws `ConfigurationValidationException` if the mutated configuration fails validation.
 
 ### 8.4 ConfigurationAccess Method Summary
 
@@ -524,7 +567,7 @@ The implementation is constructed by the Configuration System at integration reg
 
 ### 8.6 SchemaRegistry Method Summary
 
-`registerCoreSchema(String sectionName, JsonSchema schema)` — Register a static core subsystem schema. Called during startup for each of Docs 01–05 §9 sections.
+`registerCoreSchema(String sectionName, JsonSchema schema)` — Register a static core subsystem schema. Called during startup for each of Docs 01–05 §9 sections and the `config_system:` section defined in this document's §9.
 
 `registerIntegrationSchema(String integrationType, JsonSchema schema)` — Register an integration's schema fragment. Called during integration registration.
 
@@ -582,15 +625,15 @@ config_system:
 
 All targets are specified for the primary deployment target: Raspberry Pi 5, 4 GB RAM, NVMe SSD storage, running the JVM configuration in LTD-01.
 
-| Metric | Target | Rationale | Test Method |
+| Metric | Target (Raspberry Pi 5, 4 GB RAM) | Rationale | Test Method |
 |---|---|---|---|
-| Config load + validate latency at startup (including schema composition) | < 200 ms (p99) | Configuration loading is on the critical startup path. Doc 12 (Startup, Lifecycle & Shutdown) budgets total startup time; config loading must not consume a significant fraction. 200 ms allows parsing, secret decryption, default merge, schema composition with 7 schemas, and validation. | Benchmark: load a representative config file (5 core sections + 2 integration sections, ~150 keys) 100 times, measure p99. |
+| Config load + validate latency at startup (including schema composition) | < 200 ms (p99) | Configuration loading is on the critical startup path. Doc 12 (Startup, Lifecycle & Shutdown) budgets total startup time; config loading must not consume a significant fraction. 200 ms allows parsing, secret decryption, default merge, schema composition with 7 schemas, and validation. | Benchmark: load a representative config file (6 core sections + 2 integration sections, ~150 keys) 100 times, measure p99. |
 | Reload latency (re-parse + validate + diff + event production) | < 150 ms (p99) | Reload skips schema composition (schema is cached). The user waiting for a reload response expects near-instant feedback. | Benchmark: reload with 10 changed keys across 3 sections, measure p99 over 100 iterations. |
-| Schema composition duration | < 100 ms | Composing 5 core schemas + 2 integration schemas into a single JSON Schema. Dominated by JSON Schema `$ref` resolution and merging. Runs once at startup. | Benchmark: compose 7 schemas of representative size (50–100 properties each), measure wall-clock time. |
+| Schema composition duration | < 100 ms | Composing 6 core schemas + 2 integration schemas into a single JSON Schema. Dominated by JSON Schema `$ref` resolution and merging. Runs once at startup. | Benchmark: compose 8 schemas of representative size (50–100 properties each), measure wall-clock time. |
 | Secret store decrypt latency | < 10 ms | AES-256-GCM decryption of a secrets file with 20 entries (~2 KB ciphertext). The Java `javax.crypto` implementation on ARMv8 uses hardware AES instructions on Pi 5. | Benchmark: decrypt a 20-entry secrets store 1,000 times, measure p99. |
 | `validate-config` CLI execution time (cold JVM start to exit) | < 3 seconds | The CLI must start, load config, compose schemas, validate, and report. Dominated by JVM startup and class loading via jlink runtime (LTD-13). The actual validation is a fraction of the total. Users run this interactively; more than 3 seconds feels sluggish. | End-to-end: time `homesynapse validate-config` from shell invocation to exit on a representative config. |
-| ConfigModel memory footprint (5 core schemas + 2 integration schemas, ~150 keys) | < 500 KB | The ConfigModel is a tree of Java records. At 150 keys with string/integer/boolean values, the object graph is small. The raw map is retained for ConfigurationAccess; this roughly doubles the typed-record cost. | JFR allocation profiling: measure retained heap of ConfigModel after a representative load. |
-| Composed schema file size | < 200 KB | The composed schema for 5 core + 2 integration schemas with descriptions, defaults, and x-reload annotations. Must be small enough for the Red Hat YAML extension to load without perceptible delay. | Measurement: serialize the composed schema, check file size. |
+| ConfigModel memory footprint (6 core schemas + 2 integration schemas, ~150 keys) | < 500 KB | The ConfigModel is a tree of Java records. At 150 keys with string/integer/boolean values, the object graph is small. The raw map is retained for ConfigurationAccess; this roughly doubles the typed-record cost. | JFR allocation profiling: measure retained heap of ConfigModel after a representative load. |
+| Composed schema file size | < 200 KB | The composed schema for 6 core + 2 integration schemas with descriptions, defaults, and x-reload annotations. Must be small enough for the Red Hat YAML extension to load without perceptible delay. | Measurement: serialize the composed schema, check file size. |
 
 ---
 
@@ -649,7 +692,7 @@ The secrets store uses AES-256-GCM authenticated encryption. The 256-bit encrypt
 
 AES-256-GCM provides both confidentiality and integrity. A tampered `secrets.enc` file fails GCM authentication, producing a clear error (§6.9) rather than silent data corruption. Each encryption operation uses a fresh 96-bit nonce generated via `SecureRandom`, prepended to the ciphertext.
 
-**Key rotation** is a post-MVP concern. The MVP encryption model uses a single static key for the lifetime of the installation. A future key rotation mechanism would decrypt the store with the old key, re-encrypt with a new key, and atomically replace both files. The `SecretEntry.version` field in the store format (§4.6) accommodates this by allowing the store format to evolve without breaking existing installations.
+**Key rotation** is a post-MVP concern. The MVP encryption model uses a single static key for the lifetime of the installation. A future key rotation mechanism would decrypt the store with the old key, re-encrypt with a new key, and atomically replace both files. The `SecretEntry.version` field in the store format (§4.8) accommodates this by allowing the store format to evolve without breaking existing installations.
 
 ### 12.2 File Permissions
 
@@ -669,7 +712,7 @@ Integration schemas should annotate credential fields (`api_key`, `password`, `t
 
 ### 12.4 Event Payload Safety
 
-`config_changed` event payloads (§4.4) carry `section_path`, `reload_classification`, `changed_keys` (key names only), and `trigger`. They never carry configuration values — old or new. This ensures that sensitive configuration data does not enter the event log, where it would be retained per the event retention policy and visible to any event log consumer.
+`config_changed` event payloads (§4.4) carry `section_path`, `reload_classification`, `changed_keys` (key names only), and `trigger`. They never carry configuration values — old or new. Similarly, `config_error` event payloads (§4.5) carry the JSON Schema path, severity, message, and applied default, but never the invalid value if the path is annotated `x-sensitive`. This ensures that sensitive configuration data does not enter the event log, where it would be retained per the event retention policy and visible to any event log consumer.
 
 ### 12.5 Composed Schema Safety
 
@@ -689,7 +732,7 @@ The UI/API write path (§3.5) modifies the canonical configuration file. Authent
 
 **YAML tag constructor: `!env`.** Set an environment variable, parse YAML containing `!env VAR_NAME`. Verify resolution. Parse with an unset variable and no default. Verify FATAL. Parse `!env VAR_NAME:fallback` with an unset variable. Verify the fallback value is used.
 
-**Schema composition with mock integration schemas.** Register 3 core schemas and 2 integration schemas with overlapping definition names. Verify the composed schema is valid JSON Schema, contains all sections, resolves `$ref` correctly, and `additionalProperties: false` is set on known sections.
+**Schema composition with mock integration schemas.** Register 6 core schemas and 2 integration schemas with overlapping definition names. Verify the composed schema is valid JSON Schema, contains all sections (including `config_system:`), resolves `$ref` correctly, and `additionalProperties: false` is set on known sections.
 
 **Default merge completeness.** Define a schema with 20 properties, all with defaults. Parse an empty YAML map. Verify every property is present in the merged output with its schema-defined default value. Verify that user-provided values override defaults and are not clobbered.
 
@@ -697,15 +740,19 @@ The UI/API write path (§3.5) modifies the canonical configuration file. Authent
 
 **Reload diff correctness.** Construct two ConfigModels differing in 3 keys across 2 sections. Compute the diff. Verify the `ConfigChangeSet` contains exactly 3 `ConfigChange` records, each with correct old/new values, correct section paths, and `x-reload` classifications matching the schema.
 
-**Optimistic concurrency rejection.** Set the recorded file timestamp to T1. Modify the file externally (updating its timestamp to T2). Attempt a write with expected version T1. Verify `ConcurrentModificationException` is thrown. Verify the file content is unchanged.
+**Optimistic concurrency rejection.** Set the recorded `fileModifiedAt` timestamp to T1. Modify the file externally (updating its timestamp to T2). Attempt a write with `fileModifiedAt` T1. Verify `ConcurrentModificationException` is thrown. Verify the file content is unchanged.
 
 **Atomic write behavior.** Write a valid config through the write path. Verify `config.yaml.tmp` does not exist after completion (renamed to `config.yaml`). Simulate a write failure (mock `fsync()` throwing `IOException`). Verify the temp file is deleted and the original file is unchanged.
 
+**ConfigMutation application.** Construct a `ConfigMutation` with sectionPath, key, and newValue. Apply it to a copy of the in-memory map. Verify the specified key is updated. Construct a `ConfigMutation` with null newValue. Apply it. Verify the key is removed (reverts to schema default on next merge).
+
 ### 13.2 Integration Tests
 
-**Full load pipeline.** Write a config file with 5 core sections, 2 integration sections, 3 `!secret` references, and 1 `!env` reference. Provision the secrets store and environment variable. Load via `ConfigurationService.load()`. Verify the resulting `ConfigModel` has correct typed values for all sections, resolved secrets, and resolved environment variable.
+**Full load pipeline.** Write a config file with 6 core sections, 2 integration sections, 3 `!secret` references, and 1 `!env` reference. Provision the secrets store and environment variable. Load via `ConfigurationService.load()`. Verify the resulting `ConfigModel` has correct typed values for all sections (including `configSystem`), resolved secrets, and resolved environment variable.
 
-**Reload with `config_changed` event verification.** Load a config. Modify 2 keys in the `persistence.retention` section on disk. Trigger reload. Verify a `config_changed` event was produced via EventPublisher with `section_path: "persistence.retention"`, `changed_keys` listing the 2 keys, and correct `reload_classification`.
+**Reload with `config_changed` event verification.** Load a config. Modify 2 keys in the `persistence.retention` section on disk. Trigger reload. Verify a `config_changed` event was produced via EventPublisher with `section_path: "persistence.retention"`, `changed_keys` listing the 2 keys, correct `reload_classification`, and the well-known system subject reference.
+
+**Startup with ERROR-severity issues produces `config_error` events.** Write a config file with one ERROR-severity issue (e.g., negative integer for a positive-only field). Load via `ConfigurationService.load()`. Verify the system starts with the key reverted to its default. Verify a `config_error` event was produced via EventPublisher with the correct path, severity, message, and applied default in the payload.
 
 **Secrets CLI round-trip.** Run `homesynapse secrets set test_key test_value`. Run `homesynapse secrets list`. Verify `test_key` appears. Run `homesynapse secrets get test_key`. Verify output is `test_value`. Run `homesynapse secrets remove test_key`. Run `homesynapse secrets list`. Verify `test_key` is absent.
 
@@ -715,11 +762,11 @@ The UI/API write path (§3.5) modifies the canonical configuration file. Authent
 
 ### 13.3 Performance Tests
 
-**Startup load latency.** Construct a config with 5 core sections, 2 integration sections (~150 keys), 5 secrets. Measure p99 load time over 100 iterations on Pi 5. Target: < 200 ms.
+**Startup load latency.** Construct a config with 6 core sections, 2 integration sections (~150 keys), 5 secrets. Measure p99 load time over 100 iterations on Pi 5. Target: < 200 ms.
 
 **Reload latency under load.** While the event bus is processing 100 events/second (simulated), trigger a reload with 10 changed keys. Measure p99 reload duration. Target: < 150 ms. Verify event production does not stall during reload.
 
-**Schema composition with 20 integration schemas.** Register 5 core schemas and 20 integration schemas (simulating a mature installation). Measure composition time. This validates that the design scales beyond MVP without architectural change. Target: < 500 ms (relaxed from the MVP target of < 100 ms for 7 schemas).
+**Schema composition with 20 integration schemas.** Register 6 core schemas and 20 integration schemas (simulating a mature installation). Measure composition time. This validates that the design scales beyond MVP without architectural change. Target: < 500 ms (relaxed from the MVP target of < 100 ms for 8 schemas).
 
 ### 13.4 Failure Tests
 
@@ -728,6 +775,8 @@ The UI/API write path (§3.5) modifies the canonical configuration file. Authent
 **Missing secrets file.** Reference `!secret key` in config but do not create `secrets.enc`. Attempt load. Verify FATAL issue identifying the missing file.
 
 **Missing secret key file.** Create `secrets.enc` but delete `.secret-key`. Attempt load. Verify FATAL issue with `config.secret_key_missing` log entry.
+
+**Validation failure on reload.** Load a valid config. Modify the file to introduce an ERROR-severity issue. Trigger reload. Verify the reload is rejected. Verify the active `ConfigModel` is unchanged (compare object reference). Verify no `config_changed` event was produced for the rejected reload.
 
 **Disk full during write.** Mount a tmpfs with 1 KB capacity. Attempt a UI/API write. Verify `IOException` is caught, temp file is cleaned up, and the original config is untouched.
 
@@ -743,7 +792,7 @@ The UI/API write path (§3.5) modifies the canonical configuration file. Authent
 
 **`conf.d/` directory splitting.** If config files routinely exceed 500 lines at Tier 2 scale (100+ devices, 10+ integrations), a `conf.d/` directory model can be added. The loading pipeline (§3.1) would scan the directory, parse each file, and merge the results in lexicographic order before validation. The single-file model remains the zero-config default. The schema composition and validation pipeline require no changes; only the file-read stage expands.
 
-**Secret key rotation.** The MVP uses a single static encryption key. A rotation mechanism would generate a new key, re-encrypt the secrets store, and atomically swap both files. The store format's `version` field (§4.6) supports this evolution.
+**Secret key rotation.** The MVP uses a single static encryption key. A rotation mechanism would generate a new key, re-encrypt the secrets store, and atomically swap both files. The store format's `version` field (§4.8) supports this evolution.
 
 **OS keyring integration.** On systems with a D-Bus-accessible keyring (GNOME Keyring, KDE Wallet), the encryption key could be stored in the keyring rather than a file. This eliminates the `.secret-key` file and its permission-based security model in favor of session-level access control. The `SecretStore` interface (§8.5) is designed so the key retrieval mechanism can be swapped without affecting consumers.
 
@@ -780,7 +829,8 @@ The UI/API write path (§3.5) modifies the canonical configuration file. Authent
 | D6 | UI/API write path | File-authoritative with optimistic concurrency, single-writer lock, explicit reload for external edits | INV-CE-01 mandates one representation. Optimistic concurrency prevents silent data loss from concurrent edits. No filesystem watching in MVP avoids inotify reliability issues. | UI writes to separate store (HA ADR-0010 model — rejected: violates INV-CE-01); no conflict detection (Z2M model — rejected: external edits silently lost). | §3.5 |
 | D7 | Validation error model | Three-severity fail-complete (FATAL/ERROR/WARNING) with permissive startup and strict reload | A retention threshold typo should not prevent lights from working (startup leniency). A reload should not degrade a running system (reload strictness). Fail-complete collects all issues in one pass. | Fail-fast (rejected: hides cascading issues, poor UX); fail-complete refuse-to-start on any error (Z2M model — rejected: one typo kills the entire system). | §3.6 |
 | D8 | Configuration migration | Schema evolution within major versions; CLI `migrate-config` at major boundaries | INV-CS-03 guarantees backward compatibility within major versions, eliminating within-major migration need. INV-CE-06 requires idempotent, reversible, preview-able tooling at major boundaries. | Automatic migration on startup (Z2M model — rejected: silent mutation surprises users, no dry-run); manual migration only (rejected: friction on every major upgrade). | §3.1 (schema_version), §8.1 (ConfigMigrator) |
-| D9 | Comment loss acceptance | Accept comment stripping on UI/API writes; mitigate with automatic backup | SnakeYAML Engine does not support comment-preserving round-tripping. No Java YAML 1.2 library currently does. The alternative — building a custom comment-preserving serializer — is disproportionate effort for MVP. The backup mechanism (§3.5) provides a recovery path. | Block UI/API writes entirely (rejected: defeats INV-CE-01 round-trip requirement); custom comment-preserving serializer (deferred: post-MVP, §14). | §3.5 |
+| D9 | Comment loss acceptance | Accept comment stripping on UI/API writes; mitigate with automatic backup | SnakeYAML Engine does not support comment-preserving round-tripping. Accepting this tradeoff with a backup mitigation avoids complex line-level patching for MVP. | Comment-preserving library (none mature in Java ecosystem); line-level diff-and-patch (rejected for MVP: complex, error-prone, deferred to future). | §3.5 |
+| D10 | Error event type | Separate `config_error` event type (DIAGNOSTIC priority) for validation errors, distinct from `config_changed` | Validation errors and successful configuration changes are semantically different concerns. Overloading `config_changed` with error payloads would complicate subscriber filtering and conflate normal operations with degraded-state reporting. | Fold into `config_changed` with a payload `status` field (rejected: overloads semantics, subscribers filtering for config changes would also receive error reports). | §3.6, §4.5 |
 
 ---
 
