@@ -4,7 +4,7 @@
 **Status:** Locked
 **Subsystem:** Device Model & Capability System
 **Dependencies:** Event Model & Event Bus (§3.1 producer boundaries, §3.3 priority model, §3.8 Pending Command Ledger, §4.1 event envelope, §4.3 event type taxonomy), Identity and Addressing Model (§2 three-layer identity, §5 Device Replacement, §6 Hardware Identifier mapping), Glossary v1 (§2 Device Model vocabulary)
-**Dependents:** State Store (entity state shape), Persistence Layer (registry snapshot storage via CheckpointStore §8.1), Integration Runtime (Integration API surface), Automation Engine (capability-based targeting), Zigbee Adapter (capability mapping from ZCL), REST API (device/entity endpoints), WebSocket API (state change streaming), Web UI (capability-driven control rendering)
+**Dependents:** State Store (entity state shape), Persistence Layer (registry snapshot storage via CheckpointStore §8.1), Integration Runtime (Integration API surface), Automation Engine (§3.8 command model per Doc 07 §3.11.1 Command Dispatch Service, §3.10 ExpectationFactory per Doc 07 §3.11.2 Pending Command Ledger, §8.1 DeviceRegistry per Doc 07 §3.11.1, §8.1 EntityRegistry per Doc 07 §3.11.1 and §3.12 selector validation, §8.1 CommandValidator per Doc 07 §3.11.1), Zigbee Adapter (capability mapping from ZCL), REST API (device/entity endpoints), WebSocket API (state change streaming), Web UI (capability-driven control rendering)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-05
 

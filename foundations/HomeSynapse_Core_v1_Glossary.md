@@ -813,7 +813,7 @@ Triggers subscribe to the Event Bus, not to polled State. State changes always p
 
 **API tokens.**
 - `trigger{}` — JSON object defining the trigger predicate.
-- `trigger_type` — Enum: `state_change`, `event`, `time`, `numeric_threshold`, `presence`, `sun`, `webhook`.
+- `trigger_type` — Enum: `state_change`, `state`, `event`, `availability`, `numeric_threshold`, `time`, `sun`, `presence`, `webhook`. The first five types are implemented in Tier 1; `time`, `sun`, `presence`, and `webhook` are Tier 2 (schema defined, implementation deferred). See Automation Engine §3.4 for the full trigger type specification.
 
 ### 4.3 Condition
 
@@ -825,7 +825,7 @@ Conditions and Triggers serve different temporal roles. Triggers answer "did som
 
 **API tokens.**
 - `condition{}` — JSON object defining the boolean predicate.
-- `condition_type` — Enum: `state`, `numeric`, `time`, `zone`, `and`, `or`, `not`.
+- `condition_type` — Enum: `state`, `numeric`, `time`, `and`, `or`, `not`, `zone`. The first six types are implemented in Tier 1; `zone` is Tier 2 (requires presence infrastructure and zone definition model). See Automation Engine §3.8 for the full condition type specification.
 
 ### 4.4 Action
 
@@ -835,7 +835,7 @@ Conditions and Triggers serve different temporal roles. Triggers answer "did som
 
 **API tokens.**
 - `action{}` — JSON object defining the step.
-- `action_type` — Enum: `command`, `delay`, `wait_for`, `condition_branch`, `emit_event`, `invoke_integration`.
+- `action_type` — Enum: `command`, `delay`, `wait_for`, `condition_branch`, `emit_event`, `invoke_integration`, `activate_scene`, `parallel`. The first five types are implemented in Tier 1; `invoke_integration`, `activate_scene`, and `parallel` are Tier 2+ (schema defined, implementation deferred). See Automation Engine §3.9 for the full action type specification.
 
 ### 4.5 Run
 

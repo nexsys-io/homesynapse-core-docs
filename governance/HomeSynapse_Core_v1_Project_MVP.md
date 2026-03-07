@@ -398,7 +398,7 @@ All Phase 1 documents follow DESIGN_DOC_TEMPLATE.md:
 | 04 | Persistence Layer | 01, 03 |
 | 05 | Integration Runtime | 01 |
 | 06 | Configuration System | 01 |
-| 07 | Automation Engine | 01, 02, 06 |
+| 07 | Automation Engine | 01, 02, 06 ¹ |
 | 08 | Zigbee Adapter | 02, 05 |
 | 09 | REST API | 02, 03, 07 |
 | 10 | WebSocket API | 01 |
@@ -406,7 +406,7 @@ All Phase 1 documents follow DESIGN_DOC_TEMPLATE.md:
 | 12 | Startup, Lifecycle & Shutdown | All preceding |
 | 13 | Web UI (Observability MVP) | 09, 10, 11 |
 | 14 | Master Architecture Document | All preceding |
-
+¹ Doc 07 also has runtime dependencies on Doc 03 (StateQuery for condition evaluation), Doc 04 (CheckpointStore for subscriber persistence), and Doc 05 (CommandHandler for command dispatch to adapters). These are not listed as ordering dependencies because Docs 03–05 are already completed before Doc 07 in the production sequence. The complete dependency graph is recorded in each document's metadata header.
 ---
 
 ## 10. How to Work in This Project
