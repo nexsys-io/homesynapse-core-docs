@@ -1,10 +1,10 @@
 # HomeSynapse Core — State Store & State Projection
 
 **Document type:** Subsystem design
-**Status:** Draft
+**Status:** Locked
 **Subsystem:** State Store & State Projection
-**Dependencies:** Event Model & Event Bus (§3.1 producer boundaries, §3.5 telemetry boundary, §3.9 origin model, §4.3 event type taxonomy, §8.3 EventPublisher interface), Device Model & Capability System (§3.12 discovery pipeline, §8.1 DeviceRegistry/EntityRegistry interfaces, §8.2 HardwareIdentifier type), State Store & State Projection (§8.1 StateQueryService interface), Persistence Layer (§3.6 telemetry ring store write path, §8.3 TelemetryWriter interface), Identity and Addressing Model (§6 hardware identifier mapping rules), Glossary v1 (§2.9 Integration, §2.7 Discovery)
-**Dependents:** Persistence Layer (§3.12 view_checkpoints table, §8.1 CheckpointStore implementation, §3.2 same-transaction atomicity guarantee), Automation Engine (state queries for trigger evaluation and condition checking), REST API (current state endpoints, entity listing), WebSocket API (state change push notifications), Observability & Debugging (state health indicators, staleness monitoring), Web UI (dashboard state rendering, entity history graphs), Persistence Layer (§3.12 view_checkpoints table, §8.1 CheckpointStore implementation, §3.2 same-transaction atomicity guarantee)
+**Dependencies:** Event Model & Event Bus (§3.1 producer boundaries, §3.4 subscription model, §3.7 processing modes, §4.3 event type taxonomy, §8.3 EventPublisher interface), Device Model & Capability System (§3.1 entity registry structure, §8.1 EntityRegistry interface for attribute schema lookup), Identity and Addressing Model (§2 three-layer identity, §9 subject stream sequencing), Glossary v1 (§3.4 State, §3.5 Materialized View, §3.6 Checkpoint, §3.13 State Projection)
+**Dependents:** Persistence Layer (§3.12 view_checkpoints table, §8.1 CheckpointStore implementation, §3.2 same-transaction atomicity guarantee), Automation Engine (state queries for trigger evaluation and condition checking), REST API (current state endpoints, entity listing), WebSocket API (state change push notifications), Observability & Debugging (state health indicators, staleness monitoring), Web UI (dashboard state rendering, entity history graphs)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-05
 
@@ -135,7 +135,7 @@ new SubscriptionFilter(
         "entity_transferred"
     ),
     EventPriority.DIAGNOSTIC,   // state_reported is DIAGNOSTIC
-    "entity."                   // entity-type subjects only
+    "entity"                    // entity-subject events only
 )
 ```
 

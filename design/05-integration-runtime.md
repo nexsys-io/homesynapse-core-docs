@@ -1,7 +1,7 @@
 # HomeSynapse Core — Integration Runtime
 
 **Document type:** Subsystem design
-**Status:** Draft
+**Status:** Locked
 **Subsystem:** Integration Runtime
 **Dependencies:** Event Model & Event Bus (§3.1 producer boundaries, §3.5 telemetry boundary, §3.9 origin model, §4.3 event type taxonomy, §8.3 EventPublisher interface), Device Model & Capability System (§3.12 discovery pipeline, §8.1 DeviceRegistry/EntityRegistry interfaces, §8.2 HardwareIdentifier type), Persistence Layer (§3.6 telemetry ring store write path, §8.3 TelemetryWriter interface), Identity and Addressing Model (§6 hardware identifier mapping rules), Glossary v1 (§2.9 Integration, §2.7 Discovery)
 **Dependents:** Zigbee Adapter (adapter lifecycle, IntegrationContext API, serial I/O thread model), Configuration System (integration-scoped configuration access), Automation Engine (command dispatch to integrations), REST API (integration health endpoints, integration management), Startup, Lifecycle & Shutdown (supervisor initialization order, shutdown sequence), Observability & Debugging (health indicators, JFR events, structured logging)

@@ -1,7 +1,7 @@
 # HomeSynapse Core — Persistence Layer
 
 **Document type:** Subsystem design
-**Status:** Draft
+**Status:** Locked
 **Subsystem:** Persistence Layer
 **Dependencies:** Event Model & Event Bus (§3.5 telemetry boundary, §4.2 domain event store schema, §4.3 event type taxonomy, §3.3 retention tiers, §3.4 subscription model, §6.5 emergency retention), State Store & State Projection (§8.3 CheckpointStore interface, §3.3 checkpoint strategy), Device Model & Capability System (§3.1 entity registry structure, §6.6 registry rebuild logic), Identity and Addressing Model (§2.1 ULID references in storage), Glossary v1 (§3.19 Telemetry Ring Store)
 **Author:** HomeSynapse Core Architecture
@@ -1052,12 +1052,12 @@ The Persistence Layer handles the most sensitive data in the system: the complet
 
 ### 13.3 Performance Tests
 
-- **Checkpoint write latency.** Write checkpoints of 75 KB (150 entities) in a loop on Pi 4 hardware. Verify p99 latency < 500 ms.
-- **Telemetry write throughput.** Sustain 1,000 samples/sec for 60 seconds on Pi 4. Verify no write failures and WAL size remains bounded.
+- **Checkpoint write latency.** Write checkpoints of 75 KB (150 entities) in a loop on Raspberry Pi 5. Verify p99 latency < 500 ms.
+- **Telemetry write throughput.** Sustain 1,000 samples/sec for 60 seconds on Raspberry Pi 5. Verify no write failures and WAL size remains bounded.
 - **Retention under write load.** Run retention (deleting 50,000 events) while sustaining 100 events/sec append rate. Verify append p99 latency remains < 20 ms (2× the normal 10 ms target to account for lock contention during retention).
-- **Backup duration.** Back up a 2 GB event store database on Pi 4 with NVMe. Verify completion in < 10 seconds.
-- **Aggregation cycle duration.** Run aggregation across 50 entities with 100,000 total samples on Pi 4. Verify completion in < 30 seconds.
-- **Full VACUUM duration.** VACUUM a 2 GB database on Pi 4 with NVMe. Record duration. Verify < 5 minutes. This establishes the baseline for the quarterly maintenance window.
+- **Backup duration.** Back up a 2 GB event store database on Raspberry Pi 5 with NVMe. Verify completion in < 10 seconds.
+- **Aggregation cycle duration.** Run aggregation across 50 entities with 100,000 total samples on Raspberry Pi 5. Verify completion in < 30 seconds.
+- **Full VACUUM duration.** VACUUM a 2 GB database on Raspberry Pi 5 with NVMe. Record duration. Verify < 5 minutes. This establishes the baseline for the quarterly maintenance window.
 
 ### 13.4 Failure Tests
 
@@ -1115,7 +1115,7 @@ The Persistence Layer handles the most sensitive data in the system: the complet
 | Space reclamation | Incremental vacuum (routine) + full VACUUM (quarterly, opt-in) | Incremental vacuum is low-impact and runs after every retention pass. Full VACUUM requires 2× disk space and creates a bounded blocking window — unsuitable as routine maintenance on constrained hardware. HA's VACUUM-as-routine-maintenance is the specific failure mode avoided. | §3.3 |
 | Retention timestamp | `COALESCE(event_time, ingest_time)` per INV-ES-08 | INV-ES-08 requires retention to operate on event time to prevent delayed events from being retained longer than intended. COALESCE handles nullable event_time defensively. Requires `idx_events_event_time` index. | §3.4 |
 | Retention mechanics | Per-type overrides first, then per-tier batch deletes on a dedicated virtual thread with yield intervals and subscriber checkpoint safety checks | Per-type overrides (from `event_model.retention.overrides`) take precedence. Separate thread prevents retention from blocking event recording (HA's critical failure). Subscriber safety check with grace-period escape hatch balances bounded storage against at-least-once delivery. | §3.4 |
-| Storage pressure | MB-based emergency threshold (from Event Model §9) with percentage-based warning | Consistent with Event Model §6.5. CRITICAL events are never automatically purged — the system enters degraded state rather than overwriting committed events (INV-ES-01). Doc 01 §6.5's "replace oldest" language is superseded by this document pending amendment. | §3.5 |
+| Storage pressure | MB-based emergency threshold (from Event Model §9) with percentage-based warning | Consistent with Event Model §6.5. CRITICAL events are never automatically purged — the system enters degraded state rather than overwriting committed events (INV-ES-01). Aligned with Doc 01 §6.5. CRITICAL events are never automatically purged — the system enters degraded state rather than overwriting committed events (INV-ES-01). | §3.5 |
 | Telemetry ring store | Modular-rowid ring buffer (INSERT OR REPLACE with slot = seq % max_rows), single table with composite indexes including (entity_ref, seq) | Zero DELETE operations, fixed file size, stable B-tree. The (entity_ref, seq) index supports the aggregation engine's dominant query pattern. Per-entity tables rejected due to SQLite schema parsing overhead above ~500 tables. | §3.6 |
 | Aggregation engine | Batch aggregation on timer (5-minute default), not trigger-based | Trigger-based adds 20–50% overhead per insert at high write rates. Batch concentrates I/O in scheduled windows. High-water mark per entity detects ring overwrite gaps. | §3.7 |
 | Domain vs. telemetry routing | Semantic decision table extending the rate-based threshold | Rate alone is insufficient. "If this data point were lost, would automation replay produce a different result?" is the deciding question. Discrete state transitions always use domain path regardless of rate. | §3.8 |

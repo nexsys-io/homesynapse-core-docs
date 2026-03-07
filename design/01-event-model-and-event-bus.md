@@ -1,10 +1,10 @@
 # HomeSynapse Core — Event Model & Event Bus
 
 **Document type:** Subsystem design
-**Status:** Draft
+**Status:** Locked
 **Subsystem:** Event Model & Event Bus
 **Dependencies:** None (foundational)
-**Dependents:** Device Model & Capability System (§4.3 event type taxonomy, §3.1 producer boundaries), State Store (§3.2 state event lifecycle, §3.4 subscription model), Persistence Layer (§3.3 retention tiers, §3.5 telemetry boundary, §4.2 domain event store schema, §6.5 emergency retention, §9 retention configuration), Integration Runtime (§3.1 producer boundaries, §3.9 origin model), Automation Engine (§3.2 state_changed subscription, §3.7 processing modes), Configuration System (§9 YAML schema), REST API (§4.1 event envelope, §4.3 event type taxonomy), WebSocket API (§3.4 subscription model), Observability & Debugging (§11 metrics and health), Startup, Lifecycle & Shutdown (§3.7 processing modes, §6 failure recovery), Persistence Layer (§3.3 retention tiers, §3.5 telemetry boundary, §4.2 domain event store schema, §6.5 emergency retention, §9 retention configuration)
+**Dependents:** Device Model & Capability System (§4.3 event type taxonomy, §3.1 producer boundaries), State Store (§3.2 state event lifecycle, §3.4 subscription model), Persistence Layer (§3.3 retention tiers, §3.5 telemetry boundary, §4.2 domain event store schema, §6.5 emergency retention, §9 retention configuration), Integration Runtime (§3.1 producer boundaries, §3.9 origin model), Automation Engine (§3.2 state_changed subscription, §3.7 processing modes), Configuration System (§9 YAML schema), REST API (§4.1 event envelope, §4.3 event type taxonomy), WebSocket API (§3.4 subscription model), Observability & Debugging (§11 metrics and health), Startup, Lifecycle & Shutdown (§3.7 processing modes, §6 failure recovery)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-04
 
@@ -187,13 +187,15 @@ Subscribers are pull-based with notification. Each subscriber registers with an 
 public record SubscriptionFilter(
     Set<String> eventTypes,          // empty = all types
     EventPriority minimumPriority,   // DIAGNOSTIC = receive everything
-    @Nullable String entityTypePrefix // e.g., "light" for light entities only
+    @Nullable String subjectTypeFilter // e.g., "entity" for entity-subject events only
 ) {}
 ```
 
 The bus maintains per-subscriber filters and only notifies a subscriber when events matching its filter have been appended. This prevents waking the automation engine for `state_reported` events that did not result in `state_changed`.
 
-**`entity_type_prefix` semantics.** The `entity_type_prefix` field in `SubscriptionFilter` performs a prefix match against the `event_type` string, not the entity type. The name is a misnomer inherited from early design — it filters events whose `event_type` starts with the given prefix. For example, `entity_type_prefix = "state"` matches `state_reported`, `state_changed`, and `state_confirmed`. A prefix of `"command"` matches `command_issued`, `command_dispatched`, and `command_result`. This filter operates at the bus level before event delivery, reducing the number of events a subscriber must inspect and discard. The filter is optional; omitting it delivers all events matching the `event_types` and `minimum_priority` criteria.
+**`subjectTypeFilter` semantics.** The `subjectTypeFilter` field in `SubscriptionFilter` restricts delivery to events whose subject belongs to a specific subject type category. Subject type categories are: `entity`, `device`, `integration`, `automation`, `system`, `person`. The filter performs a case-insensitive exact match against the subject's type category — not a prefix match against the event type string. A `null` value disables the filter (all subject types delivered).
+
+The subject type category is determined by the `subject_ref` identity type. Since all subject references are typed ULIDs (`EntityId`, `DeviceId`, `IntegrationId`, etc.), the Event Bus can resolve the subject type from the typed identity at append time and store it as a denormalized field on the event record for efficient filtering. The specific storage mechanism (denormalized column vs. lookup at filter time) is a Phase 2/3 implementation decision; the semantic contract is that the filter operates on subject type, not event type.
 
 **Naming clarification.** Despite the name `entity_type_prefix`, this field does not filter by the Entity Type of the event's subject. Filtering by Entity Type (e.g., "only events about `light` entities") requires the subscriber to inspect the event's `subject_ref`, resolve it against the Entity Registry, and apply the filter in subscriber code. Bus-level entity-type filtering is a potential future optimization but is not implemented in MVP due to the registry lookup cost per event.
 

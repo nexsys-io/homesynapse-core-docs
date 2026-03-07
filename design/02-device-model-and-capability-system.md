@@ -1,10 +1,10 @@
 # HomeSynapse Core — Device Model & Capability System
 
 **Document type:** Subsystem design
-**Status:** Draft
+**Status:** Locked
 **Subsystem:** Device Model & Capability System
 **Dependencies:** Event Model & Event Bus (§3.1 producer boundaries, §3.3 priority model, §3.8 Pending Command Ledger, §4.1 event envelope, §4.3 event type taxonomy), Identity and Addressing Model (§2 three-layer identity, §5 Device Replacement, §6 Hardware Identifier mapping), Glossary v1 (§2 Device Model vocabulary)
-**Dependents:** State Store (entity state shape), Persistence Layer (registry snapshot storage via CheckpointStore §8.1), Integration Runtime (Integration API surface), Automation Engine (capability-based targeting), Zigbee Adapter (capability mapping from ZCL), REST API (device/entity endpoints), WebSocket API (state change streaming), Web UI (capability-driven control rendering), Persistence Layer (registry snapshot storage via CheckpointStore §8.1)
+**Dependents:** State Store (entity state shape), Persistence Layer (registry snapshot storage via CheckpointStore §8.1), Integration Runtime (Integration API surface), Automation Engine (capability-based targeting), Zigbee Adapter (capability mapping from ZCL), REST API (device/entity endpoints), WebSocket API (state change streaming), Web UI (capability-driven control rendering)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-05
 
@@ -840,7 +840,9 @@ All options have sensible defaults. HomeSynapse runs correctly with zero configu
 
 ## 10. Performance Targets
 
-| Metric | Target (RPi4 4GB) | Rationale |
+All targets are specified for the primary deployment target: Raspberry Pi 5, 4 GB RAM, NVMe SSD storage, running the JVM configuration in LTD-01.
+
+| Metric | Target (Raspberry Pi 5, 4 GB RAM) | Rationale |
 |---|---|---|
 | Attribute validation latency (p99) | < 0.5 ms | Validation is on the hot path for every `state_reported` event. Must not measurably impact event processing throughput. |
 | Command validation latency (p99) | < 1 ms | Command validation includes parameter schema checking and expectation construction. Slightly more work than attribute validation but still on the command dispatch path. |
