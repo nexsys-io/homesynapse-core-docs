@@ -3,7 +3,7 @@
 **Document type:** Subsystem design
 **Status:** Draft
 **Subsystem:** Automation Engine
-**Dependencies:** Event Model & Event Bus (§3.4 subscription model, §3.7 processing modes, §3.8 pending command ledger, §4.3 event taxonomy, §8.3 EventPublisher), Device Model & Capability System (§3.8 command model, §3.10 ExpectationFactory, §8.1 DeviceRegistry, §8.1 EntityRegistry, §8.1 CapabilityRegistry, §8.1 CommandValidator), State Store & State Projection (§3.1 state query interface, §8.1 StateQuery), Persistence Layer (§8.1 CheckpointStore), Integration Runtime (§3.8 IntegrationContext.CommandHandler), Configuration System (§3.2 SchemaRegistry, §3.3 reload pipeline, §7 well-known file paths), Identity and Addressing Model (§7 address resolution primitives, §7.2 resolution timing, §7.3 deduplication, §7.4 ordering, §7.5 eligibility failures), Glossary (§4 TCA vocabulary)
+**Dependencies:** Event Model & Event Bus (§3.4 subscription model, §3.7 processing modes, §3.8 pending command ledger, §4.3 event taxonomy, §8.3 EventPublisher), Device Model & Capability System (§3.8 command model, §3.10 ExpectationFactory, §8.1 DeviceRegistry, §8.1 EntityRegistry, §8.1 CommandValidator), State Store & State Projection (§3.1 state query interface, §8.1 StateQuery), Persistence Layer (§8.1 CheckpointStore), Integration Runtime (§3.8 IntegrationContext.CommandHandler), Configuration System (§3.2 SchemaRegistry, §3.3 reload pipeline, §7 well-known file paths, ConfigurationChangeListener callback), Identity and Addressing Model (§7 address resolution primitives, §7.2 resolution timing, §7.3 deduplication, §7.4 ordering, §7.5 eligibility failures), Glossary (§4 TCA vocabulary)
 **Dependents:** REST API (automation CRUD, run trace queries, command status), WebSocket API (live run trace streaming), Observability & Debugging (automation metrics, trace viewer data), Startup, Lifecycle & Shutdown (automation subscriber lifecycle, processing mode transitions)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-07
@@ -104,23 +104,24 @@ The Automation Engine sits at the intersection of the event bus (input), the sta
 ### 3.2 Event Subscription
 
 The Automation Engine registers as a subscriber with the Event Bus using subscriber ID `automation_engine`. The subscription filter is:
-
 ```java
 new SubscriptionFilter(
     Set.of(
         "state_changed",
-        "availability_changed",
-        "presence_changed",
-        "config_changed"
+        "availability_changed"
     ),
     EventPriority.NORMAL,      // NORMAL minimum — no raw state_reported
     "entity"                   // entity-subject events only
 )
 ```
 
-The engine subscribes to `state_changed` (not `state_reported`) because triggers react to confirmed state transitions, not raw sensor reports. This is consistent with **Event Model & Event Bus** §7 interaction table, which specifies the automation engine subscribes to `state_changed` and `availability_changed`. The `config_changed` subscription enables the engine to react to automation definition reloads signaled by the Configuration System.
+The engine subscribes to `state_changed` (not `state_reported`) because triggers react to confirmed state transitions, not raw sensor reports. This is consistent with **Event Model & Event Bus** §7 interaction table, which specifies the automation engine subscribes to `state_changed` and `availability_changed`.
 
 The `NORMAL` minimum priority filter prevents the engine from being woken for DIAGNOSTIC events (raw `state_reported`, `command_dispatched`, `telemetry_summary`). The engine processes only events that represent confirmed state transitions or lifecycle changes.
+
+**Automation definition reload notification.** The engine does not subscribe to `config_changed` events through the event bus. `config_changed` events carry a system subject, not an entity subject, and would be filtered out by the `"entity"` subject type filter. Instead, the engine registers a `ConfigurationChangeListener` callback with the Configuration System (Doc 06 §7) for the `automations.yaml` well-known file path. When the Configuration System detects a change and completes validation, it invokes the callback directly, which triggers the hot-reload procedure (§3.7, C7). This is simpler than a separate subscriber and avoids polluting the trigger evaluation loop with non-device events.
+
+**Presence events are excluded from the Tier 1 subscription.** The `presence_changed` event type is not included in the subscription filter because presence triggers are a Tier 2 feature (§3.4). Including presence events in the filter would cause the engine to process events it has no trigger types to evaluate against. The filter will be expanded when presence triggers are implemented (see Open Question 2, §15).
 
 The engine runs on a dedicated virtual thread (per LTD-01 / LTD-11) and uses the standard pull-based subscription model defined in **Event Model & Event Bus** §3.4: notification via `LockSupport.unpark()`, batch polling via `eventStore.readFrom()`, and checkpoint persistence after processing.
 
@@ -232,7 +233,7 @@ A Run is a single execution instance of an automation, from trigger evaluation t
 
 | Event Type | Subject | Priority | When Produced | Key Payload Fields |
 |---|---|---|---|---|
-| `automation_triggered` | Automation | NORMAL | Trigger matches and mode permits execution | `run_id`, `triggering_event_id`, `matched_triggers[]`, `resolved_targets{}`, `automation_definition_snapshot` |
+| `automation_triggered` | Automation | NORMAL | Trigger matches and mode permits execution | `run_id`, `triggering_event_id`, `matched_triggers[]`, `resolved_targets{}`, `definition_hash` |
 | `automation_condition_evaluated` | Automation | DIAGNOSTIC | Each top-level condition is evaluated | `run_id`, `condition_index`, `condition_type`, `result` (true/false), `evaluated_state{}` |
 | `automation_action_started` | Automation | DIAGNOSTIC | An action step begins | `run_id`, `action_index`, `action_type`, `target_refs[]` |
 | `command_issued` | Entity | NORMAL | A command action dispatches a command | All fields per Doc 01 §4.3 command lifecycle, plus `run_id` in payload |
@@ -241,9 +242,20 @@ A Run is a single execution instance of an automation, from trigger evaluation t
 
 All Run events are produced via `EventPublisher.publish()` (§8.3 of Doc 01) with the triggering event's `CausalContext`, maintaining the causal chain. The `correlation_id` is inherited from the triggering event, enabling the Causal Chain Projection (Doc 01 §3.18) to reconstruct the full trace from trigger through command confirmation.
 
-**Automation definition snapshot.** The `automation_triggered` event payload includes a hash of the automation definition active at trigger time. This enables replay verification: if the automation definition has changed since the Run, the trace viewer can indicate that the Run executed under a different definition than the current one.
+**Definition hash.** The `automation_triggered` event payload includes a `definition_hash` field: a SHA-256 hash of the serialized automation definition active at trigger time. The full definition is retrievable from the Automation Registry by `automation_id`; the hash enables replay verification without payload bloat. If the automation definition has changed since the Run, the trace viewer can indicate that the Run executed under a different definition than the current one.
 
 **Resolved target snapshot.** Address selectors are resolved at trigger time per **Identity Model** §7.2. The resolved `Set<EntityRef>` for each selector is captured in the `automation_triggered` event payload (`resolved_targets`). All subsequent actions in the Run use these resolved sets, not re-resolution. This guarantees deterministic behavior within a Run and enables replay to verify that the same targets were used.
+
+**Automation lifecycle events (non-Run).** The following events are produced by the automation engine outside the context of a specific Run. They record mode enforcement decisions, conflict detection, and health state transitions.
+
+| Event Type | Subject | Priority | When Produced | Key Payload Fields |
+|---|---|---|---|---|
+| `automation_run_skipped` | Automation | DIAGNOSTIC | Trigger matched but Run not initiated due to mode enforcement: `single` mode with an active Run, or `queued`/`parallel` mode with queue at `max_concurrent`. | `automation_id`, `triggering_event_id`, `reason` (`mode_busy` or `queue_full`), `mode`, `active_run_id` (if single/restart), `max_exceeded_severity` |
+| `automation_run_cancelled` | Automation | DIAGNOSTIC | Active Run cancelled by `restart` mode enforcement when a new trigger arrives. | `automation_id`, `cancelled_run_id`, `replacing_event_id`, `triggering_event_id` |
+| `automation_conflict_detected` | Automation | DIAGNOSTIC | Multiple automations issued commands to the same entity from Runs triggered by the same event, and at least one pair targets the same attribute with different values. | `triggering_event_id`, `entity_ref`, `conflicts[]` (array of `{automation_id, command_event_id, command_name, parameters}`), `contradictory` (boolean) |
+| `automation_disabled` | Automation | NORMAL | Automation auto-disabled after exceeding the failure threshold (`auto_disable_failure_count` failures within `auto_disable_window_minutes`). | `automation_id`, `reason` (`repeated_failure`), `failure_count`, `window_minutes`, `last_error`, `last_run_id` |
+
+`automation_disabled` is NORMAL priority (not DIAGNOSTIC) because it represents a significant operational state change that affects system behavior and should survive the 7-day DIAGNOSTIC retention window. The user needs to know an automation was disabled even if they do not check the system for several weeks.
 
 ### 3.8 Condition Evaluation
 
@@ -259,6 +271,12 @@ Conditions are boolean guards evaluated after the trigger fires but before actio
 | `and` | Logical conjunction of nested conditions. | Short-circuits on first false. |
 | `or` | Logical disjunction of nested conditions. | Short-circuits on first true. |
 | `not` | Logical negation of a nested condition. | Inverts result. |
+
+**Condition types (Tier 2, schema defined but not implemented):**
+
+| Type | Evaluates | Implementation Deferred Because |
+|---|---|---|
+| `zone` | Whether a person or entity is within a specified geographic zone. | Requires Tier 2 presence infrastructure and zone definition model. |
 
 **State source for condition evaluation.** Conditions read from the State Store's `StateQuery` interface (Doc 03 §8.1). In LIVE mode, this returns the current materialized state. The state is read synchronously within the Run's virtual thread — no suspension point between condition evaluation and the decision to proceed, ensuring atomicity within a single Run.
 
@@ -313,12 +331,12 @@ During REPLAY processing mode (Doc 01 §3.7), the automation engine processes hi
 | Trigger evaluation | Proceeds normally against replayed events. | Rebuilds the engine's understanding of which automations were active and matching. |
 | Condition evaluation | Suppressed — conditions are not re-evaluated. | The State Store is itself being rebuilt from the event stream during replay. Evaluating conditions against partially-replayed state would produce inconsistent results. |
 | Action execution | Suppressed — no commands issued, no delays executed, no events emitted. | INV-ES-04 and Doc 01 §3.7 mandate: actuator commands suppressed, derived events not re-produced. |
-| Run trace events | Not re-produced. | The `automation_triggered`, `automation_condition_evaluated`, `automation_action_started`, `automation_action_completed`, and `automation_completed` events already exist in the log from original LIVE processing. During replay, the engine consumes these existing events to rebuild Run history. |
-| Command Pipeline | Suppressed. The Pending Command Ledger consumes existing `command_issued`, `command_result`, and `state_confirmed` events to rebuild its pending command map. | Doc 01 §3.7 explicitly specifies: "The Pending Command Ledger does not re-emit `state_confirmed` events during replay." |
+| Run Lifecycle | Two distinct behaviors. (1) **Trigger index maintenance:** when the engine encounters `state_changed` or `availability_changed` events during REPLAY, it evaluates trigger predicates to maintain the trigger index and active automation tracking. No new `automation_triggered` events are produced — those already exist in the log from original LIVE processing. (2) **Run history reconstruction:** when the engine encounters existing `automation_triggered`, `automation_completed`, and other Run trace events during REPLAY, it consumes them to rebuild the RunManager's active Run tracking, automation health counters, and concurrency mode state. |
+| Command Pipeline | Suppressed. The Pending Command Ledger consumes existing `command_issued`, `command_result`, and `state_confirmed` events to rebuild its pending command map. No new commands are dispatched. | Doc 01 §3.7 explicitly specifies: "The Pending Command Ledger does not re-emit `state_confirmed` events during replay." |
 
 **REPLAY to LIVE transition.** The engine transitions from REPLAY to LIVE when the subscriber's checkpoint reaches within the configurable threshold of the log head (default: 10 events, per Doc 01 §3.7). Events processed after the transition are in LIVE mode — triggers fire, conditions evaluate, and actions execute normally.
 
-**Determinism guarantee under replay.** INV-TO-02 requires that identical event streams produce identical outcomes. During replay, the engine does not produce new events — it consumes existing ones. The determinism guarantee is satisfied because: (a) the original LIVE execution produced deterministic events given the event stream and configuration, and (b) replay consumes those same events without modification. If the automation definition has changed since the original execution, the engine detects this via the definition hash in the `automation_triggered` event payload (§3.7) and logs a diagnostic warning.
+**Determinism guarantee under replay.** INV-TO-02 requires that identical event streams produce identical outcomes. During replay, the engine does not produce new events — it consumes existing ones. The determinism guarantee is satisfied because: (a) the original LIVE execution produced deterministic events given the event stream and configuration, and (b) replay consumes those same events without modification. If the automation definition has changed since the original execution, the engine detects this via the `definition_hash` in the `automation_triggered` event payload (§3.7) and logs a diagnostic warning.
 
 ### 3.11 Command Pipeline
 
@@ -505,7 +523,7 @@ A Run's complete execution history is stored as a series of events in the domain
 | `final_status` | `automation_completed` payload | Terminal Run status. |
 | `duration_ms` | `automation_completed` payload | Total Run duration. |
 
-The trace is not materialized as a separate data structure. It is assembled on-demand by the Causal Chain Projection (Doc 01 §3.18) querying events by `correlation_id`. This avoids dual-write consistency issues and leverages the existing event log infrastructure.
+The trace is not materialized as a separate data structure. It is assembled on-demand by querying events by `correlation_id` using the Causal Chain Projection pattern (Glossary §3.18). The query uses standard `EventStore.readFrom()` filtering capabilities defined in **Event Model & Event Bus** §3.4. This avoids dual-write consistency issues and leverages the existing event log infrastructure.
 
 ### 4.3 Pending Command Entry
 
@@ -554,7 +572,7 @@ record PendingCommand(
 | C4 | INV-TO-02 (deterministic), per Identity Model §7.2 |
 | C5 | INV-ES-04 (write-ahead persistence), Doc 01 §3.7 (processing modes) |
 | C6 | INV-ES-06 (explainable), INV-TO-01 (observable) |
-| C7 | INV-RF-04 (crash safety — graceful degradation) |
+| C7 | INV-TO-02 (deterministic — definition hash in trigger event enables replay verification) |
 | C8 | INV-TO-01 (observable), INV-HO-04 (self-explaining errors) |
 
 ---
@@ -642,7 +660,7 @@ record PendingCommand(
 | Device Model & Capability System | Reads from | `EntityRegistry`, `CapabilityRegistry`, `DeviceRegistry`, `CommandValidator`, `ExpectationFactory` query interfaces | Entity metadata, capability schemas, command validation, expected outcomes, entity-to-integration ownership | Read-only. Queries at trigger time (selector resolution), action time (command validation), and pending command creation (expectation generation). |
 | State Store & State Projection | Reads from | `StateQuery` interface | Current entity state for condition evaluation | Read-only. Synchronous reads within the Run's virtual thread. |
 | Integration Runtime | Calls | `IntegrationContext.CommandHandler.handleCommand()` | Entity reference, command name, parameters | Via Command Dispatch Service. The adapter's response determines `command_result` production. |
-| Configuration System | Receives from | `config_changed` events + `ConfigurationProvider` interface | Validated automation definitions from `automations.yaml`, reload signals | Schema registered via `SchemaRegistry`. File path registered as well-known per Doc 06 §7. |
+| Configuration System | Receives from | `ConfigurationChangeListener` callback + `ConfigurationProvider` interface | Validated automation definitions from `automations.yaml`, reload signals via direct callback | Schema registered via `SchemaRegistry`. File path registered as well-known per Doc 06 §7. Reload notification via `ConfigurationChangeListener`, not event bus subscription (§3.2). |
 | Persistence Layer | Uses | `CheckpointStore` interface | Checkpoint data for 3 subscribers | Same checkpoint infrastructure as State Store and other subscribers. |
 
 ---
@@ -744,7 +762,7 @@ All targets are Constrained-tier commitments measured against RPi 5 / RPi 4 hard
 | Command dispatch latency (p99) | < 5 ms from `command_issued` to adapter handoff | The dispatch service performs one registry lookup and one command validation. Both are in-memory operations. | JFR event timing with 100 concurrent commands. |
 | Pending Command Ledger memory | < 20 KB per pending command | Each `PendingCommand` record is approximately 200 bytes. At 500 max pending commands, total is ~100 KB. The 20 KB/command budget includes index overhead. | Heap profiling under sustained command load. |
 | Max concurrent Runs (sustained) | 200 | Virtual threads at ~1 KB each = ~200 KB. With Run context (~500 bytes each), total is ~300 KB. Well within the automation subsystem's share of the 1536 MB heap (LTD-01). | Load test: 200 concurrent Runs with delay actions on RPi 5, monitoring RSS and GC pauses. |
-| Hot-reload latency | < 500 ms for 100 automations | JSON Schema validation dominates. 100 automations × ~5 ms validation each = ~500 ms. Rebuilding trigger index is O(triggers). | Benchmark with 100-automation YAML file on RPi 5. |
+| Hot-reload latency | < 500 ms for 100 automations | JSON Schema validation dominates. 100 automations × ~5 ms validation each = ~500 ms. Trigger index rebuild is O(total_triggers) — at 2 triggers per automation average, 200 HashMap insertions add < 1 ms and are negligible compared to validation. | Benchmark with 100-automation YAML file on RPi 5. |
 | Automation engine steady-state memory | < 50 MB | Automation Registry (~100 definitions × ~5 KB each = ~500 KB) + trigger index (~50 KB) + active Runs (~300 KB at max concurrent) + Pending Command Ledger (~100 KB at max pending) + subscriber overhead. Total well under 50 MB. | JFR heap snapshot after 24 hours of operation with 100 automations. |
 
 ---
@@ -808,6 +826,8 @@ This subsystem has no direct external interface — all access is through the Ev
 **Command validation.** All commands issued by automations are validated against capability schemas via `CommandValidator` (Doc 02 §8.1) before dispatch. An automation cannot issue a command that the target entity's capability does not support. This prevents malformed YAML from producing invalid protocol-level commands.
 
 **No template injection.** Automation definitions are data (YAML parsed by SnakeYAML Engine per LTD-09), not code. There is no template engine, no expression language, and no scripting runtime in Tier 1. Conditions and triggers evaluate against a fixed set of predicate types with typed parameters. This eliminates the injection surface that affects platforms with embedded scripting (Home Assistant's Jinja2 templates, OpenHAB's Xtend DSL).
+
+**Event category classification.** All automation subsystem events carry `event_category: ["automation"]` in the event envelope. Command lifecycle events (`command_issued`, `command_dispatched`, `command_result`, `state_confirmed`, `command_confirmation_timed_out`) carry `["device_state"]` as their primary category; commands targeting energy entity types additionally carry `["device_state", "energy"]`. The `event_category` field is specified in **Event Model & Event Bus** §4.1 (envelope schema) and is populated at event creation time by a static lookup from event type and subject entity type to categories. This classification enables filtered event views by domain and aligns with the consent-scope categories defined in the Data-Readiness Specification for future access-control and crypto-shredding scope alignment (INV-PD-07).
 
 ---
 
@@ -892,7 +912,7 @@ This subsystem has no direct external interface — all access is through the Ev
 | D5 | Execution order | Priority descending, then automation_id ascending (ULID = creation order) | Deterministic, stable across restarts and replays. Satisfies INV-TO-02. No platform in competitive research offers deterministic ordering. | §3.13 |
 | D6 | Conflict resolution | Detect-and-warn in Tier 1; both commands execute | Provides observability without introducing complex arbitration. Priority field defined now for Tier 2 suppression. | §3.13 |
 | D7 | Replay behavior | Trigger evaluation proceeds; condition evaluation, action execution, and event production suppressed | Rebuilds engine state without side effects. Consumes existing trace events from log. Satisfies Doc 01 §3.7. | §3.10 |
-| D8 | Hot-reload semantics | In-progress Runs complete on original definition; new triggers use updated definition | Event-sourced: definition hash captured in trigger event enables verification. No existing platform handles this gracefully (competitive research Q5). | §3.7, C7 |
+| D8 | Hot-reload semantics | In-progress Runs complete on original definition; new triggers use updated definition | Event-sourced: `definition_hash` (SHA-256) captured in `automation_triggered` event enables verification. No existing platform handles this gracefully (competitive research Q5). | §3.7, C7 |
 | D9 | Selector vocabulary | entity_ref, entity (slug), area, label, type, compound (all_of intersection) | Covers HA's four targeting mechanisms. Resolution at trigger time per Identity Model §7.2. Compound selectors use intersection semantics. | §3.12 |
 | D10 | Unavailable target handling | Configurable per-action: skip (default), error, warn — always produces event | Addresses universal silent-skip pattern from competitive research Q8. Skip is safe default; error available for safety-critical automations. | §3.9 |
 | D11 | Command Pipeline ownership | Doc 07 owns Command Dispatch Service and Pending Command Ledger | Resolves two design gaps tracked in PROJECT_STATUS.md. Unifies the outbound command path within the automation subsystem. | §3.11 |
