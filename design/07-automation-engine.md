@@ -1,7 +1,7 @@
 # HomeSynapse Core — Automation Engine
 
 **Document type:** Subsystem design
-**Status:** Draft
+**Status:** Locked
 **Subsystem:** Automation Engine
 **Dependencies:** Event Model & Event Bus (§3.4 subscription model, §3.7 processing modes, §3.8 pending command ledger, §4.3 event taxonomy, §8.3 EventPublisher), Device Model & Capability System (§3.8 command model, §3.10 ExpectationFactory, §8.1 DeviceRegistry, §8.1 EntityRegistry, §8.1 CommandValidator), State Store & State Projection (§3.1 state query interface, §8.1 StateQuery), Persistence Layer (§8.1 CheckpointStore), Integration Runtime (§3.8 IntegrationContext.CommandHandler), Configuration System (§3.2 SchemaRegistry, §3.3 reload pipeline, §7 well-known file paths, ConfigurationChangeListener callback), Identity and Addressing Model (§7 address resolution primitives, §7.2 resolution timing, §7.3 deduplication, §7.4 ordering, §7.5 eligibility failures), Glossary (§4 TCA vocabulary)
 **Dependents:** REST API (automation CRUD, run trace queries, command status), WebSocket API (live run trace streaming), Observability & Debugging (automation metrics, trace viewer data), Startup, Lifecycle & Shutdown (automation subscriber lifecycle, processing mode transitions)
