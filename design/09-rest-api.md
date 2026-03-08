@@ -3,7 +3,7 @@
 **Document type:** Subsystem design
 **Status:** Draft
 **Subsystem:** REST API
-**Dependencies:** Event Model & Event Bus (§4.1 event envelope, §4.3 event type taxonomy, §4.4 causal chain projection, §8.1 EventStore query interface, §8.2 EventEnvelope type), Device Model & Capability System (§3.1 structural overview, §8.1 DeviceRegistry/EntityRegistry/CapabilityRegistry read interfaces, §8.2 Device/Entity/Capability/AttributeValue types, §3.8 command model), State Store & State Projection (§8.1 StateQueryService interface, §4.1 EntityState record, §4.2 StateSnapshot, §5 viewPosition contract), Automation Engine (§8.1 AutomationRegistry/RunManager/PendingCommandLedger interfaces, §8.2 AutomationDefinition/PendingCommand types, §4.1 Run record, §4.2 run trace assembly), Integration Runtime (§8.1 IntegrationSupervisor health interface), Configuration System (§8.1 ConfigurationProvider read interface), Persistence Layer (§8.5 telemetry query interface), Identity and Addressing Model (§2 three-layer identity, §3 slug rules), Glossary v1 (§2 Device Model vocabulary, §4 TCA vocabulary)
+**Dependencies:** Event Model & Event Bus (§4.1 event envelope, §4.3 event type taxonomy, §3.2 causal chain semantics, §8.1 EventStore query interface, §8.2 EventEnvelope type, §8.3 EventPublisher), Device Model & Capability System (§3.1 structural overview, §8.1 DeviceRegistry/EntityRegistry/CapabilityRegistry read interfaces, §8.2 Device/Entity/Capability/AttributeValue types, §3.8 command model), State Store & State Projection (§8.1 StateQueryService interface, §4.1 EntityState record, §4.2 StateSnapshot, §5 viewPosition contract), Automation Engine (§8.1 AutomationRegistry/RunManager/PendingCommandLedger interfaces, §8.2 AutomationDefinition/PendingCommand types, §4.1 Run record, §4.2 run trace assembly), Integration Runtime (§8.1 IntegrationSupervisor health interface), Configuration System (§8.1 ConfigurationProvider read interface), Persistence Layer (§8.5 telemetry query interface), Identity and Addressing Model (§2 three-layer identity, §3 slug rules), Glossary v1 (§2 Device Model vocabulary, §4 TCA vocabulary)
 **Dependents:** WebSocket API (shared authentication model, API version alignment), Web UI (primary data source for dashboard rendering), Observability & Debugging (API metrics as observability input), Startup, Lifecycle & Shutdown (HTTP server lifecycle)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-07
@@ -143,7 +143,7 @@ Endpoints are organized into five operational planes with distinct consistency c
 | GET | `/api/v1/events/{event_id}` | Single event by ID |
 | GET | `/api/v1/events/trace/{correlation_id}` | Causal chain trace |
 
-**Plane 4 — Automation.** Automation definitions and execution history. Read-only in Tier 1 (automations defined in `automations.yaml`). Configuration-consistent responses carry `ETag` from automation definition hash.
+**Plane 4 — Automation.** Automation definitions and execution history. Automation definition CRUD is deferred to Tier 2 — Tier 1 definitions are managed in `automations.yaml` via the Configuration System (Doc 06). Enable/disable endpoints and read access are Tier 1 scope. Configuration-consistent responses carry `ETag` from automation definition hash.
 
 | Method | Path | Description |
 |---|---|---|
@@ -191,7 +191,7 @@ The `POST /api/v1/entities/{entity_id}/commands` endpoint is the primary write p
 3. Verify the entity's integration is healthy. Return `503 Service Unavailable` (Problem type: `integration-unhealthy`) if the owning integration is unhealthy.
 4. Validate the `capability` and `command` fields against the entity's declared capabilities via `CommandValidator` (Doc 02 §8.1). Return `422 Unprocessable Content` (Problem type: `invalid-command`) if validation fails, with `detail` describing the specific schema violation.
 5. Resolve expected outcomes via `ExpectationFactory` (Doc 02 §8.1) to populate the `expected_outcome` field on the event payload.
-6. Publish a `command_issued` event via `EventPublisher.publishRoot()` with origin `USER_COMMAND` and `actor_ref` set to the authenticated API key's identity. The correlation ID is either propagated from the client's `X-Correlation-ID` header or generated fresh.
+6. Publish a `command_issued` event via `EventPublisher.publishRoot()` with origin `USER_COMMAND` and `actor_ref` set to the authenticated API key's identity. The `correlation_id` is set to the event's own `event_id` by `publishRoot()` per Doc 01 §8.3. If the client provided an `X-Correlation-ID` header, it is logged alongside the event's `correlation_id` for request-level tracing (§3.11) but is not injected into the event envelope.
 7. Return `202 Accepted` with the `command_id` (the event's `event_id`), the `correlation_id`, and the `view_position` at which the command was persisted.
 
 The `202 Accepted` response means the command has been validated and persisted to the event log. It does not mean the command has reached the device. Clients track the full lifecycle via `GET /api/v1/commands/{command_id}`.
@@ -275,6 +275,8 @@ Filtering logic joins the EntityRegistry (for structural predicates like area, t
 | `correlation_id` | ULID | Events in a specific causal chain |
 
 **Sorting.** Entity and device lists default to `entity_id` ascending (ULID order, which is time-ordered). Event lists default to `global_position` descending (newest first). A `sort` query parameter accepts `asc` or `desc` to override the default direction. No arbitrary sort keys — the sort dimension is fixed per endpoint to enable efficient cursor pagination.
+
+**Degraded event handling.** When the EventStore returns a `DegradedEvent` instance (Doc 01 §8.2) — an event whose payload could not be upcasted to the current schema version in lenient mode — the API serializes it with the raw JSON payload preserved and a `degraded` flag set to `true`. The response includes the `degraded_reason` field describing the upcasting failure. This maintains the "never hide data" principle (INV-ES-06): degraded events are evidence in the log and must be visible through the API. Clients that cannot handle degraded events should filter on `degraded: false` in their presentation logic.
 
 ### 3.7 ETag and Caching Strategy
 
@@ -382,11 +384,13 @@ Timestamps are serialized as ISO 8601 strings with millisecond precision (via `J
 
 ### 3.11 Correlation ID Propagation
 
-If a client includes an `X-Correlation-ID` header with a valid ULID value, the REST API propagates this value as the `correlation_id` on any events produced during request handling (specifically, `command_issued` events from the command endpoint). This enables end-to-end tracing from the client's perspective: a mobile app can tag a command with its own correlation ID and later query the event trace by that ID to see the full lifecycle.
+The REST API supports client-provided request tracing via the `X-Correlation-ID` header. This header provides end-to-end tracing from the client's perspective — a mobile app can tag a request with its own identifier and use it to find related log entries and events.
 
-If no `X-Correlation-ID` header is present, the EventPublisher generates a fresh correlation ID per its standard root-event behavior.
+**Request-level tracing vs. event causal chains.** These are distinct mechanisms. The event envelope's `correlation_id` field is always set by `EventPublisher.publishRoot()` to the event's own `event_id` for root events (Doc 01 §8.3). This invariant is essential for causal chain reconstruction — the event correlation chain must form a self-consistent graph rooted at the originating event. Client-provided correlation IDs are not injected into the event envelope.
 
-The response includes the effective `correlation_id` in the `X-Correlation-ID` response header, regardless of whether it was client-provided or system-generated.
+**How tracing works end-to-end:** When a client issues a command with `X-Correlation-ID: {client_id}`, the REST API: (1) logs the request with `client_correlation_id = {client_id}` in structured log entries (§3.3 step 9), (2) publishes the `command_issued` event via `publishRoot()` which assigns `correlation_id = event_id`, and (3) returns both the `client_correlation_id` and the event's `correlation_id` in the response. The client can trace the command lifecycle by querying `GET /api/v1/commands/{command_id}` or `GET /api/v1/events/trace/{correlation_id}` using the event's correlation ID from the response.
+
+The response includes the event-assigned `correlation_id` in the `X-Correlation-ID` response header. If the client provided a `X-Correlation-ID` on the request, it is returned in a separate `X-Client-Correlation-ID` response header for the client's own bookkeeping.
 
 ---
 
@@ -640,7 +644,7 @@ The aggregate `status` follows a simple reduction: if any subsystem is `unhealth
 
 **Impact:** All requests receive `500 Internal Server Error`. The system is effectively inaccessible via the API.
 
-**Recovery:** The API logs the failure and reports `unhealthy` on the health endpoint (which itself bypasses authentication for this purpose — see §12). The key store is a small file in the configuration directory; corruption is recoverable from the configuration backup created during updates (LTD-14).
+**Recovery:** The API logs the failure. Because all API endpoints require authentication (INV-SE-02), the health endpoint is also unavailable when the auth store is corrupted. External system monitoring is provided by the systemd watchdog via `sd_notify` (LTD-13), which does not traverse the HTTP stack and remains functional regardless of auth store state. Manual recovery requires restarting the service or restoring the key store from backup.
 
 **Events produced:** `system_error` event with `subsystem: "api"`, `reason: "auth_store_unavailable"`.
 
@@ -775,7 +779,7 @@ api:
 
 ## 10. Performance Targets
 
-All targets are measured on the Raspberry Pi 4 (4 GB RAM) validation floor with 50 devices and ~150 entities at typical event rates (~100 events/sec), per INV-PR-01 and INV-PR-02.
+All targets are measured on the Raspberry Pi 4 (4 GB RAM) validation floor (LTD-02) with 50 devices and ~150 entities. The load condition of ~100 events/sec represents the constitutional event throughput ceiling (Doc 01 §6, INV-PR-02) — this is a worst-case stress scenario, not a typical load. Typical 50-device Zigbee event rates are ~0.6 events/sec (Doc 08 research estimate). Targets should be comfortably exceeded on the recommended RPi 5 hardware.
 
 | Metric | Target | Rationale |
 |---|---|---|
@@ -829,7 +833,7 @@ All metrics are exposed via JFR custom events (LTD-15). No Prometheus or OpenTel
 | **DEGRADED** | HTTP server is accepting requests but one or more dependency interfaces are slow (> 100 ms p99 over the last 60 seconds) or the State Store is replaying. |
 | **UNHEALTHY** | HTTP server is not accepting requests, or the authentication store is unavailable, or a critical dependency interface (EventStore, EntityRegistry) is consistently failing. |
 
-The REST API's health indicator is reported to the system health aggregation. It is also exposed at `GET /api/v1/system/health` — which, by definition, is available only when the API is at least partially healthy. A completely unhealthy API cannot serve its own health endpoint; external monitoring via the systemd watchdog (LTD-13) covers this case.
+The REST API's health indicator is reported to the system health aggregation. It is also exposed at `GET /api/v1/system/health`, which requires authentication like all other endpoints (INV-SE-02). A completely unhealthy API — or one whose auth store is unavailable — cannot serve its own health endpoint. External process liveness monitoring is provided by the systemd watchdog via `sd_notify` (LTD-13), which operates outside the HTTP stack and remains functional regardless of API health state.
 
 ---
 
@@ -942,14 +946,14 @@ A client that consistently exceeds rate limits has its key flagged in the struct
 
 **Tier 3: GraphQL as an alternative surface.** If GraphQL adoption in the smart home ecosystem grows (currently low), evaluate a GraphQL endpoint at `/api/v1/graphql` that reuses the same handler logic and internal interfaces. The handler architecture (typed request in, typed response out) is compatible with GraphQL resolvers. This is speculative and not on the current roadmap.
 
+**Event category filtering (depends on A-01-DR-1).** When the pending `event_category` field is added to the event envelope (Doc 01 A-01-DR-1), the REST API should: (a) include `event_category` in all event serialization responses (§4), and (b) add `event_category` as a repeatable filter parameter on `GET /api/v1/events` with OR semantics (matching events in any of the specified categories). This supports the Data Sovereignty API pattern (INV-PD-07) where third-party clients receive scoped access by event category. The filter parameter is an additive API change and does not require an endpoint version bump.
+
 ---
 
 ## 15. Open Questions
 
-1. **Should the health endpoint bypass authentication?**
-   Options: (a) Require authentication on all endpoints including health, consistent with INV-SE-02; (b) Exempt the health endpoint to enable external monitoring tools (systemd watchdog, uptime monitors) that do not carry API keys.
-   Needed: Clarity on whether systemd's `WatchdogSec` integration (LTD-13) uses the HTTP health endpoint or a separate sd_notify mechanism. If the watchdog uses `sd_notify`, the health endpoint can require authentication without impacting system monitoring.
-   Status: **[NON-BLOCKING]** — the decision does not affect the API contract for other endpoints. If the health endpoint is initially authenticated, adding an unauthenticated `/health` endpoint at the server root (outside `/api/v1/`) is an additive change.
+1. ~~**Should the health endpoint be accessible without authentication for external monitoring?**~~
+   **[Resolved]:** The health endpoint requires authentication, consistent with INV-SE-02. The systemd watchdog uses `sd_notify` (LTD-13), not the HTTP health endpoint, for process liveness monitoring. This means the system remains externally monitored even when the auth store is unavailable. No unauthenticated endpoint is needed.
 
 2. **Should the API serve the OpenAPI specification at a well-known endpoint?**
    Options: (a) Serve the OpenAPI 3.1 JSON at `GET /api/v1/openapi.json`; (b) Serve only as a static file bundled with the documentation; (c) Both.
@@ -980,7 +984,7 @@ A client that consistently exceeds rate limits has its key flagged in the struct
 | Virtual thread per request | Each HTTP request dispatched on its own virtual thread | Natural concurrency model for Java 21 (LTD-01). No thread pool sizing. Blocking in handlers (SQLite reads) does not exhaust carrier threads. | §3.3 |
 | HTTP server abstracted behind `RestApiServer` | Implementation choice (JDK HttpServer, Javalin, Jetty) deferred to Phase 2 | Design is implementation-agnostic. Handler model is plain Java methods. Route registration is declarative. Keeps the door open for the lightest viable server. | §3.9 |
 | YAML-only automation management (Tier 1) | Automation endpoints are read-only; CRUD deferred to Tier 2 | Tier 1 scope per MVP. YAML is the canonical configuration store (LTD-09, INV-CE-01). Read endpoints and response shapes are designed to accommodate future write endpoints as additive changes. | §2.2, §14 |
-| Correlation ID propagation | Client-provided `X-Correlation-ID` propagated to `command_issued` events | Enables end-to-end tracing from mobile app through command lifecycle. Standard practice in distributed systems; low implementation cost. | §3.11 |
+| Correlation ID tracing | Client-provided `X-Correlation-ID` logged as request metadata; event `correlation_id` always set by `publishRoot()` per Doc 01 §8.3 | End-to-end tracing via structured logs + event correlation chain. Preserves Doc 01 causal chain invariant. | §3.11 |
 
 ---
 
