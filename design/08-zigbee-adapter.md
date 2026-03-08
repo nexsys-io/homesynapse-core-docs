@@ -151,11 +151,25 @@ This separation produces a clean division: the transport layer handles bytes and
 
 A `Semaphore` limits concurrent in-flight SREQ operations. CC2652-based coordinators support up to 16 concurrent operations; CC2531 (legacy, not a recommended target but may appear in the field) supports 2. The semaphore count is derived from the coordinator model detected during initialization.
 
-**EZSP/ASH transport.** The ASH layer is substantially more complex than UNPI. Key implementation concerns: byte destuffing (escape 0x7E, 0x7D, 0x11, 0x13, 0x18, 0x1A with XOR 0x20 prefix), data derandomization (LFSR seeded at 0x42: `if bit0==0: next=val>>1; if bit0==1: next=(val>>1)^0xB8`), CRC-CCITT (polynomial 0x1021, init 0xFFFF, big-endian output), 3-bit sliding window sequence numbers, and piggyback acknowledgments. The EZSP version negotiation command (0x0000) always uses legacy single-byte frame ID format for backward compatibility. The transport supports EZSP versions 8 through the current version for EFR32 hardware.
+**EZSP/ASH transport.** The ASH layer is substantially more complex than UNPI. Key implementation concerns: byte destuffing (escape 0x7E, 0x7D, 0x11, 0x13, 0x18, 0x1A with XOR 0x20 prefix), data derandomization (LFSR seeded at 0x42: `if bit0==0: next=val>>1; if bit0==1: next=(val>>1)^0xB8`), CRC-CCITT (polynomial 0x1021, init 0xFFFF, big-endian output), 3-bit sliding window sequence numbers, and piggyback acknowledgments. The EZSP version negotiation command (0x0000) always uses legacy single-byte frame ID format for backward compatibility.
+
+**Supported EZSP versions.** The transport targets EZSP version 13 and above, corresponding to EmberZNet 7.4+ firmware on EFR32MG21/MG24 hardware. This is the actively maintained firmware generation — the coordinator hardware recommended for HomeSynapse (EFR32MG21 dongles such as the SONOFF ZBDongle-E, Home Assistant Connect ZBT-1/ZBT-2) ships with this firmware or can be flashed to it. EZSP versions 8–12 (EmberZNet 6.x–7.3) are legacy: the zigbee2mqtt project has deprecated its EZSP 8–12 driver, and no new coordinator hardware ships with these firmware versions. The adapter does not support EZSP versions below 8.
+
+If the EZSP version negotiated during initialization falls below 13, the adapter logs a structured WARN entry (`zigbee.ezsp_legacy_version`) identifying the negotiated version and recommending a firmware update, then proceeds with best-effort operation. If the version falls below 8, the adapter throws a `PermanentIntegrationException` because the frame format is incompatible. This tiered approach avoids bricking existing setups while clearly communicating the supported path.
 
 ASH window size is 1 (stop-and-wait), consistent with bellows. The adaptive ACK timeout starts at 1.6 seconds, with a minimum of 0.4 seconds and maximum of 3.2 seconds. Five consecutive timeouts transition the ASH state machine to FAILED, which propagates to the protocol layer as a transport failure.
 
-**Transport selection.** The adapter auto-detects the coordinator type during initialization by probing the serial port. It sends a ZNP `SYS_PING` SREQ and an EZSP RST frame in sequence. The first valid response determines the transport type. If neither responds within 10 seconds, the adapter throws a `PermanentIntegrationException` with a user-readable message identifying the serial port and suggesting the user verify the coordinator is connected and the port permissions are correct.
+**Transport selection.** The adapter auto-detects the coordinator type during initialization by probing the serial port using the following sequence:
+
+1. Flush the serial port receive buffer (drain any stale bytes from a previous session or power-cycle).
+2. Send a ZNP `SYS_PING` SREQ and wait up to 4 seconds for an SRSP.
+3. If no ZNP response, flush the receive buffer again and wait 200 ms for the serial line to settle.
+4. Send an EZSP ASH RST frame and wait up to 4 seconds for RSTACK.
+5. If RSTACK is received, the transport is EZSP. If an error frame is received instead (indicating the ASH state machine was confused by the prior ZNP probe bytes), send a second RST and wait up to 4 seconds.
+
+If neither probe sequence produces a valid response within the 10-second total timeout, the adapter logs a structured ERROR entry (`zigbee.auto_detect_failed`) with the serial port path and the bytes received (if any), then throws a `PermanentIntegrationException` with a user-readable message identifying the serial port and suggesting the user: (a) verify the coordinator is connected and powered, (b) check serial port permissions, and (c) if the issue persists, set `integrations.zigbee.adapter_type` explicitly to `znp` or `ezsp` to bypass auto-detection.
+
+If `integrations.zigbee.adapter_type` is set in configuration, the adapter skips auto-detection entirely and uses the declared transport type. This manual override exists as a reliability fallback — auto-detection is the default and handles the vast majority of coordinator hardware correctly.
 
 ### 3.4 Device Interview Pipeline
 
@@ -235,10 +249,15 @@ public record DeviceProfile(
     String manufacturerCodec,           // null, "tuya_ef00", "xiaomi_ff01", "xiaomi_fcc0"
     Set<String> interviewSkips,         // e.g., {"configure_reporting"} for Xiaomi
     Map<String, Object> properties      // Profile-specific flags
+    List<InitializationWrite> initializationWrites // Nullable. Attribute writes executed after adoption.
 ) {}
 ```
 
 Profiles are loaded from a bundled JSON resource file (`zigbee-profiles.json`) at adapter initialization and from an optional user override file at `integrations.zigbee.profiles_path`. User profiles take precedence over bundled profiles for the same manufacturer/model pair. This supports the ~40% of devices in the minor-quirks and manufacturer-custom categories without code changes.
+
+**Initialization writes.** Some devices require manufacturer-specific attribute writes to enable expected behavior. The profile's `initializationWrites` list specifies ZCL attribute writes executed once after the device is adopted and its clusters are bound. Each write specifies the endpoint, cluster, attribute, data type, value, and manufacturer code (if the write requires the manufacturer-specific flag in ZCL frame control). Writes are executed in order with a 5-second timeout per write. Failures are logged at WARN level but do not block adoption — the device is functional in its default mode, and the user can trigger re-initialization via the REST API.
+
+Example: an Aqara wall switch profile includes an initialization write to set cluster 0xFCC0, attribute 0x0200 to `0x01` (decoupled mode) with manufacturer code 0x115F. Without this write, the switch's physical button controls the relay directly and produces no Zigbee event for HomeSynapse to observe.
 
 **Category distribution** (from competitive research):
 
@@ -341,6 +360,12 @@ When the Automation Engine or REST API issues a command targeting a Zigbee entit
 
 **Transition time handling.** LevelControl and ColorControl commands accept an optional `transition_time` parameter (in seconds, converted to ZCL's 1/10-second units). When a transition is active, the adapter adjusts the expectation timeout to `transition_time + 2 seconds` to avoid premature timeout declarations. IKEA TRÅDFRI devices require separate commands for brightness and color temperature transitions — the adapter sends them sequentially with a 50 ms delay when both are present in a single command.
 
+**Command pacing and backpressure.** The outbound write queue (§3.2) has a bounded capacity of 64 frames. When a burst of commands arrives (e.g., a scene activation targeting 15 devices), each command is submitted to the outbound queue. If the queue is full, the `sendZclFrame()` call blocks for up to 5 seconds. If the queue does not drain within 5 seconds (indicating a transport-layer stall), the adapter publishes a `command_result` with FAILURE status and reason `QUEUE_FULL`, without having sent the ZCL frame. This prevents unbounded command accumulation from exhausting coordinator buffers — a documented EZSP failure mode where burst command loads cause persistent degraded state surviving even firmware restarts.
+
+The effective command throughput is bounded by the transport: ZNP with a 16-slot semaphore and ~50 ms average round-trip can sustain ~320 commands/second; EZSP with ASH window=1 and ~100 ms average round-trip sustains ~10 commands/second. Scene activations targeting more than 10 devices on EZSP coordinators will experience serial dispatch over 1–2 seconds. This is inherent to the EZSP stop-and-wait protocol, not an adapter limitation.
+
+For future Zigbee group support, ZCL multicast frames would reduce a group command to a single outbound frame regardless of group size. Group commands are not in MVP scope (§14) but the outbound queue design accommodates them without changes.
+
 ### 3.11 Network Telemetry
 
 The adapter collects per-frame and periodic network health data to satisfy INV-MN-01 (protocol-agnostic network telemetry) and INV-MN-02 (mesh health as observable state).
@@ -368,7 +393,9 @@ Zone type determines capability mapping: 0x000D → motion, 0x0015 → contact, 
 On first run, the adapter forms a new Zigbee network. Network formation involves:
 
 1. Energy scan across channels 11–26 to measure interference
-2. Channel selection prioritizing channels 15, 20, and 25 (minimal Wi-Fi overlap with channels 1, 6, and 11)
+2. Channel selection using a two-tier preference model:
+   - **Primary tier (preferred):** Channels 15, 20, 11. These channels combine minimal Wi-Fi overlap (Wi-Fi channels 1, 6, and 11) with broad device compatibility. Channel 15 is the default if all primary-tier channels have comparable interference levels, consistent with ZHA's default and the Zigbee Light Link specification's primary channel set.
+   - **Fallback tier (only if all primary-tier channels are heavily congested):** Channels 21–26. These channels offer the least Wi-Fi interference but are known to cause compatibility issues with Aqara/Xiaomi devices — some models refuse to pair or silently disconnect on channels above 20. The adapter selects a fallback-tier channel only if every primary-tier channel exceeds the energy scan congestion threshold, and logs a structured WARN entry (`zigbee.channel_fallback_tier`) noting the Aqara compatibility risk.
 3. Random PAN ID generation
 4. AES-128 network key generation using `java.security.SecureRandom`
 5. Trust Center configuration using the well-known TC link key (`ZigBeeAlliance09`, 0x5A6967426565416C6C69616E63653039)
@@ -376,6 +403,36 @@ On first run, the adapter forms a new Zigbee network. Network formation involves
 The network key is stored encrypted at rest (INV-SE-03) via the secrets infrastructure. The PAN ID, channel, extended PAN ID, and encrypted network key are persisted in the adapter's configuration state so that the network resumes on restart without re-formation.
 
 On subsequent starts, the adapter resumes the existing network by loading the stored network parameters and instructing the coordinator to restore the network state.
+
+### 3.14 Local Device Metadata Cache
+
+The adapter maintains an in-memory cache of Zigbee-specific device metadata required for protocol-level operations. This cache is separate from the Device Model's EntityRegistry, which manages HomeSynapse-level identity.
+
+**Cache contents per device:**
+```java
+public record ZigbeeDeviceRecord(
+    IEEEAddress ieeeAddress,            // 64-bit permanent identifier
+    int networkAddress,                  // 16-bit, updated on rejoin
+    NodeDescriptor nodeDescriptor,       // Device type, manufacturer code, buffer size
+    List<EndpointDescriptor> endpoints,  // Per-endpoint: profile, device type, cluster lists
+    String manufacturerName,             // From Basic cluster
+    String modelIdentifier,              // From Basic cluster
+    PowerSource powerSource,             // MAINS_SINGLE_PHASE, BATTERY, etc.
+    Instant lastSeen,                    // Last frame received
+    InterviewStatus interviewStatus,     // COMPLETE, PARTIAL, PENDING
+    String matchedProfileId              // Nullable — device profile match result
+) {}
+```
+
+**Cache lifecycle:**
+
+1. **Startup.** The cache is populated from the coordinator's device table (queried via ZDO) and reconciled with any persisted cache state. If a device is in the coordinator's table but missing from the cache, the adapter schedules an interview. If a device is in the cache but missing from the coordinator's table (stale entry after coordinator power loss), the adapter logs a structured WARN entry (`zigbee.device_table_mismatch`) and re-adds the device to the coordinator's table using the cached IEEE address.
+2. **Device join.** On Device Announce, the cache is updated with the new or changed NWK address. If the IEEE address is already cached with a different NWK address, the cache updates the NWK address (this is a normal Zigbee rejoin).
+3. **Interview completion.** The cache is updated with full endpoint descriptors, manufacturer/model, and power source.
+4. **Attribute report.** The `lastSeen` timestamp is updated on every frame from the device.
+5. **Persistence.** The cache is serialized to a JSON file (`zigbee-devices.json`) in the adapter's data directory on every change (debounced to at most once per 30 seconds) and on adapter shutdown. This ensures the cache survives adapter restarts without requiring a full coordinator device table query.
+
+**Relationship to EntityRegistry.** The cache does not replace the EntityRegistry. It holds protocol-level metadata needed by the transport and protocol layers; the EntityRegistry holds HomeSynapse domain model data (entity IDs, capability schemas, hardware identifier mappings). The adapter queries the EntityRegistry for entity resolution during command dispatch and event production, and queries the local cache for NWK address resolution, endpoint lookup, and power-source-aware availability tracking.
 
 ---
 
@@ -453,7 +510,18 @@ Device profiles are stored as JSON and loaded into `DeviceProfile` records at in
     "0x64": {"attributeKey": "temperature", "type": "Int16", "converter": "divideBy100"},
     "0x65": {"attributeKey": "humidity", "type": "Uint16", "converter": "divideBy100"},
     "0x66": {"attributeKey": "pressure", "type": "Int32", "converter": "divideBy100"}
-  }
+  },
+  "initializationWrites": [
+    {
+      "endpoint": 1,
+      "cluster": "0xFCC0",
+      "attribute": "0x0200",
+      "type": "Uint8",
+      "value": 1,
+      "manufacturerCode": "0x115F",
+      "description": "Enable decoupled mode — physical button produces ZCL events instead of toggling relay directly"
+    }
+  ]
 }
 ```
 
@@ -485,9 +553,13 @@ Events produced by the adapter follow the Event Model's envelope schema (Doc 01 
 
 **The transport layer never reorders frames.** Frames are processed in the order they are received from the serial port. The inbound `BlockingQueue` is a FIFO structure. No priority-based reordering occurs between transport and protocol layers.
 
+**Permit-join does not degrade normal operations.** Enabling permit-join does not block, delay, or deprioritize attribute report processing, command dispatch, or availability tracking for existing devices. The permit-join state is maintained by the coordinator firmware; the adapter's inbound frame processing pipeline handles Device Announce frames from newly joining devices in the same FIFO order as any other frame. Interview processing for newly joined devices runs on a separate virtual thread and does not block the main protocol processing loop.
+
 **Network key confidentiality.** The Zigbee network key is stored encrypted at rest (INV-SE-03) and is never logged, included in event payloads, or exposed through the API. The well-known Trust Center link key is used only for initial pairing; the network key distributed during pairing is the confidential material.
 
 **Coordinator type is an internal detail.** The choice between ZNP and EZSP transport is invisible to the rest of HomeSynapse. No event payload, configuration option, or API response exposes which coordinator firmware is in use. The coordinator is an implementation detail of this adapter, consistent with INV-CE-04 (protocol agnosticism applies within the Zigbee adapter itself, not only across protocols).
+
+**The outbound command queue has bounded capacity.** The adapter never accumulates unbounded outbound frames. The write queue capacity is 64 frames. If the queue is full, the adapter rejects the command with a `command_result` FAILURE (reason: `QUEUE_FULL`) rather than blocking indefinitely. This prevents coordinator buffer exhaustion under burst load.
 
 ---
 
@@ -601,6 +673,7 @@ Events produced by the adapter follow the Event Model's envelope schema (Doc 01 
 | Type | Kind | Responsibility |
 |---|---|---|
 | `ZigbeeFrame` | Sealed interface | Transport-level frame: `ZnpFrame` or `EzspFrame` |
+| `ZigbeeDeviceRecord` | Record | Per-device Zigbee protocol metadata: IEEE/NWK addresses, endpoints, manufacturer/model, power source, last-seen, interview status |
 | `ZclFrame` | Record | Protocol-level ZCL frame: endpoint, cluster, command/attribute, payload, manufacturer code |
 | `DeviceProfile` | Record | Per-model device behavior overrides |
 | `TuyaDatapointMapping` | Record | DP ID → HomeSynapse attribute mapping with conversion |
@@ -612,6 +685,7 @@ Events produced by the adapter follow the Event Model's envelope schema (Doc 01 
 | `ManufacturerModelPair` | Record | `(manufacturerName, modelIdentifier)` key for profile matching |
 | `DeviceCategory` | Enum | STANDARD_ZCL, MINOR_QUIRKS, MIXED_CUSTOM, FULLY_CUSTOM |
 | `ValueConverter` | Functional interface | `Object convert(Object rawValue)` — divideBy10, divideBy100, raw, booleanInvert, batteryVoltageToPercent |
+| `InitializationWrite` | Record | Post-adoption attribute write: endpoint, cluster, attribute, data type, value, manufacturer code |
 
 ---
 
@@ -628,7 +702,15 @@ integrations:
     # Baud rate. Auto-detected based on coordinator type.
     # baud_rate: 115200
 
+    # Coordinator adapter type. Auto-detected if omitted.
+    # Set explicitly only if auto-detection fails (see logs for guidance).
+    # Valid values: znp (CC2652/CC1352 Z-Stack), ezsp (EFR32 EmberZNet).
+    # adapter_type: ~
+
     # Network channel. Auto-selected via energy scan on first run.
+    # Default: 15 (primary ZLL channel, broadest device compatibility).
+    # Channels 11, 15, 20 are preferred. Channels 21–26 are fallback-only
+    # due to known Aqara/Xiaomi device incompatibilities on high channels.
     # channel: 15
 
     # Permit join default duration in seconds (max 254 per spec).
@@ -660,6 +742,24 @@ integrations:
     # use TelemetryWriter instead of domain events.
     telemetry_threshold_seconds: 10
 ```
+
+**Coordinator firmware parameters.** The adapter queries the coordinator's firmware version and key configuration parameters during initialization and logs them at INFO level (`zigbee.coordinator_capabilities`). For ZNP coordinators, this includes the maximum device table size and source route table size. For EZSP coordinators, this includes `CONFIG_MAX_END_DEVICE_CHILDREN`, `CONFIG_SOURCE_ROUTE_TABLE_SIZE`, `CONFIG_ADDRESS_TABLE_SIZE`, and `CONFIG_APS_UNICAST_MESSAGE_COUNT`.
+
+These parameters are set at firmware flash time and cannot be changed by the adapter at runtime. However, EZSP coordinators allow some parameters to be overridden via EZSP configuration commands during initialization. The adapter supports optional EZSP config overrides for advanced users:
+```yaml
+integrations:
+  zigbee:
+    # EZSP coordinator configuration overrides (advanced, EZSP only).
+    # These are sent during coordinator initialization. Incorrect values
+    # can destabilize the coordinator. Omit unless you understand the
+    # EmberZNet configuration model.
+    # ezsp_config:
+    #   CONFIG_MAX_END_DEVICE_CHILDREN: 32
+    #   CONFIG_SOURCE_ROUTE_TABLE_SIZE: 200
+    #   CONFIG_APS_UNICAST_MESSAGE_COUNT: 64
+```
+
+If any EZSP config override fails (the coordinator rejects the value), the adapter logs a structured WARN entry (`zigbee.ezsp_config_rejected`) with the parameter name and value, and continues with the coordinator's default. This is a best-effort mechanism — the coordinator firmware has the final say on configuration validity.
 
 **Configuration option details:**
 
@@ -815,6 +915,8 @@ This section is included because the Zigbee adapter handles cryptographic materi
 
 **Tuya time sync under load.** Simulate 10 Tuya devices sending time sync requests simultaneously during a burst of attribute reports. Verify: all time sync responses are sent, attribute report processing is not blocked.
 
+**Command burst overflow.** Submit 100 concurrent command dispatches targeting different devices with the transport artificially stalled (not consuming the outbound queue). Verify: the first 64 commands are queued, subsequent commands receive `command_result` FAILURE with `QUEUE_FULL` reason after the 5-second timeout, no commands are silently lost, the adapter's health score is not affected by queue-full events (this is a load condition, not an adapter fault), and on transport recovery all queued commands are dispatched in FIFO order.
+
 ---
 
 ## 14. Future Considerations
@@ -829,14 +931,14 @@ This section is included because the Zigbee adapter handles cryptographic materi
 
 **Matter bridge mode.** A future version could expose Zigbee devices as Matter-compatible endpoints via a Matter bridge, enabling HomeKit and Google Home interoperability. This would be a separate adapter that reads entity state from HomeSynapse and translates to Matter's data model. The protocol-agnostic device model (INV-CE-04) and the entity-first architecture (Doc 02 §1) make this feasible without changes to the Zigbee adapter.
 
+**Zigbee group commands.** The current command dispatch model (§3.10) handles individual CommandEnvelopes targeting specific entities. Zigbee supports multicast group addressing where a single ZCL frame is transmitted once and received by all devices in a group, regardless of group size. This would reduce a "turn off all lights" command from N unicast frames to one multicast frame, eliminating the serial dispatch delay described in §3.10 and the coordinator buffer pressure described in the outbound queue backpressure contract. Adding group support requires: Zigbee group table management on the coordinator, a HomeSynapse group concept in the Device Model, a group-aware CommandHandler path that produces a single ZCL multicast frame instead of N unicast frames, and group reporting configuration. The coordinator abstraction (`CoordinatorProtocol`) and outbound queue design accommodate group frames without architectural changes. The command dispatch backpressure mechanism (§3.10) makes group support a performance optimization rather than a correctness requirement — the adapter handles N-device bursts correctly without groups, just more slowly on EZSP coordinators.
+
 ---
 
 ## 15. Open Questions
 
-1. **Should the adapter maintain a local device database independent of the Device Model registry?**
-   Options: (a) The adapter maintains a lightweight cache of Zigbee-specific metadata (IEEE→NWK mapping, endpoint→cluster lists, last-seen timestamps) for protocol-level operations, separate from the Device Model's authoritative registry. (b) The adapter relies entirely on `EntityRegistry` queries for all device metadata, with no local cache.
-   Needed: Performance profiling of `EntityRegistry` query frequency during sustained attribute report processing. If the adapter queries the registry on every frame to resolve IEEE→entity mapping, a local cache avoids the overhead.
-   Status: **[NON-BLOCKING]** — option (a) is the recommended position based on zigbee-herdsman and zigpy precedent. Both maintain a local device database. The cache is a performance optimization and does not affect the adapter's external contracts.
+1. ~~**Should the adapter maintain a local device database independent of the Device Model registry?**~~
+   **Resolved.** The adapter maintains a local device metadata cache (option (a)). This is a firm design decision, not an optimization. The cache is required for three reasons: (1) **Startup timing** — the coordinator resumes the network and devices send frames before the Device Model's EntityRegistry completes checkpoint replay; the adapter must resolve IEEE→NWK and endpoint→cluster relationships without EntityRegistry availability. (2) **NWK address reconciliation** — ZNP coordinators can lose device table entries after power cycles (a documented CC2652 issue); the adapter must detect and repair stale IEEE→NWK mappings by comparing its cache to the coordinator's device table on startup. (3) **Protocol metadata** — availability pings, reporting reconfiguration on rejoin, and command dispatch require Zigbee-specific metadata (endpoint IDs, cluster lists, power source type) that is outside the EntityRegistry's domain model. The cache is the source of truth for protocol-level routing within the adapter; the Device Model's EntityRegistry is the source of truth for HomeSynapse-level identity. See §3.14.
 
 2. **Should the adapter support coordinator backup and restore for seamless hardware migration?**
    Options: (a) The adapter exports coordinator state (network parameters, device table, link keys) to a JSON backup file that can be restored on a new coordinator. (b) Hardware migration requires re-pairing all devices on the new coordinator.
@@ -856,6 +958,7 @@ This section is included because the Zigbee adapter handles cryptographic materi
 |---|---|---|---|
 | Coordinator architecture | Two-layer: platform thread transport + virtual thread protocol | JNI pinning isolation per Integration Runtime §3.2 (IoType.SERIAL). ASH timing requires transport-layer ACK handling. | §3.2 |
 | Transport abstraction | `CoordinatorTransport` interface with ZNP and EZSP implementations | zigbee-herdsman proves the abstraction is viable. Separating transport from protocol allows adding coordinator types without touching device handling. | §3.3 |
+| EZSP version target | EZSP 13+ (EmberZNet 7.4+) primary; 8–12 legacy with warning; below 8 rejected | Aligns with ecosystem direction (z2m deprecated EZSP 8–12 driver). No new coordinator hardware ships with pre-7.4 firmware. | §3.3 |
 | Cluster-to-capability mapping | Declarative per-cluster handlers composed per device | Follows zigbee2mqtt's converter composition pattern. Translates naturally to Java sealed interfaces. Covers ~60% of devices generically. | §3.5 |
 | Device profile system | JSON-based registry with bundled + user override profiles | Covers the ~40% of devices requiring non-standard handling without code changes. User profiles support new devices without adapter updates. | §3.6 |
 | Manufacturer codec isolation | Separate codec subsystems for Tuya DP and Xiaomi TLV | Prevents quirk accumulation. Each codec has its own parsing, validation, and mapping pipeline. | §3.8, §3.9 |
