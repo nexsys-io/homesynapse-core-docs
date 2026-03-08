@@ -395,23 +395,21 @@ Telemetry samples are `(entityRef, attributeKey, value, timestamp)` tuples — n
 
 The descriptor is the integration's contract with the supervisor, declared by the `IntegrationFactory` at discovery time. The `IntegrationDescriptor` declares the integration type (a string key like `"zigbee"`), not the instance identity. The supervisor assigns an `IntegrationId` (ULID, per LTD-04) when the integration is first loaded. This instance identity is stable across restarts and is the `integration_id` referenced in all scoped interfaces and event payloads. The distinction: `integrationType` identifies the software; `IntegrationId` identifies the installed instance.
 
+**Concrete descriptor values for the Zigbee adapter:**
 ```java
-public record IntegrationDescriptor(
-    String integrationType,            // e.g., "zigbee", "mqtt", "hue"
-    String displayName,                // Human-readable name
-    IoType ioType,                     // SERIAL or NETWORK
-    Set<RequiredService> requiredServices,  // HTTP_CLIENT, SCHEDULER, TELEMETRY_WRITER
-    Set<DataPath> dataPaths,           // DOMAIN, TELEMETRY, or both
-    HealthParameters healthParameters, // Per-integration health thresholds
-    int schemaVersion                  // Integration configuration schema version
-) {}
-
-public enum IoType { SERIAL, NETWORK }
-
-public enum RequiredService { HTTP_CLIENT, SCHEDULER, TELEMETRY_WRITER }
-
-public enum DataPath { DOMAIN, TELEMETRY }
+new IntegrationDescriptor(
+    "zigbee",                                          // integrationType
+    "Zigbee Adapter",                                  // displayName
+    IoType.SERIAL,                                     // ioType
+    Set.of(RequiredService.SCHEDULER,                  // requiredServices
+           RequiredService.TELEMETRY_WRITER),
+    Set.of(DataPath.DOMAIN, DataPath.TELEMETRY),       // dataPaths
+    HealthParameters.defaults(),                        // healthParameters — all defaults are appropriate
+    1                                                   // schemaVersion
+)
 ```
+
+The adapter uses `HealthParameters.defaults()` without overrides. The defaults are appropriate: 120-second heartbeat timeout with a 30-second watchdog ping provides 4 missed pings before stale detection, and 3/60s restart intensity prevents restart storms from serial port flapping.
 
 ### 4.2 HealthParameters
 

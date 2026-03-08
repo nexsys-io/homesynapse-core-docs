@@ -296,7 +296,9 @@ Tuya devices that use cluster 0xEF00 bypass standard ZCL. The entire ZCL payload
 **DP frame parsing.** The frame structure is:
 
 ```
-[Sequence Number (2B, big-endian)] [DP1] [DP2] ... [DPN]
+[Header (2B)] [DP1] [DP2] ... [DPN]
+
+Header is direction-dependent: outbound TY_DATA_REQUEST (0x00) carries a big-endian sequence number; inbound TY_DATA_REPORT (0x01/0x02) carries a status byte and transaction ID. The parser treats both as a 2-byte prefix before the DP payload.
 
 Each DP:
 [DPID (1B)] [Type (1B)] [Length (2B, big-endian)] [Value (N bytes, big-endian)]
@@ -531,7 +533,7 @@ Events produced by the adapter follow the Event Model's envelope schema (Doc 01 
 
 **state_reported** — carries `entity_ref`, `attribute_key`, `value` (typed per Doc 02 §3.7), `event_time` (Zigbee frame timestamp or best approximation per INV-ES-08), and `origin` (`PHYSICAL` when the frame indicates a physical interaction, `DEVICE_AUTONOMOUS` for scheduled reports, `INTEGRATION` as fallback).
 
-**command_result** — carries `entity_ref`, `command_type`, `status` (SUCCESS/FAILURE), `zcl_status_code` (uint8, present on failure), `round_trip_ms` (time from command send to protocol acknowledgment).
+**command_result** — carries `entity_ref`, `command_type`, `status` (SUCCESS/FAILURE), `zcl_status_code` (uint8, present on failure), `round_trip_ms` (time from command send to protocol acknowledgment). The `command_result` event carries dual default priority per Doc 01 §4.3: NORMAL for SUCCESS status, CRITICAL for FAILURE or TIMEOUT status.
 
 **device_discovered** — carries `hardware_identifier` (namespace=`zigbee`, value=IEEE address), `manufacturer_name`, `model_identifier`, `endpoints` (list of `{endpoint_id, profile_id, device_type_id, input_clusters, output_clusters}`), `power_source`, `interview_status` (COMPLETE/PARTIAL), `matched_profile_id` (nullable).
 
@@ -545,7 +547,7 @@ Events produced by the adapter follow the Event Model's envelope schema (Doc 01 
 
 **Every ZCL attribute report produces exactly one `state_reported` event.** The adapter does not batch, debounce, or suppress attribute reports. Each report is an independent observation. Deduplication, if needed, is the responsibility of downstream subscribers using the event's entity sequence number (INV-ES-05).
 
-**The adapter never produces derived events.** Consistent with Event Model §3.1 Rule T1, the adapter produces only `state_reported`, `command_result`, `availability_changed`, `device_discovered`, and `presence_signal`. It does not produce `state_changed`, `state_confirmed`, or any other derived event type. Whether an attribute report constitutes a change is the State Projection's determination.
+**The adapter never produces derived events.** Consistent with Event Model §3.1 Rule T1, the adapter produces only `state_reported`, `command_result`, `availability_changed`, `device_discovered`, and integration-namespaced events (`zigbee.*`). It does not produce `state_changed`, `state_confirmed`, or any other derived event type. Whether an attribute report constitutes a change is the State Projection's determination.
 
 **Hardware identifiers are stable across adapter restarts.** A device's IEEE address (64-bit) is its permanent hardware identifier. The adapter uses namespace `zigbee` with the IEEE address as the value, consistent with Identity and Addressing Model §6. Network addresses (16-bit) are transient and not used for identity. A device that rejoins the network with a new network address but the same IEEE address is recognized as the same device.
 
@@ -642,7 +644,7 @@ Events produced by the adapter follow the Event Model's envelope schema (Doc 01 
 | Subsystem | Direction | Mechanism | Data | Constraints |
 |---|---|---|---|---|
 | Integration Runtime | Managed by | `IntegrationSupervisor` lifecycle | Lifecycle signals, health state transitions, thread allocation | IoType.SERIAL: platform thread for transport, virtual thread for protocol. 3/60s restart intensity. |
-| Event Model & Event Bus | Produces via | `EventPublisher.publish()` and `publishRoot()` | `state_reported`, `command_result`, `availability_changed`, `device_discovered`, `presence_signal`, integration-namespaced telemetry events | Rule T1 enforced: no derived event types. Origin model: PHYSICAL for button presses, DEVICE_AUTONOMOUS for scheduled reports. |
+| Event Model & Event Bus | Produces via | `EventPublisher.publish()` and `publishRoot()` | `state_reported`, `command_result`, `availability_changed`, `device_discovered`, integration-namespaced telemetry events | Rule T1 enforced: no derived event types. Origin model: PHYSICAL for button presses, DEVICE_AUTONOMOUS for scheduled reports. |
 | Device Model | Queries via | `EntityRegistry` (integration-scoped) | Entity records, capability schemas, hardware identifier mappings | Read-only, filtered by integration_id. Used during command dispatch and availability tracking. |
 | Device Model | Triggers via | `device_discovered` events | Proposed devices with endpoints, clusters, manufacturer/model | Discovery pipeline (Doc 02 §3.12) manages adoption. Adapter does not perform deduplication. |
 | State Store | Queries via | `StateQueryService` (integration-scoped) | Current entity state | Read-only. Used for LevelControl MoveToLevelWithOnOff logic (needs current on/off state). |

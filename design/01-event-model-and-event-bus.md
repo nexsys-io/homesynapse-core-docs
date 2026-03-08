@@ -970,6 +970,8 @@ Key log events (JSON format per LTD-15):
 
 **Causal chain integrity.** The compile-time causality enforcement (§8.3) prevents events from being published without proper causal attribution. This means every event can be traced to its root cause. For forensic or compliance scenarios, the causal chain provides a complete, tamper-evident record of why any given state change occurred. The event log's append-only nature (INV-ES-01) means historical causal chains cannot be retroactively modified.
 
+**Event category (forward reference).** When the `event_category` envelope field is added to the Event Model (pending amendment A-01-DR-1), the Zigbee adapter's events will declare their categories: `state_reported`, `command_result`, `availability_changed`, and `device_discovered` belong to the `device` category; integration-namespaced events (`zigbee.topology_scanned`, `zigbee.permit_join_changed`) belong to the `integration` category. This categorization enables future scoped access controls without schema changes.
+
 ---
 
 ## 13. Testing Strategy
