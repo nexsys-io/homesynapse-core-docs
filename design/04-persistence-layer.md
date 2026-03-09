@@ -4,6 +4,7 @@
 **Status:** Locked
 **Subsystem:** Persistence Layer
 **Dependencies:** Event Model & Event Bus (§3.5 telemetry boundary, §4.2 domain event store schema, §4.3 event type taxonomy, §3.3 retention tiers, §3.4 subscription model, §6.5 emergency retention), State Store & State Projection (§8.3 CheckpointStore interface, §3.3 checkpoint strategy), Device Model & Capability System (§3.1 entity registry structure, §6.6 registry rebuild logic), Identity and Addressing Model (§2.1 ULID references in storage), Glossary v1 (§3.19 Telemetry Ring Store)
+**Dependents:** REST API (§8.5 telemetry query interface for telemetry history endpoints per Doc 09 §3.2 Plane 4)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-05
 
