@@ -279,7 +279,7 @@ When an automation's action produces a state change that triggers another automa
 
 - Suppression produces a `cascade_loop_detected` event (DIAGNOSTIC priority, automation subject) with payload: `{ "automation_id", "triggering_event_id", "correlation_id", "original_run_id" }`.
 - This catches the direct A→B→A cycle that cascade depth alone would permit (since A's second firing would be at depth 2, well under the limit).
-- The duplicate check uses an in-memory set of `(correlation_id, automation_id)` pairs maintained by the RunManager. The set is bounded by the active correlation chain window (Doc 01 §4.4 — default 60 minutes, max 10,000 active chains). Entries are evicted when the correlation chain expires.
+- The duplicate check uses an in-memory set of `(correlation_id, automation_id)` pairs maintained by the RunManager. The set is bounded by the active correlation chain window (Doc 01 §4.5 — default 60 minutes, max 10,000 active chains). Entries are evicted when the correlation chain expires.
 
 **Natural termination via change detection.** The State Projection's change-detection logic (Doc 03 §3.2) provides natural loop termination for the most common circular pattern: if a command produces no actual state change (the new value matches the current canonical state), no `state_changed` event is emitted, and no downstream automation triggers. The cascade depth limit catches the indirect A→B→C→...→A case where each step changes different state, and the duplicate suppression catches the direct A→...→A case. Together, the three mechanisms — natural termination, duplicate suppression, and depth limiting — provide defense in depth against all cascade pathologies (INV-PR-03, INV-TO-02).
 

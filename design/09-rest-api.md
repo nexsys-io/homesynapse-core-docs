@@ -988,7 +988,7 @@ A client that consistently exceeds rate limits has its key flagged in the struct
 
 **Tier 3: GraphQL as an alternative surface.** If GraphQL adoption in the smart home ecosystem grows (currently low), evaluate a GraphQL endpoint at `/api/v1/graphql` that reuses the same handler logic and internal interfaces. The handler architecture (typed request in, typed response out) is compatible with GraphQL resolvers. This is speculative and not on the current roadmap.
 
-**Event category filtering (depends on A-01-DR-1).** When the pending `event_category` field is added to the event envelope (Doc 01 A-01-DR-1), the REST API should: (a) include `event_category` in all event serialization responses (§4), and (b) add `event_category` as a repeatable filter parameter on `GET /api/v1/events` with OR semantics (matching events in any of the specified categories). This supports the Data Sovereignty API pattern (INV-PD-07) where third-party clients receive scoped access by event category. The filter parameter is an additive API change and does not require an endpoint version bump.
+**Event category filtering.** With the `event_category` field now defined on the event envelope (Doc 01 §4.1, §4.4), the REST API should: (a) include `event_category` in all event serialization responses (§4), and (b) add `event_category` as a repeatable filter parameter on `GET /api/v1/events` with OR semantics (matching events in any of the specified categories). This supports the Data Sovereignty API pattern (INV-PD-07) where third-party clients receive scoped access by event category. The filter parameter is an additive API change and does not require an endpoint version bump.
 
 ---
 

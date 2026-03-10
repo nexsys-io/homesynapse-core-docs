@@ -489,6 +489,7 @@ The Event Bus supports one subscription mode: global (receive all Events by `glo
 | `global_position` | Integer | SQLite rowid. Monotonic across all subjects. Subscribers checkpoint against this value. |
 | `priority` | Enum | One of: `CRITICAL`, `NORMAL`, `DIAGNOSTIC`. Governs retention lifetime and delivery urgency. Does not affect append-time durability — all Events are persisted with identical write-ahead guarantees (INV-ES-04). See Event Model §3.3. |
 | `origin` | Enum | One of: `PHYSICAL`, `USER_COMMAND`, `AUTOMATION`, `DEVICE_AUTONOMOUS`, `INTEGRATION`, `SYSTEM`, `UNKNOWN`. Default: `UNKNOWN`. See §8.9 for semantics. |
+| `event_category` | String array | Consent-scope categories for this Event, populated by static lookup from `event_type`. Eight categories: device_state, energy, presence, environmental, security, automation, device_health, system. Enables crypto-shredding (INV-PD-07), access control, and subscription filtering. See Event Model §4.4. |
 | `correlation_id` | ULID | The root Event's `event_id`, propagated unchanged through all downstream Events in the same causal chain. For root Events, equals the Event's own `event_id`. Non-null for all Events — trace queries never need to special-case roots. See §3.7. |
 | `payload` | JSON Object | Event-type-specific data. Structure varies by `(event_type, schema_version)`. |
 

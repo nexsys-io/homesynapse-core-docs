@@ -465,7 +465,7 @@ This section consolidates the cross-cutting behavioral contracts that span multi
 
 **Command lifecycle contract (Docs 02, 07, 08, 09).** A command follows a four-phase lifecycle: `command_issued` (Automation Engine or REST API) → `command_dispatched` (Command Dispatch Service routes to adapter) → `command_result` (adapter reports success/failure) → `state_confirmed` (Pending Command Ledger matches expected outcome). All four phases produce events sharing a correlation ID. The REST API exposes command status through this chain. Timeout tracking is configurable per capability (Doc 02 §3.10, Doc 07 §3.11.2).
 
-**Cascade governance contract (Docs 01, 07).** Automation cascades — where one automation's action triggers another automation — are governed by configurable depth limits (default: 8). The `cascade_depth` field in the causal chain projection (Doc 01 §4.4) tracks depth. When the limit is reached, the triggering event is suppressed for automation evaluation and an `automation_run_skipped` event with reason `cascade_depth_exceeded` is produced. Duplicate suppression within a correlation chain prevents infinite loops even below the depth limit.
+**Cascade governance contract (Docs 01, 07).** Automation cascades — where one automation's action triggers another automation — are governed by configurable depth limits (default: 8). The `cascade_depth` field in the causal chain projection (Doc 01 §4.5) tracks depth. When the limit is reached, the triggering event is suppressed for automation evaluation and an `automation_run_skipped` event with reason `cascade_depth_exceeded` is produced. Duplicate suppression within a correlation chain prevents infinite loops even below the depth limit.
 
 ---
 
@@ -842,7 +842,7 @@ Integration adapters are compiled into the distribution in Tier 1 (LTD-17), but 
 
 ### 12.7 Tier 2+ Security Roadmap
 
-Tier 2 extends the security model with: TLS for all API endpoints, bearer token authentication (OAuth2/OIDC), per-user role-based access control, event category-based access filtering, filesystem-level encryption for data at rest, and a standalone Security Architecture document. The event category field (pending amendment A-01-DR-1) prepares for category-scoped access controls.
+Tier 2 extends the security model with: TLS for all API endpoints, bearer token authentication (OAuth2/OIDC), per-user role-based access control, event category-based access filtering, filesystem-level encryption for data at rest, and a standalone Security Architecture document. The event category field (Doc 01 §4.4, amendment A-01-DR-1 applied) prepares for category-scoped access controls.
 
 ---
 
@@ -930,7 +930,7 @@ INV-LF-05 (Convergent Sync Architecture) reserves the path for multiple HomeSyna
 
 ## 15. Open Questions
 
-1. **event_category envelope field amendment.** The Data-Readiness design concern (PROJECT_STATUS §Data-Readiness Design Concerns) proposes adding `event_category` as a required string array on the event envelope, populated by static lookup from event type to consent-scope categories. Eight categories defined: device_state, energy, presence, environmental, security, automation, device_health, system. Amendment A-01-DR-1 is pending for Doc 01. The field enables future category-scoped access controls and crypto-shredding boundaries (INV-PD-07). Forward references exist in Doc 07 §12, Doc 08 §12, and Doc 09. **Status: [NON-BLOCKING]** — the amendment is additive and does not change any locked design decision.
+1. **event_category envelope field amendment.** The Data-Readiness design concern (PROJECT_STATUS §Data-Readiness Design Concerns) proposes adding `event_category` as a required string array on the event envelope, populated by static lookup from event type to consent-scope categories. Eight categories defined: device_state, energy, presence, environmental, security, automation, device_health, system. The field enables future category-scoped access controls and crypto-shredding boundaries (INV-PD-07). Forward references exist in Doc 07 §12, Doc 09, and Doc 10 §12.6. **Status: [RESOLVED]** — Amendment A-01-DR-1 applied to Doc 01 §4.1 and §4.4. Eight categories defined, static mapping from event_type to categories specified. Forward references in Docs 07, 08, 09, 10 confirmed consistent.
 
 2. **Data-Readiness materialized views.** The Home Health Score subscriber (~5 MB), Device Reliability Projection (~10 MB), and multi-tier aggregation engine (~15 MB) are proposed as additional subscribers. Their memory contribution (~30 MB combined) is within budget but has not been formally assigned to a design document. They may warrant a dedicated document or amendments to Docs 03/04. **Status: [NON-BLOCKING]** — the subscriber-based architecture accommodates them without structural changes.
 

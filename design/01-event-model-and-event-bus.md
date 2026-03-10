@@ -4,7 +4,7 @@
 **Status:** Locked
 **Subsystem:** Event Model & Event Bus
 **Dependencies:** None (foundational)
-**Dependents:** Device Model & Capability System (§4.3 event type taxonomy, §3.1 producer boundaries), State Store (§3.2 state event lifecycle, §3.4 subscription model), Persistence Layer (§3.3 retention tiers, §3.5 telemetry boundary, §4.2 domain event store schema, §6.5 emergency retention, §9 retention configuration), Integration Runtime (§3.1 producer boundaries, §3.9 origin model), Automation Engine (§3.4 subscription model for trigger evaluation per §3.2, §3.7 processing modes for REPLAY behavior per §3.10, §3.8 Pending Command Ledger behavioral spec per §3.11.2, §4.3 event taxonomy for Run lifecycle events per §3.7 and Command Pipeline events per §3.11, §8.3 EventPublisher for Run event production per §3.7), Configuration System (§3.2 schema composition consumes §9 YAML schema convention, §3.3 reload pipeline produces config_changed events via §8.3 EventPublisher, §3.6 validation error model produces config_error events per §4.3 taxonomy, §4.4 event payload follows §3.9 event envelope contract, §5 C6 depends on §4.2 write-ahead persistence guarantee), Zigbee Adapter (§3.1 producer boundaries for adapter event production, §3.3 priority model for event classification, §3.5 telemetry boundary for sensor data routing, §3.9 origin model for physical/protocol origin tagging, §4.3 event type taxonomy for Zigbee-specific event types, §8.3 EventPublisher two-method API for event emission per Doc 08 §3.3), REST API (§3.2 causal chain semantics for trace assembly, §4.1 event envelope for event serialization in API responses, §4.3 event type taxonomy for event filtering, §8.1 EventStore query interface for event history endpoints per Doc 09 §3.2, §8.2 EventEnvelope type for JSON serialization per Doc 09 §4, §8.3 EventPublisher for command event production per Doc 09 §3.4), WebSocket API (§3.4 subscription model for Event Relay subscriber, §3.6 backpressure and coalescing semantics per §3.6 D10, §4.1 event envelope for wire serialization, §4.2 domain event store schema for EventStore replay via readFrom(), §8.1 EventStore query interface for replay delivery per Doc 10 §3.4 and §3.9 reconnection replay, §8.2 EventEnvelope type for JSON serialization per Doc 10 §4.1, §8.3 subscriber checkpoint table for relay checkpoint per Doc 10 §3.6 and §5, §3.3 priority model for event priority filtering in subscriptions per Doc 10 §3.4), Observability & Debugging (Doc 11: §4.4 causal chain projection for trace query assembly per Doc 11 §3.4, §8.1 EventStore query interface for trace correlation chain assembly per Doc 11 §3.4 and §7.4, §4.3 event type taxonomy for metric surface catalog per Doc 11 §3.5, §11 metrics and health for health aggregation per Doc 11 §7.1), Startup, Lifecycle & Shutdown (Doc 12 — Phase 2 Event Bus initialization, §3.7 processing modes, §3.9 shutdown step 6)
+**Dependents:** Device Model & Capability System (§4.3 event type taxonomy, §3.1 producer boundaries), State Store (§3.2 state event lifecycle, §3.4 subscription model), Persistence Layer (§3.3 retention tiers, §3.5 telemetry boundary, §4.2 domain event store schema, §6.5 emergency retention, §9 retention configuration), Integration Runtime (§3.1 producer boundaries, §3.9 origin model), Automation Engine (§3.4 subscription model for trigger evaluation per §3.2, §3.7 processing modes for REPLAY behavior per §3.10, §3.8 Pending Command Ledger behavioral spec per §3.11.2, §4.3 event taxonomy for Run lifecycle events per §3.7 and Command Pipeline events per §3.11, §8.3 EventPublisher for Run event production per §3.7), Configuration System (§3.2 schema composition consumes §9 YAML schema convention, §3.3 reload pipeline produces config_changed events via §8.3 EventPublisher, §3.6 validation error model produces config_error events per §4.3 taxonomy, §4.6 event payload follows §3.9 event envelope contract, §5 C6 depends on §4.2 write-ahead persistence guarantee), Zigbee Adapter (§3.1 producer boundaries for adapter event production, §3.3 priority model for event classification, §3.5 telemetry boundary for sensor data routing, §3.9 origin model for physical/protocol origin tagging, §4.3 event type taxonomy for Zigbee-specific event types, §8.3 EventPublisher two-method API for event emission per Doc 08 §3.3), REST API (§3.2 causal chain semantics for trace assembly, §4.1 event envelope for event serialization in API responses, §4.3 event type taxonomy for event filtering, §8.1 EventStore query interface for event history endpoints per Doc 09 §3.2, §8.2 EventEnvelope type for JSON serialization per Doc 09 §4, §8.3 EventPublisher for command event production per Doc 09 §3.4), WebSocket API (§3.4 subscription model for Event Relay subscriber, §3.6 backpressure and coalescing semantics per §3.6 D10, §4.1 event envelope for wire serialization, §4.2 domain event store schema for EventStore replay via readFrom(), §8.1 EventStore query interface for replay delivery per Doc 10 §3.4 and §3.9 reconnection replay, §8.2 EventEnvelope type for JSON serialization per Doc 10 §4.1, §8.3 subscriber checkpoint table for relay checkpoint per Doc 10 §3.6 and §5, §3.3 priority model for event priority filtering in subscriptions per Doc 10 §3.4), Observability & Debugging (Doc 11: §4.5 causal chain projection for trace query assembly per Doc 11 §3.4, §8.1 EventStore query interface for trace correlation chain assembly per Doc 11 §3.4 and §7.4, §4.3 event type taxonomy for metric surface catalog per Doc 11 §3.5, §11 metrics and health for health aggregation per Doc 11 §7.1), Startup, Lifecycle & Shutdown (Doc 12 — Phase 2 Event Bus initialization, §3.7 processing modes, §3.9 shutdown step 6)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-04
 
@@ -380,6 +380,7 @@ The event envelope is the standard wrapper structure for every event in the doma
 | Global Position | `global_position` | Integer | SQLite rowid. Monotonic across all entities. Subscribers checkpoint against this value. |
 | Priority | `priority` | Enum string | One of: `CRITICAL`, `NORMAL`, `DIAGNOSTIC`. See §3.3. |
 | Origin | `origin` | Enum string | One of: `PHYSICAL`, `USER_COMMAND`, `AUTOMATION`, `DEVICE_AUTONOMOUS`, `INTEGRATION`, `SYSTEM`, `UNKNOWN`. See §3.9. |
+| Event Category | `event_category` | String array (non-empty) | Consent-scope categories for this event, populated by static lookup from `event_type` at event creation time. Values drawn from a fixed set of eight categories. See §4.4 for the category taxonomy and mapping. Enables category-scoped access controls, crypto-shredding boundaries (INV-PD-07), and subscription filtering. |
 | Payload | `payload` | JSON object | Event-type-specific data. Structure varies by `(event_type, schema_version)`. |
 
 **Causality fields:**
@@ -390,7 +391,11 @@ The event envelope is the standard wrapper structure for every event in the doma
 | Causation ID | `causation_id` | ULID, nullable | The `event_id` of the immediately preceding event in the causal chain. Null for root events only. |
 | Actor Reference | `actor_ref` | ULID, nullable | The user identity attributable to this event. See INV-MU-01 for semantics. Null when no user is attributable. |
 
-**Invariant alignment:** INV-ES-01 (immutable once persisted), INV-ES-03 (per-subject ordering via subject_sequence), INV-ES-04 (write-ahead via global_position), INV-ES-06 (explainable via correlation_id + causation_id + actor_ref + origin), INV-ES-07 (schema evolution via schema_version), INV-ES-08 (event_time vs ingest_time distinction), LTD-04 (ULID format), LTD-05 (dual ordering), LTD-08 (Jackson JSON serialization).
+**Storage representation for `event_category`.** JSON array of strings in the `event_category` column. SQLite has no native array type; store as a JSON text column. Phase 2 interface spec will define the Java type (e.g., `List<EventCategory>` with `EventCategory` as an enum).
+
+**Population rule for `event_category`.** The `EventPublisher` populates `event_category` at event creation time using a static, compile-time mapping from `event_type` to category set. The mapping is not configurable at runtime — category assignments are architectural decisions, not user preferences. An event type maps to one or more categories (e.g., `command_issued` maps to both `device_state` and `automation`).
+
+**Invariant alignment:** INV-ES-01 (immutable once persisted), INV-ES-03 (per-subject ordering via subject_sequence), INV-ES-04 (write-ahead via global_position), INV-ES-06 (explainable via correlation_id + causation_id + actor_ref + origin), INV-ES-07 (schema evolution via schema_version), INV-ES-08 (event_time vs ingest_time distinction), INV-PD-07 (crypto-shredding scopes via event_category), LTD-04 (ULID format), LTD-05 (dual ordering), LTD-08 (Jackson JSON serialization).
 
 ### 4.2 Domain Event Store Schema
 
@@ -409,6 +414,7 @@ CREATE TABLE events (
     actor_ref         BLOB(16),
     correlation_id    BLOB(16) NOT NULL,     -- ULID; equals event_id for root events
     causation_id      BLOB(16),
+    event_category    TEXT     NOT NULL,      -- JSON array of category strings
     payload           TEXT     NOT NULL,      -- JSON
     UNIQUE(subject_ref, subject_sequence)
 );
@@ -567,7 +573,43 @@ The `event_type` field carries a string identifier. Core event types use undersc
 
 **Integration-defined event types** follow the namespace convention `{integration_name}.{event_type}`. For example, a Zigbee adapter might define `zigbee.network_map_updated` or `zigbee.ota_progress`. Integration-defined types must not collide with core type names. The integration runtime validates uniqueness at registration time.
 
-### 4.4 Causal Chain Projection
+### 4.4 Event Category Taxonomy
+
+The `event_category` field classifies every event into one or more consent-scope categories. Categories are architectural — they define the boundaries for crypto-shredding (INV-PD-07), future access-control policies, and subscription filtering. The category set is fixed at compile time and cannot be extended by integrations or users.
+
+**Category definitions:**
+
+| Category | Scope | Description |
+|---|---|---|
+| `device_state` | Device attribute changes, discovery, adoption, commands, availability | The operational state of physical devices and their logical entities. |
+| `energy` | Energy metering, tariff events, grid interaction | Energy consumption, production, and grid-interactive events. Subject to energy data sovereignty (INV-EI-04). |
+| `presence` | Presence signals, presence state changes | Occupancy and person-location data. Among the most privacy-sensitive categories — reveals daily routines. |
+| `environmental` | Temperature, humidity, air quality, light level | Ambient environmental sensor readings. May correlate with occupancy when combined with presence data. |
+| `security` | Lock state, alarm state, camera motion, access events | Physical security device events. |
+| `automation` | Automation triggers, completions, conflicts, disablements | Automation execution lifecycle. Reveals behavioral patterns when correlated with device_state. |
+| `device_health` | Device availability, integration health, battery, signal quality | Device and integration operational health. Not privacy-sensitive in isolation. |
+| `system` | Startup, shutdown, configuration, migration, system health | Platform infrastructure events. Not privacy-sensitive. |
+
+**Event type to category mapping:**
+
+| Event Type(s) | Category Assignment |
+|---|---|
+| `state_reported`, `state_changed`, `availability_changed` | `device_state` |
+| `device_discovered`, `device_adopted`, `device_removed`, `entity_profile_changed`, `entity_type_changed`, `state_report_rejected`, `entity_enabled`, `entity_disabled`, `device_metadata_changed`, `entity_transferred` | `device_state` |
+| `command_issued`, `command_dispatched`, `command_result`, `state_confirmed`, `command_confirmation_timed_out` | `device_state`, `automation` |
+| `automation_triggered`, `automation_completed`, `automation_conflict_detected`, `automation_disabled`, `automation_run_skipped`, `automation_run_cancelled` | `automation` |
+| `presence_signal`, `presence_changed` | `presence` |
+| `config_changed`, `config_error` | `system` |
+| `integration_started`, `integration_stopped`, `integration_health_changed`, `integration_restarted` | `system` |
+| `system_starting`, `system_ready`, `system_stopping`, `system_stopped`, `unclean_shutdown_detected` | `system` |
+
+**Integration-defined event types** (e.g., `zigbee.network_map_updated`) declare their categories in the `IntegrationDescriptor` at registration time. The Integration Runtime validates that declared categories are drawn from the eight canonical values. If an integration does not declare categories, its events default to `device_state`.
+
+**Telemetry events** written directly to the TelemetryStore (bypassing the Event Bus) carry implicit category assignments: energy-domain telemetry is `energy`; sensor telemetry is `device_state` or `environmental` depending on the attribute type. The TelemetryStore records the category for retention and shredding purposes.
+
+**Invariant alignment:** INV-PD-07 (crypto-shredding scopes map to event categories), INV-EI-04 (energy data sovereignty requires energy category isolation).
+
+### 4.5 Causal Chain Projection
 
 The causal chain projection is a core subscriber that indexes causality relationships for efficient querying. It maintains an in-memory index (rebuilt from events on startup) that maps `correlation_id` to the ordered list of `event_id` values in that chain.
 
@@ -587,7 +629,7 @@ event_bus:
     max_chain_depth: 50
 ```
 
-### 4.5 Core Event Payload Schemas
+### 4.6 Core Event Payload Schemas
 
 This section defines payload schemas for event types where the structure is owned by the Event Model. Event types whose payloads are owned by other subsystems (e.g., `entity_profile_changed` payload is owned by the Device Model) are defined in those subsystem documents and referenced here by event type name.
 
@@ -974,7 +1016,7 @@ This subsystem implements the `HealthContributor` interface (Doc 11 §8.1, §8.2
 
 **Causal chain integrity.** The compile-time causality enforcement (§8.3) prevents events from being published without proper causal attribution. This means every event can be traced to its root cause. For forensic or compliance scenarios, the causal chain provides a complete, tamper-evident record of why any given state change occurred. The event log's append-only nature (INV-ES-01) means historical causal chains cannot be retroactively modified.
 
-**Event category (forward reference).** When the `event_category` envelope field is added to the Event Model (pending amendment A-01-DR-1), the Zigbee adapter's events will declare their categories: `state_reported`, `command_result`, `availability_changed`, and `device_discovered` belong to the `device` category; integration-namespaced events (`zigbee.topology_scanned`, `zigbee.permit_join_changed`) belong to the `integration` category. This categorization enables future scoped access controls without schema changes.
+**Event category scoping for crypto-shredding.** The `event_category` field enables category-scoped crypto-shredding per INV-PD-07. Each category maps to an independent encryption scope — destroying the key for a category renders all events in that category irrecoverable while leaving other categories intact. The `presence` and `energy` categories are the highest-priority shredding scopes. Category assignment is immutable after event creation — the `event_category` field, like all envelope fields, is covered by INV-ES-01 (immutability). See §4.4 for the category taxonomy, definitions, and event type mapping.
 
 ---
 
@@ -1070,7 +1112,7 @@ This subsystem implements the `HealthContributor` interface (Doc 11 §8.1, §8.2
 | D3 | Three-tier priority (CRITICAL / NORMAL / DIAGNOSTIC) with static assignment and one-level elevation | Adopted from Matter's three-tier priority model. Static defaults per event type with optional DIAGNOSTIC-to-NORMAL elevation by integrations. Priority governs retention and delivery urgency, never append-time durability. | §3.3 |
 | D4 | Dual-track persistence: domain event store + telemetry ring store in separate SQLite files | Prevents Home Assistant's recorder bloat pattern. Isolates write pressure. Makes backup policy explicit: domain is mandatory, telemetry is optional. Telemetry is not covered by ES invariants. Promotion boundary via aggregation engine. | §3.5 |
 | D5 | Schema evolution via per-type version with JSON-level upcasters | Follows Axon Framework's upcasting pattern. Preserves INV-ES-01 (immutable storage) and INV-ES-07 (forward-compatible schemas). Greg Young's rule: non-additive changes are new types, not new versions. Strict mode for core projections, lenient for diagnostics. | §3.10 |
-| D6 | Two-method EventPublisher with compile-time causality enforcement and non-null correlation_id | Makes broken causal chains a compile-time error. Fixes Home Assistant's Context implementation gaps (missing parent_ids). correlation_id is non-null for all events (root events set it to their own event_id), eliminating NULL special-casing in trace queries. | §3.1, §4.1, §4.4, §8.3 |
+| D6 | Two-method EventPublisher with compile-time causality enforcement and non-null correlation_id | Makes broken causal chains a compile-time error. Fixes Home Assistant's Context implementation gaps (missing parent_ids). correlation_id is non-null for all events (root events set it to their own event_id), eliminating NULL special-casing in trace queries. | §3.1, §4.1, §4.5, §8.3 |
 | D7 | Pull-based subscribers with bus-side filtering and checkpointed virtual threads | Combines Eclipse Ditto's single-writer principle with Matter's catch-up semantics. Virtual threads (LTD-01) enable many concurrent subscribers. Bus filters by event_type + priority + entity_type_prefix. Explicit gap handling via CheckpointExpired signal. | §3.4, §3.6 |
 | D8 | Four processing modes (LIVE / REPLAY / PROJECTION / DRY_RUN) with integration-declared command idempotency | Solves the "replaying a toggle event should not toggle the light" problem. Processing mode is the safety gate, not event-level tagging. Command idempotency is integration-declared, not platform-assumed. | §3.7 |
 | D9 | Entity as the aggregate root (not device) | Aligns with the glossary (entity is the addressable unit). Multi-entity devices use correlation_id for cross-entity coordination, not aggregate-level transactions. Per-entity sequence numbers order events within an entity stream. | §4.1, §4.2 |
@@ -1079,6 +1121,7 @@ This subsystem implements the `HealthContributor` interface (Doc 11 §8.1, §8.2
 | D12 | Event type namespace supports category-scoped access | Dotted namespace organized by functional domain enables future access-control policies for Data Sovereignty API, insurance attestation, utility settlement, and care monitoring — without requiring event schema changes. | §4.3, §12 |
 | D13 | Pending command timeout emits explicit event, never expires silently | command_confirmation_timed_out (DIAGNOSTIC) is emitted when a pending command's expected state report does not arrive within the timeout. Consistent with the principle that the event log records facts for diagnosis — silent expiry would create evidence gaps. | §3.8, §4.3 |
 | D14 | EventPublisher is the sole sequencing authority; sequence assigned within append transaction | subject_sequence is assigned by reading the current max and incrementing within the same SQLite transaction as the INSERT. The UNIQUE constraint is a safety net, not a concurrency mechanism. Single-writer model (LTD-03) prevents concurrent assignment during normal operation. | §5 |
+| D15 | event_category as a required, non-empty string array on the envelope, populated by static lookup at event creation time | Categories are architectural consent-scope boundaries for crypto-shredding (INV-PD-07) and future access control. Static mapping ensures categories cannot drift from their intended semantics. Multi-valued because some event types span domains (e.g., commands span device_state and automation). | §4.4 |
 
 ---
 

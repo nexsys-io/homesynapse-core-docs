@@ -1,6 +1,6 @@
 # HomeSynapse Core — Project Status
 
-**Last updated:** 2026-03-10
+**Last updated:** 2026-03-10 (A-01-DR-1 applied)
 **Current phase:** Phase 1 — COMPLETE. All 14 design documents locked.
 **Active documents:** None. Phase 2 preparation begins.
 
@@ -12,7 +12,7 @@
 |---|---|---|---|---|
 | — | Glossary v1 | Locked | 2026-02-22 | Foundations layer. 64 terms across 9 sections. Round 3 amendment A-G1 applied. Round 4 A-STATUS-1 applied. Cross-document consistency: status header corrected (A-CD-4a). Round 6 amendment A-G2-R6-1 applied (trigger_type/action_type/condition_type enum corrections). |
 | — | Identity and Addressing Model v1 | Locked | 2026-02-25 | Foundations layer. Round 4 A-STATUS-1 applied. Cross-document consistency: status header corrected (A-CD-4b). |
-| 01 | Event Model & Event Bus | Locked | 2026-03-04 | Round 3 applied (A-01-1 through A-01-4). Round 4 applied (A-01-R4-1 subjectTypeFilter rename, A-01-R4-2 dedup, A-STATUS-1). Round 5 applied (A-01-R5-1 config_error taxonomy addition, A-01-R5-2 Dependents field update). Cross-document consistency applied (A-CD-1 §6.5 storage_pressure fix, A-CD-2a §10 header, A-CD-5 §4.3 dedup). Round 6 applied (A-01-R6-1 Dependents field update with Doc 07 dependencies). Round 8–9 applied (Dependents U-01-R8, U-01-R9; HealthContributor note). **Round 10 applied (AMD-04 cascade_depth in §4.4 causal chain projection).** Pending: A-01-DR-1 event_category envelope field amendment (Data-Readiness). Upstream Dependents U-01 (Docs 08/09) confirmed applied. |
+| 01 | Event Model & Event Bus | Locked | 2026-03-04 | Round 3 applied (A-01-1 through A-01-4). Round 4 applied (A-01-R4-1 subjectTypeFilter rename, A-01-R4-2 dedup, A-STATUS-1). Round 5 applied (A-01-R5-1 config_error taxonomy addition, A-01-R5-2 Dependents field update). Cross-document consistency applied (A-CD-1 §6.5 storage_pressure fix, A-CD-2a §10 header, A-CD-5 §4.3 dedup). Round 6 applied (A-01-R6-1 Dependents field update with Doc 07 dependencies). Round 8–9 applied (Dependents U-01-R8, U-01-R9; HealthContributor note). **Round 10 applied (AMD-04 cascade_depth in §4.4 causal chain projection).** A-01-DR-1 applied (event_category envelope field, §4.1 + new §4.4, D15 added to §16, §12 updated). Upstream Dependents U-01 (Docs 08/09) confirmed applied. |
 | 02 | Device Model & Capability System | Locked | 2026-03-04 | Round 3 applied (A-02-1). Round 4 applied (A-02-R4-1 dedup, A-02-R4-2 Pi 5 header, A-STATUS-1). Round 6 applied (A-02-R6-1 Dependents field update with Doc 07 dependencies; EntityRegistry reference corrected to cite §3.11.1 and §3.12). **Round 11 applied (AMD-17 device orphan lifecycle §3.15, orphan config §9).** Upstream Dependents U-02 (Docs 08/09) confirmed applied. |
 | 03 | State Store & State Projection | Locked | 2026-03-05 | Round 3 applied (A-03-1, A-03-2). Round 4 applied (A-03-R4-1 Dependencies correction, A-03-R4-2 dedup, A-STATUS-1). Cross-document consistency applied (A-CD-2b §10 header). Round 8–9 applied (Dependents U-03-R9; HealthContributor note). **Round 10 applied (AMD-02 reconciliation pass §3.2.1, AMD-10 projection versioning in §3.3/§3.6/§8.3).** **Round 11 applied (AMD-11 state TTL: staleAfter/stale fields on EntityState, §3.8 staleness model, staleness config §9, API contract note §5).** Upstream Dependents U-03 (Doc 09) confirmed applied. |
 | 04 | Persistence Layer | Locked | 2026-03-05 | Round 3 applied (A-04-1). Round 4 applied (A-04-R4-1 stale reconciliation note, A-04-R4-2 Pi references, A-STATUS-1). Upstream Dependents U-04 (Doc 09) confirmed applied. |
@@ -44,7 +44,7 @@
 
 Before Phase 2 interface specification begins:
 
-1. **A-01-DR-1 event_category envelope amendment** — Add `event_category` string array field to the event envelope (Doc 01). Eight categories defined. Forward references exist in Docs 07, 08, 09. This is the only pending amendment from Phase 1.
+1. ~~A-01-DR-1 event_category envelope amendment~~ — COMPLETE. Applied to Doc 01 §4.1, §4.4, §12, §16. Glossary §3.9 updated. Doc 14 §15 Open Question 1 resolved. Forward references in Docs 07, 08, 09, 10 verified consistent.
 2. **JDK distribution selection** — Corretto 21 recommended per LTD-01 specification. Pin the exact version for reproducible builds.
 3. **Copyright header template** — Define the standard copyright header for all Java source files.
 4. **sqlite-jdbc version pin gate** — Validate the xerial sqlite-jdbc version against SQLite WAL behavior on ARM64 Linux before committing to a version catalog entry.
@@ -238,8 +238,6 @@ All pending upstream Dependents (U-01 through U-07 from Round 7, U-01 through U-
 
 ### Deferred — Apply opportunistically
 
-**A-01-DR-1 — event_category envelope field.** The Data-Readiness Specification identifies `event_category` as a required string array field on the event envelope, populated by static lookup from event_type to consent-scope categories at event creation time. Eight categories: device_state, energy, presence, environmental, security, automation, device_health, system. Doc 07 §12, Doc 08 §12, and Doc 09 all contain forward references establishing category assignments. The Doc 01 envelope schema amendment is pending. Aligns with INV-PD-07. **Can be applied during Doc 12 drafting or Phase 2 transition.**
-
 **9 RECOMMENDED review amendments (AMD-12, AMD-18, AMD-19, AMD-20, AMD-21, AMD-22, AMD-23, AMD-24).** See `research/Critical_Design_Review_Docs_01_11_v1.md` §3 for full list. AMD-22 (HealthChangeListener) and AMD-18 (causal chain timeout) are candidates for integration during Doc 12 drafting.
 
 ### Outside Phase 1 design documents
@@ -296,7 +294,7 @@ Doc 08 research estimates event volume for a 50-device Zigbee home at ~258 event
 
 The Data-Readiness Specification identifies four structural additions to the MVP that create preconditions for future data value without adding user-facing scope: (1) `event_category` field on the event envelope, (2) multi-tier aggregation engine (hourly/daily/weekly/monthly), (3) Home Health Score materialized view subscriber, (4) Device Reliability Projection materialized view subscriber.
 
-**event_category (Doc 01 scope).** A required string array field on the event envelope, populated by static lookup from event_type to consent-scope categories at event creation time. Eight categories: device_state, energy, presence, environmental, security, automation, device_health, system. Aligns with INV-PD-07 crypto-shredding scopes. Doc 07 §12, Doc 08 §12, and Doc 09 all contain forward references establishing category assignments. The Doc 01 envelope schema amendment is pending — tracked as A-01-DR-1.
+**event_category (Doc 01 scope).** A required string array field on the event envelope, populated by static lookup from event_type to consent-scope categories at event creation time. Eight categories: device_state, energy, presence, environmental, security, automation, device_health, system. Aligns with INV-PD-07 crypto-shredding scopes. Doc 07 §12, Doc 09, and Doc 10 §12.6 contain forward references establishing category assignments. **Amendment A-01-DR-1 applied** — Doc 01 §4.1 (envelope field), §4.4 (category taxonomy), §12 (security), §16 (D15 key decision). Glossary §3.9 updated. Doc 14 §15 Open Question 1 resolved.
 
 **Multi-tier aggregation, Home Health Score, Device Reliability Projection.** These introduce three additional materialized view subscribers to the event bus. Each is a standard subscriber with checkpoint persistence — architecturally compatible with the existing subscriber model. Combined steady-state memory contribution is estimated at < 30 MB (health score subscriber ~5 MB, reliability projection ~10 MB, aggregation engine ~15 MB for hourly/daily accumulation buffers). This must be included in the Doc 14 memory budget. Design ownership: these may warrant a dedicated design document (e.g., "Projections & Aggregation") or amendments to Docs 03/04. Decision deferred until after Doc 09.
 
