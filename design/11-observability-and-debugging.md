@@ -165,13 +165,21 @@ Doc 11 does not define per-subsystem metrics — it composes them. The following
 | Event Bus (Doc 01) | `hs_events_*` | appended_total, append_latency_ms, subscriber_lag, coalesced_total, store_size_bytes, pending_commands, causal_chain_max_depth | HEALTHY / DEGRADED / CRITICAL | Doc 01 §11 |
 | Device Model (Doc 02) | `hs.device.*`, `hs.entity.*` | device.count, entity.count, validation.rejected, discovery.*, replacement.* | HEALTHY / DEGRADED / UNHEALTHY | Doc 02 §11 |
 | State Store (Doc 03) | `hs_state_store_*` | view_position, entity_count, memory_bytes, replay_progress, query_latency_ms | HEALTHY / STARTING / DEGRADED / UNHEALTHY | Doc 03 §11 |
-| Persistence (Doc 04) | `hs_persistence_*` | storage_used_bytes, storage_pressure_level, retention_events_deleted, backup_last_success, quick_check_duration_ms | HEALTHY / DEGRADED / UNHEALTHY (composite) | Doc 04 §11 |
+| Persistence (Doc 04) | `hs_persistence_*` | storage_used_bytes, storage_pressure_level, retention_events_deleted, backup_last_success, quick_check_duration_ms, daily_bytes_written | HEALTHY / DEGRADED / UNHEALTHY (composite) | Doc 04 §11 |
 | Integration Runtime (Doc 05) | `hs.integration.*` | health_state, health_score, error_rate, timeout_rate, restart_count, events_produced | Per-integration: HEALTHY / DEGRADED / SUSPENDED / FAILED. Composite: HEALTHY / DEGRADED / UNHEALTHY | Doc 05 §11 |
 | Configuration (Doc 06) | `config.*` | load_duration_ms, reload_count, validation_issues, secret_count | HEALTHY / DEGRADED / UNHEALTHY | Doc 06 §11 |
 | Automation Engine (Doc 07) | `hs_automation_*` | runs_total, run_duration_ms, trigger_evaluations_total, commands_issued_total, pending_commands | HEALTHY / DEGRADED / UNHEALTHY | Doc 07 §11 |
 | Zigbee Adapter (Doc 08) | `hs.zigbee.*` | frames.received, frames.corrupt, commands.round_trip_ms, devices.available | Reports through Doc 05 integration health | Doc 08 §11 |
 | REST API (Doc 09) | `hs.api.*` | request.duration, request.count, error.count, command.issued, rate_limit.hit | HEALTHY / DEGRADED / UNHEALTHY | Doc 09 §11 |
 | WebSocket API (Doc 10) | `hs.ws.*` | connections.active, events.delivered, relay.lag, backpressure.activations | HEALTHY / DEGRADED / UNHEALTHY | Doc 10 §11 |
+
+**`daily_bytes_written` metric (AMD-05).** The `hs_persistence_daily_bytes_written` gauge tracks the total bytes written to the NVMe storage by HomeSynapse's persistence layer within the current calendar day (midnight-to-midnight, local time). This metric is critical for NVMe wear-level monitoring on constrained hardware (LTD-02: RPi 5 + NVMe SSD) where consumer SSDs have finite write endurance (typically 150–600 TBW).
+
+**Collection method.** The metric is collected hourly by reading the block device write statistics from `/proc/diskstats` (Linux: field 10 — sectors written, × 512 bytes per sector) for the NVMe device hosting the HomeSynapse data directory. On systems where `/proc/diskstats` is unavailable or the data directory is not on NVMe, the metric falls back to tracking bytes written through HomeSynapse's own I/O paths (event log appends, checkpoint writes, telemetry writes, JFR recording writes) by instrumenting the Persistence Layer's write calls. The `/proc/diskstats` method captures all writes to the device (including OS overhead and WAL), providing a more accurate picture of SSD wear.
+
+**Daily reset.** The gauge resets to 0 at midnight local time. The previous day's total is recorded as a `hs_persistence_daily_bytes_written_total` JFR event before reset, preserving the history for trend analysis.
+
+**Health threshold.** If `daily_bytes_written` exceeds the configured threshold (default: 10 GB/day, configurable via §9 `observability.storage.daily_write_warn_bytes`), the Persistence subsystem reports `DEGRADED` health with a detail message identifying the write rate and estimated SSD lifespan at the current rate. This threshold is conservative — at 10 GB/day, a 150 TBW SSD lasts over 40 years — but alerts operators to anomalous write amplification or misconfigured retention.
 
 ### 3.6 Dynamic Log Level Control
 
@@ -562,6 +570,17 @@ observability:
     incomplete_failure_seconds: 300  # int, range: 60–600, default: 300
                                      # In-progress chains older than this
                                      # show a potential failure indicator.
+
+  storage:                           # Storage monitoring (AMD-05)
+    daily_write_warn_bytes: 10737418240
+                                     # long, default: 10737418240 (10 GB)
+                                     # Threshold for daily_bytes_written
+                                     # before health reports DEGRADED.
+                                     # Set based on SSD write endurance.
+
+    collection_interval_minutes: 60  # int, range: 5–1440, default: 60
+                                     # How often to sample /proc/diskstats
+                                     # for write byte accounting.
 
   stream_bridge:
     queue_capacity: 60               # int, range: 10–300, default: 60

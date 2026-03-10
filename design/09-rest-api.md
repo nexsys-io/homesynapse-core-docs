@@ -196,6 +196,28 @@ The `POST /api/v1/entities/{entity_id}/commands` endpoint is the primary write p
 
 The `202 Accepted` response means the command has been validated and persisted to the event log. It does not mean the command has reached the device. Clients track the full lifecycle via `GET /api/v1/commands/{command_id}`.
 
+**Idempotency keys (AMD-08).** The command endpoint accepts an optional `Idempotency-Key` request header (string, max 128 characters, client-generated). When present, the API ensures at-most-once command issuance for the given key:
+
+1. Before validation, the API checks the in-memory idempotency cache for the key.
+2. If the key exists and the cached entry's response is available, the API returns the cached `202 Accepted` response (same `command_id`, `correlation_id`, `view_position`) without publishing a new event. This is a replay, not a new command.
+3. If the key does not exist, the API proceeds with normal validation and event publication, then caches the key→response mapping.
+
+The idempotency cache is an in-memory LRU map with a maximum size of 10,000 entries and a per-entry TTL of 24 hours. Entries are evicted on LRU overflow or TTL expiration. The cache is not persisted — it is lost on process restart. This is acceptable because the 24-hour TTL window covers the vast majority of retry scenarios (network timeout, client crash-and-restart), and post-restart retries with a stale key simply issue a new command (the device handles duplicate commands gracefully via the four-phase lifecycle).
+
+```java
+public record IdempotencyEntry(
+    String idempotencyKey,
+    String commandId,
+    String correlationId,
+    long viewPosition,
+    Instant createdAt
+) {}
+```
+
+When an idempotency key is provided, the `command_issued` event payload includes the `idempotency_key` field. This allows event consumers and the trace query service to identify commands that were issued with idempotency guarantees and to detect replayed responses in the event log (a replayed response does not produce a new event — only the original command's event exists).
+
+**Idempotency key conflicts.** If the same `Idempotency-Key` is used with a different request body (different entity, command, or parameters), the API returns `409 Conflict` with Problem type `idempotency-key-conflict`. This prevents accidental key reuse from silently returning a stale response for a different command.
+
 **Four-phase command status:**
 
 The `GET /api/v1/commands/{command_id}` endpoint assembles the current lifecycle status by querying events with the command's `correlation_id`:
@@ -318,7 +340,8 @@ All error responses follow RFC 9457 (Problem Details for HTTP APIs), serialized 
   "title": "Command validation failed",
   "status": 422,
   "detail": "Entity 01HV... does not support command 'set_color' — capability 'on_off' does not define this command.",
-  "instance": "/api/v1/entities/01HV.../commands"
+  "instance": "/api/v1/entities/01HV.../commands",
+  "correlation_id": "01HV..."
 }
 ```
 
@@ -337,6 +360,8 @@ All error responses follow RFC 9457 (Problem Details for HTTP APIs), serialized 
 | `command-not-found` | 404 | Command ID does not correspond to a `command_issued` event |
 | `state-store-replaying` | 503 | State Store is rebuilding; stale data available with `Retry-After` |
 | `internal-error` | 500 | Unhandled exception (logged with correlation_id for diagnosis) |
+| `idempotency-key-conflict` | 409 | Idempotency-Key reused with different request body (AMD-08) |
+| `device-orphaned` | 503 | Command issued to an entity whose device is orphaned (AMD-17) |
 
 For validation errors (status 400 and 422), the response includes an `errors` extension array with per-field details:
 
@@ -346,12 +371,20 @@ For validation errors (status 400 and 422), the response includes an `errors` ex
   "title": "Request validation failed",
   "status": 400,
   "detail": "2 validation errors in request body.",
+  "correlation_id": "01HV...",
   "errors": [
     { "field": "capability", "message": "Required field is missing." },
     { "field": "parameters.level", "message": "Value 150 exceeds maximum 100." }
   ]
 }
 ```
+
+**Correlation ID in all responses (AMD-15).** Every API response — both success and error — includes a `correlation_id` for request-level tracing:
+
+- **Success responses:** The `X-Correlation-ID` response header carries the request's correlation ID (§3.11). For command issuance, the response body also includes the event-assigned `correlation_id`.
+- **Error responses:** The `correlation_id` field is included in the RFC 9457 Problem Details body as an extension member. This is the same value as the `X-Correlation-ID` response header. Including it in the body ensures that clients parsing the error response have the correlation ID without needing to inspect headers.
+- **Origin of the ID:** If the client provided an `X-Correlation-ID` request header, that value is used as the response correlation ID. If the client did not provide one, the API generates a request-scoped ULID (per LTD-04) and uses it for both the response header and the error body field.
+- **Logging linkage:** The correlation ID links the API response to structured log entries (§3.3 step 9), enabling operators to trace a specific error from the client's error display to the server logs without timestamp-based searching.
 
 ### 3.9 HTTP Server Selection Criteria
 
@@ -763,6 +796,13 @@ api:
     allowed_methods: ["GET", "POST", "OPTIONS"]
     allowed_headers: ["Authorization", "Content-Type", "X-Correlation-ID", "If-None-Match"]
     max_age_seconds: 3600
+
+  # Idempotency (AMD-08)
+  idempotency:
+    max_cache_size: 10000             # Maximum entries in the in-memory LRU cache.
+    ttl_hours: 24                     # Per-entry time-to-live. Entries older than this
+                                      # are evicted regardless of cache size.
+    max_key_length: 128               # Maximum Idempotency-Key header value length.
 
   # Logging
   request_log_level: "INFO"           # Log level for request completion entries.

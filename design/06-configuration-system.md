@@ -182,6 +182,17 @@ The secret store manages encrypted credential storage, separated from the config
 
 The decrypted secret store is held in memory only for the duration of tag resolution, then discarded. Resolved values exist in the `ConfigModel` only in the fields that reference them. Log redaction rules (LTD-15) ensure these values are never emitted in structured log output.
 
+**Per-operation backup (AMD-16).** Before every `set` or `remove` operation that modifies `secrets.enc`, the CLI creates a backup copy at `secrets.enc.bak.{N}` (where `{N}` is a monotonically increasing integer, 1-indexed). A maximum of 5 backup files are retained; when a 6th backup would be created, the oldest backup is deleted. This 5-rotation backup policy ensures that corruption or accidental deletion of secrets can be recovered from the most recent pre-operation state without unbounded disk growth.
+
+**Recovery CLI.** The command `homesynapse secrets restore [--backup N]` restores from the specified backup (or the most recent if `--backup` is omitted). The restore operation:
+
+1. Decrypts the backup file using the current `.secret-key` to verify integrity (AES-GCM authentication pass).
+2. If decryption succeeds, atomically replaces `secrets.enc` with the backup contents (write-to-temp-then-rename, same mechanism as §3.5).
+3. Produces a `secrets_restored` event (severity: NORMAL) recording the backup number and the count of keys restored.
+4. If decryption fails (key mismatch or corruption), reports the failure and does not modify `secrets.enc`.
+
+The `homesynapse secrets list-backups` command shows available backups with timestamps and key counts (decrypted to count keys, not to display values).
+
 **`!env` resolution.** The `!env` tag reads from the process environment via `System.getenv()`. This mechanism is intended for container deployments where secrets are injected as environment variables by the orchestrator. The optional default form `!env MQTT_PASSWORD:guest` prevents a FATAL error when the variable is absent.
 
 ### 3.5 UI/API Write Path
@@ -216,6 +227,74 @@ Validation produces a list of `ConfigIssue` records (§4.5), each classified int
 **On reload, the atomicity rule applies: if the candidate configuration contains any FATAL or ERROR issues, the entire reload is rejected.** The active model is not modified. This ensures that a reload never degrades a running system. At startup, the system is more permissive because there is no prior good state to preserve — ERROR keys revert to defaults, and the system starts in a degraded-but-functional state.
 
 **CLI behavior.** `homesynapse validate-config` loads and validates the configuration without starting the system. It reports all issues grouped by severity, with file path, YAML line number (where determinable from SnakeYAML Engine's marks), JSON Schema validation path, and a human-readable explanation. Exit codes: 0 (no issues or only warnings), 1 (errors present — system would start but with defaults applied), 2 (fatal issues — system would refuse to start).
+
+### 3.7 Configuration Migration Framework (AMD-13)
+
+When HomeSynapse upgrades introduce configuration schema changes (new keys, renamed keys, removed keys, restructured sections), the Configuration Migration Framework ensures that existing user configurations are automatically migrated to the new schema without data loss and without requiring manual editing.
+
+**Migration identity.** Each migration is identified by a `(from_version, to_version)` pair corresponding to `schema_version` integers. Migrations form a linear chain: version 1 → 2, 2 → 3, etc. The framework applies migrations sequentially from the file's declared `schema_version` to the runtime's expected version. Skipping versions is not supported — if a user upgrades from version 1 to version 4, migrations 1→2, 2→3, and 3→4 execute in sequence.
+
+**ConfigMigrator interface.**
+
+```java
+public interface ConfigMigrator {
+    int fromVersion();
+    int toVersion();
+    MigrationResult migrate(Map<String, Object> rawConfig);
+}
+```
+
+Each `ConfigMigrator` implementation operates on the raw YAML map (parsed but not yet validated). The migration produces a `MigrationResult` containing the transformed map and a list of `ConfigChange` records documenting each modification:
+
+```java
+public record MigrationResult(
+    Map<String, Object> migratedConfig,
+    List<ConfigChange> changes
+) {}
+
+public record ConfigChange(
+    ChangeType type,
+    String path,
+    Object oldValue,
+    Object newValue,
+    String reason
+) {}
+
+public enum ChangeType {
+    KEY_RENAMED, KEY_ADDED, KEY_REMOVED, VALUE_TRANSFORMED, SECTION_RESTRUCTURED
+}
+```
+
+**Migration execution flow.** Migration runs during the loading pipeline (§3.1) between the YAML parse stage and the schema validation stage:
+
+1. Parse the YAML file into a raw map.
+2. Read `schema_version` from the map.
+3. If `schema_version` < runtime expected version, locate the migration chain from file version to runtime version.
+4. Execute each migration in sequence. Each migration receives the output of the previous migration.
+5. Update `schema_version` in the map to the runtime expected version.
+6. Proceed to schema composition and validation as normal.
+7. If all stages succeed, write the migrated configuration back to disk (using the same atomic write-to-temp-then-rename mechanism from §3.5). This persists the migration so it runs only once.
+
+**Migration preview.** Before applying migrations, the framework can produce a `MigrationPreview` — a dry-run report showing what changes would be made without modifying the file:
+
+```java
+public record MigrationPreview(
+    int fromVersion,
+    int toVersion,
+    List<ConfigChange> plannedChanges,
+    boolean requiresUserReview
+) {}
+```
+
+The CLI command `homesynapse migrate-config --preview` generates this preview. Migrations that remove keys or transform values in lossy ways set `requiresUserReview: true`, which the CLI reports as a warning prompting the user to review before upgrading.
+
+**Migration testing contract.** Every `ConfigMigrator` implementation must include a round-trip test: given a representative configuration at the `fromVersion`, apply the migration, validate the result against the `toVersion` schema, and verify that all user-specified values survive the migration (no silent data loss). This is a Phase 3 testing requirement enforced by code review.
+
+**Backup before migration.** Before applying any migration to disk, the framework creates a backup of the original configuration file at `{config_path}.pre-migration-v{from_version}`. This backup is never automatically deleted, providing a manual recovery path if a migration produces unexpected results.
+
+**Invariant citation.** Configuration migration preserves INV-CE-02 (zero-config first run) by ensuring that default values for new keys are applied automatically. It preserves INV-CS-06 (deprecation policy) by providing the mechanism through which deprecated keys are renamed or removed across versions.
+
+**Relationship to §14 Future Considerations.** This section supersedes the ConfigMigrator entry that was previously listed in §14 as a future consideration. The migration framework is promoted to a core design element because schema evolution is inevitable once HomeSynapse ships its first release, and retrofitting migration support after users have configuration files in the wild is significantly harder than building it in from the start.
 
 ---
 
@@ -479,7 +558,7 @@ The serialized form is a JSON object `{ "entries": [...], "version": 1 }`, encry
 
 **Impact:** FATAL. All `!secret` references are unresolvable because the store cannot be decrypted.
 
-**Recovery:** The system logs `config.secrets_store_corrupt` with the authentication failure detail. The user must recreate the secrets store via the CLI. If a backup of `secrets.enc` exists (the user's responsibility — the Configuration System does not back up the secrets store automatically), it can be restored.
+**Recovery:** The system logs `config.secrets_store_corrupt` with the authentication failure detail. The user can restore from the per-operation backups using `homesynapse secrets restore` (§3.4, AMD-16). The CLI lists available backups via `homesynapse secrets list-backups`. If no backups are available (e.g., corruption occurred before any set/remove operation created backups), the user must recreate the secrets store via `homesynapse secrets set`.
 
 ---
 
@@ -590,6 +669,12 @@ config_system:
   schema_output_path: "/etc/homesynapse/schema/config.schema.json"
                                                   # Where the composed schema is written
 
+  # Secrets store backup (AMD-16)
+  secrets_backup:
+    max_backups: 5                                # Maximum number of per-operation backups retained.
+                                                  # Oldest backup is deleted when this limit is exceeded.
+                                                  # Range: 1-20.
+
   # Reload behavior
   reload_signal: "SIGHUP"                         # POSIX signal that triggers reload
   reload_timeout_seconds: 10                      # Max time for reload pipeline before abort
@@ -607,6 +692,16 @@ config_system:
   # Schema versioning
   schema_version: 1                               # Current config schema version; gates
                                                   # migration applicability (INV-CE-03)
+
+  # Migration framework (AMD-13)
+  migration:
+    auto_migrate: true                            # Automatically apply migrations on startup
+                                                  # when schema_version < runtime version.
+                                                  # If false, startup fails with a message
+                                                  # directing the user to run migrate-config CLI.
+    backup_retention: unlimited                   # How long to keep pre-migration backups.
+                                                  # "unlimited" = never auto-delete.
+                                                  # Duration string (e.g., "90d") = delete after N days.
 ```
 
 **Key rationale:**

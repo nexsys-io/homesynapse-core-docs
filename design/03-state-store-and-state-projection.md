@@ -390,6 +390,41 @@ The State Store does not replay events that were produced during the disabled pe
 
 **Tradeoff acknowledged:** Between disable and re-enable, the entity shows stale attribute values but current freshness timestamps. A dashboard displaying this entity can show the frozen value alongside a `lastReported` that indicates the device is still communicating. The entity registry's `enabled` field (see **Device Model & Capability System** §3.3) is the signal for the UI to indicate that the displayed state values may be stale.
 
+### 3.8 Staleness Model (AMD-11)
+
+The State Store tracks whether an entity's reported state is stale — meaning the device has not sent a `state_reported` event within its expected reporting interval. Staleness is a property of time, not of value: a temperature sensor reporting 72°F every 5 minutes is not stale even though its value has not changed, but the same sensor going silent for 15 minutes is stale because it has stopped reporting.
+
+**Staleness threshold resolution.** Each entity's staleness threshold is resolved from the following sources, in priority order:
+
+1. **Per-entity override** (§9 configuration, `staleness_overrides` map keyed by entity ULID). Allows operators to set explicit thresholds for specific entities.
+2. **Capability-based default.** The device's capability schema (see **Device Model & Capability System** §3.5) may declare an `expected_report_interval` for the capability type. Sensor capabilities (temperature, humidity, illuminance, energy) typically define this; actuator capabilities (switch, light) typically do not, because actuators report on change rather than on interval.
+3. **Global default** (§9 configuration, `default_staleness_threshold`). Applied when neither per-entity override nor capability-based default exists. Set to `null` by default, meaning entities without explicit thresholds are never considered stale.
+
+When the resolved threshold is `null`, `staleAfter` on the `EntityState` record is `null` and `stale` is always `false` for that entity. This is the correct default for actuators and entities whose reporting pattern is event-driven rather than periodic.
+
+**`staleAfter` computation.** On every processed `state_reported` event, the State Projection recomputes the entity's `staleAfter`:
+
+```
+staleAfter = event.eventTime() + resolvedThreshold
+```
+
+If the entity's resolved threshold is `null`, `staleAfter` remains `null`. This computation runs in both LIVE and REPLAY modes because `staleAfter` is a derived field that must be current after replay completes.
+
+**Passive staleness scan.** A background timer (default: every 30 seconds, configurable via `staleness_scan_interval_seconds`) iterates the in-memory entity map and identifies entities where `staleAfter` is non-null and `Instant.now().isAfter(staleAfter)` and `stale` is currently `false`. For each such entity, the scan:
+
+1. Sets `stale` to `true` on the `EntityState` record.
+2. Emits a `state_stale` event (severity: NORMAL) containing `entity_ref`, `last_reported` timestamp, `threshold` duration, and `staleness_duration` (how long past the threshold).
+
+The scan does not produce `state_stale` events for entities already marked `stale` — staleness is an edge-triggered notification, not a periodic reminder. When a `state_reported` event arrives for a stale entity, the State Projection resets `stale` to `false`, recomputes `staleAfter`, and emits a `state_stale_cleared` event (severity: NORMAL).
+
+**Lazy read-time evaluation.** In addition to the background scan, the `stale` field is evaluated lazily on read: `getState()` and `getSnapshot()` check `staleAfter` against `Instant.now()` before returning. This ensures that even if the scan has not yet fired, API consumers see accurate staleness within the read path. The lazy check does not emit events — event emission is the scan's responsibility.
+
+**Interaction with disabled entities.** Disabled entities continue to update `lastReported` (§3.7), so their `staleAfter` is recomputed on every `state_reported`. A disabled entity can become stale if it stops reporting, which is a distinct condition from being disabled: disabled means "administrative choice to freeze state," stale means "device has stopped communicating." Both conditions can be true simultaneously.
+
+**Interaction with availability.** An entity with `availability: UNAVAILABLE` is likely also stale (no reports arriving), but the two are independent signals. Availability is set by explicit `availability_changed` events from the integration adapter; staleness is derived from the absence of `state_reported` events. An entity can be `AVAILABLE` but stale (adapter considers it reachable, but no data has arrived within the threshold) or `UNAVAILABLE` but not stale (entity went offline within its reporting interval).
+
+**Invariant citation.** Staleness is a derived property, not a new fact. The `stale` field is not persisted in the event log — it is computed from `staleAfter` and the current wall clock. The `state_stale` event records the observation for traceability (INV-ES-06: every state change explainable) but does not create a new source of truth. Staleness can be rederived from the event stream by replaying `state_reported` timestamps against thresholds.
+
 ---
 
 ## 4. Data Model
@@ -406,7 +441,9 @@ public record EntityState(
     long stateVersion,
     Instant lastChanged,
     Instant lastUpdated,
-    Instant lastReported
+    Instant lastReported,
+    Instant staleAfter,
+    boolean stale
 ) {}
 ```
 
@@ -419,6 +456,8 @@ public record EntityState(
 | `lastChanged` | `Instant` | `state_changed` or `availability_changed` event timestamp | The `event_time` (falling back to `ingest_time` if `event_time` is null) of the most recent event that altered an attribute value or availability. Updated only when state actually changes. |
 | `lastUpdated` | `Instant` | Any processed event's timestamp | The `event_time` (falling back to `ingest_time`) of the most recent event processed for this entity, including events that did not alter state (e.g., a `state_reported` whose value matched canonical state). |
 | `lastReported` | `Instant` | `state_reported` event timestamp | The `event_time` (falling back to `ingest_time`) of the most recent `state_reported` event for this entity, whether or not the reported value differed from canonical state. This field answers "when did the device last send a reading?" — distinct from `lastChanged` ("when did the value last change?") and `lastUpdated` ("when did we last process any event for this entity?"). Updated even when the entity is disabled, because freshness is independent of administrative state. |
+| `staleAfter` | `Instant` (nullable) | Computed: `lastReported + staleness_threshold` | The wall-clock time after which this entity's state is considered stale. Set to `null` when no staleness threshold applies (e.g., entities whose capability does not define an expected reporting interval). Recomputed on every `state_reported` event. When `Instant.now()` exceeds `staleAfter` and `staleAfter` is non-null, the entity is stale. |
+| `stale` | `boolean` | Derived: `staleAfter != null && Instant.now().isAfter(staleAfter)` | Whether this entity's state is currently stale. This is a derived field — it is not persisted in the event log but is computed at read time from `staleAfter` and the current wall clock. Exposed in API responses (REST and WebSocket) so consumers can visually indicate stale readings without performing their own time arithmetic. Initialized to `false` at entity adoption. Set to `true` by the staleness scanner (§3.8) or lazily on read. |
 
 **Why `lastReported`?** Home Assistant added `last_reported` in 2024 to solve a specific diagnostic problem: a temperature sensor that reports 72°F every 5 minutes has `last_changed` hours ago (the temperature has been stable), but `last_reported` updates on every report. Without `last_reported`, determining "is this sensor still alive?" requires checking availability events or scanning the event log. With it, the answer is in the state record. `lastReported` is updated by the State Projection when it processes `state_reported` events, regardless of whether a `state_changed` event is produced and regardless of whether the entity is disabled.
 
@@ -471,6 +510,8 @@ The checkpoint schema version is an integer that starts at 1 and increments when
 **REPLAY does not produce derived events.** During REPLAY processing, the State Projection rebuilds state by consuming existing `state_changed` events from the log. It does not re-derive `state_changed` from `state_reported`. This prevents duplicate derived facts, preserves causality chain integrity, and conforms to the processing mode contract in **Event Model & Event Bus** §3.7.
 
 **View position is monotonically increasing.** The `viewPosition` never decreases. Consumers that track `viewPosition` can rely on this for position-comparison logic (e.g., "wait until `viewPosition >= targetPosition`").
+
+**Staleness exposed in API responses (AMD-11).** The `stale` boolean is included in all entity state representations returned by the REST API (doc 09) and WebSocket API (doc 10). When `stale` is `true`, API consumers (dashboards, mobile apps, automations) can visually indicate that the displayed value may not reflect the device's current state. The `staleAfter` timestamp is also exposed, allowing consumers to show time-since-stale or implement client-side countdown displays. The Automation Engine (doc 07) evaluates stale entity conditions as their last known value with a `stale: true` annotation in the automation context — it does not treat staleness as a value change.
 
 ---
 
@@ -694,6 +735,20 @@ state_store:
 
   # Monitoring thresholds
   staleness_warning_ms: 5000       # Emit warning if viewPosition lags log head by more than this
+
+  # Staleness tracking (AMD-11)
+  staleness:
+    default_staleness_threshold: null  # Default staleness threshold for entities without a
+                                       # capability-based or per-entity override. null = never stale.
+                                       # Duration string, e.g., "10m", "1h". Applied to entities
+                                       # whose capability does not declare expected_report_interval.
+    scan_interval_seconds: 30          # How often the passive staleness scanner runs.
+                                       # Lower values detect staleness faster but increase CPU usage.
+                                       # Range: 5-300.
+    staleness_overrides: {}            # Per-entity staleness threshold overrides, keyed by entity
+                                       # ULID string. Values are duration strings. Example:
+                                       # "01H5K3R..": "5m"   — this entity is stale after 5 minutes
+                                       # Overrides take priority over capability-based defaults.
 ```
 
 All options have sensible defaults. HomeSynapse runs correctly with zero configuration for this subsystem (INV-CE-02). The `schema_version` field is managed by the build, not by the user — it is included in the configuration schema for transparency and for the checkpoint invalidation logic (§3.3), but is not user-configurable.

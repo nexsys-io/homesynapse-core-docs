@@ -436,6 +436,60 @@ public record ZigbeeDeviceRecord(
 
 **Relationship to EntityRegistry.** The cache does not replace the EntityRegistry. It holds protocol-level metadata needed by the transport and protocol layers; the EntityRegistry holds HomeSynapse domain model data (entity IDs, capability schemas, hardware identifier mappings). The adapter queries the EntityRegistry for entity resolution during command dispatch and event production, and queries the local cache for NWK address resolution, endpoint lookup, and power-source-aware availability tracking.
 
+### 3.15 Route Health Monitoring (AMD-07)
+
+The adapter passively tracks per-device route health from command outcomes and signal quality trends. Route health monitoring is observational — it does not proactively probe devices but detects degradation from normal command traffic and reporting patterns.
+
+**RouteHealth record.** The adapter maintains a per-device route health record in the local metadata cache (§3.14):
+
+```java
+public record RouteHealth(
+    IEEEAddress target,
+    int consecutiveFailures,
+    int totalFailures,
+    int totalSuccesses,
+    Instant lastSuccess,
+    Instant lastFailure,
+    RouteStatus status
+) {}
+
+public enum RouteStatus {
+    HEALTHY,           // Normal operation
+    DEGRADED,          // 1-2 consecutive failures, monitoring closely
+    UNREACHABLE        // 3+ consecutive failures, route recovery triggered
+}
+```
+
+**Command-failure-triggered route recovery.** When a ZCL command to a device fails (no APS-level acknowledgment within the configured timeout, or explicit ZCL Default Response with TIMEOUT status):
+
+1. The `consecutiveFailures` counter increments. `totalFailures` increments.
+2. At **3 consecutive failures**, the route status transitions to `UNREACHABLE`. The adapter:
+   - Produces a `zigbee.route_degraded` event (NORMAL priority) carrying the target IEEE address, failure count, last RSSI/LQI, and last known network address.
+   - Triggers a targeted network address rediscovery (ZDO NWK_addr_req for the device's IEEE address), which forces the coordinator to re-establish the route via AODV route discovery.
+3. At **10 consecutive failures** (without intervening success), the adapter:
+   - Produces a `zigbee.device_unreachable` event (NORMAL priority).
+   - Transitions the device's availability to `UNAVAILABLE` (if not already) via an `availability_changed` event.
+   - Reports `DEGRADED` health via the HealthContributor interface (doc 11 §8.1) if 3 or more devices are simultaneously unreachable.
+
+**Success reset.** Any successful command response or received attribute report from a device resets its `consecutiveFailures` to 0, updates `lastSuccess`, increments `totalSuccesses`, and transitions the route status back to `HEALTHY`. If a route recovery was in progress, it is cancelled.
+
+**Weak-link analysis on topology.** When a topology scan (§3.11) completes, the adapter cross-references the neighbor graph with route health data. Router nodes where more than 50% of child routes are in DEGRADED or UNREACHABLE status are flagged as potential weak links. The analysis produces a `zigbee.topology_weak_links` event (NORMAL priority) listing the flagged routers with their child failure rates. This is a diagnostic signal — the adapter does not take automatic corrective action on weak links.
+
+**Coordinator-specific qualification.** The coordinator is excluded from route health tracking because all traffic passes through it — coordinator failures are detected by the serial transport layer (§3.3) and supervisor health monitoring (doc 05 §3.4), not by per-device route tracking. Commands that fail because the coordinator is unreachable (serial timeout) are not counted against individual device route health.
+
+**Configuration.** Route health parameters are added to the `zigbee:` configuration block (§9):
+
+```yaml
+zigbee:
+  route_health:
+    failure_threshold: 3              # Consecutive failures before UNREACHABLE
+    max_failures_before_offline: 10   # Consecutive failures before availability → UNAVAILABLE
+    weak_link_threshold_pct: 50       # % of child routes failing before router flagged
+    health_degraded_device_count: 3   # Unreachable devices before adapter health → DEGRADED
+```
+
+**Invariant citation.** Route health monitoring is passive and observational, consistent with INV-PR-03 (bounded resources) — no additional network traffic is generated except the targeted NWK_addr_req on route failure. The route recovery mechanism reuses the coordinator's existing AODV routing infrastructure rather than implementing a custom discovery protocol.
+
 ---
 
 ## 4. Data Model
@@ -743,6 +797,13 @@ integrations:
     # Telemetry routing threshold. Entities reporting faster than this
     # use TelemetryWriter instead of domain events.
     telemetry_threshold_seconds: 10
+
+    # Route health monitoring (AMD-07)
+    route_health:
+      failure_threshold: 3              # Consecutive command failures before UNREACHABLE status
+      max_failures_before_offline: 10   # Consecutive failures before availability → UNAVAILABLE
+      weak_link_threshold_pct: 50       # % of child routes failing before router flagged as weak link
+      health_degraded_device_count: 3   # Number of unreachable devices before adapter health → DEGRADED
 ```
 
 **Coordinator firmware parameters.** The adapter queries the coordinator's firmware version and key configuration parameters during initialization and logs them at INFO level (`zigbee.coordinator_capabilities`). For ZNP coordinators, this includes the maximum device table size and source route table size. For EZSP coordinators, this includes `CONFIG_MAX_END_DEVICE_CHILDREN`, `CONFIG_SOURCE_ROUTE_TABLE_SIZE`, `CONFIG_ADDRESS_TABLE_SIZE`, and `CONFIG_APS_UNICAST_MESSAGE_COUNT`.

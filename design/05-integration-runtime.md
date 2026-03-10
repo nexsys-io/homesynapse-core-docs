@@ -387,6 +387,22 @@ The boundary criterion follows **Event Model & Event Bus** §3.5: data sources p
 
 Telemetry samples are `(entityRef, attributeKey, value, timestamp)` tuples — numeric only. Non-numeric data flows through the domain event path as `state_reported` events (**Persistence Layer** §3.6).
 
+### 3.13 Adapter Dependency Ordering (AMD-14)
+
+Integrations may declare dependencies on other integrations via the `dependsOn` field in their `IntegrationDescriptor`. This is a `Set<String>` of integration type keys (e.g., `Set.of("zigbee")` for a bridge adapter that depends on the Zigbee adapter). At MVP, no built-in integrations declare dependencies — the Zigbee adapter has `dependsOn: Set.of()`. This mechanism exists for future bridge and composite adapters (e.g., a Zigbee2MQTT adapter depending on the MQTT adapter).
+
+**Startup ordering.** During system startup, the supervisor builds a dependency graph from all discovered `IntegrationDescriptor` entries and performs a topological sort. Integrations with no dependencies start first; integrations with dependencies start after all their dependencies have reached the RUNNING state. The topological sort uses Kahn's algorithm with cycle detection.
+
+**Cycle detection.** If the dependency graph contains a cycle (e.g., A depends on B, B depends on A), the supervisor rejects all integrations in the cycle at load time. Each rejected integration transitions directly to FAILED with `reason: dependency_cycle`. A `integration_dependency_cycle` event (severity: WARNING) is produced listing the cycle members. The remaining non-cyclic integrations proceed with normal startup.
+
+**Dependency failure propagation.** When a running integration transitions to FAILED, all integrations that declare it in their `dependsOn` set transition to SUSPENDED with `reason: dependency_failed`. The suspended integration does not attempt probe cycles (§3.4) — it waits for its dependency to recover. When the dependency returns to RUNNING, the supervisor transitions the suspended dependent back through INITIALIZING → RUNNING. This prevents dependent adapters from spinning in futile restart loops when their foundation is unavailable.
+
+**Shutdown ordering.** As noted in §3.6, shutdown proceeds in reverse startup order. Dependency ordering refines this: dependents are stopped before their dependencies. This ensures that bridge adapters (which may host other adapters' devices) are stopped before the underlying protocol adapter, allowing clean teardown of bridged device sessions.
+
+**Validation at load time.** The supervisor validates `dependsOn` references at discovery time. If an integration declares a dependency on an integration type that is not present in the discovered set, the supervisor logs a WARNING and proceeds — the dependency is treated as optional. The integration will start normally but should handle the absence of its dependency gracefully (e.g., by checking for the dependency's devices at runtime). This is not an error because integrations may be installed independently, and a declared dependency on a not-yet-installed integration should not block the declaring integration entirely.
+
+**Invariant citation.** Dependency ordering enforces INV-RF-01 (integration isolation) by ensuring that adapter startup does not depend on shared mutable state or implicit ordering assumptions. Dependencies are explicit, declared in the descriptor, and validated by the supervisor. No adapter accesses another adapter's internal state — the dependency is on the integration's *availability* (RUNNING state), not on its data.
+
 ---
 
 ## 4. Data Model
@@ -405,6 +421,7 @@ new IntegrationDescriptor(
            RequiredService.TELEMETRY_WRITER),
     Set.of(DataPath.DOMAIN, DataPath.TELEMETRY),       // dataPaths
     HealthParameters.defaults(),                        // healthParameters — all defaults are appropriate
+    Set.of(),                                           // dependsOn — no dependencies (AMD-14)
     1                                                   // schemaVersion
 )
 ```
@@ -712,6 +729,13 @@ integration_runtime:
     connect_timeout_seconds: 10           # TCP connect timeout
     request_timeout_seconds: 30           # Full request/response timeout
     idle_connection_timeout_seconds: 60   # Connection pool idle eviction
+
+  # Dependency ordering (AMD-14)
+  dependency:
+    startup_timeout_seconds: 120        # Max time to wait for a dependency to reach RUNNING
+                                         # before transitioning the dependent to FAILED.
+    treat_missing_dependency_as: warn   # Behavior when a declared dependency is not discovered.
+                                         # "warn" = log and proceed; "fail" = transition to FAILED.
 
   # Per-integration overrides (keyed by integration_type)
   overrides:

@@ -482,6 +482,36 @@ Device replacement preserves entity identity when physical hardware is swapped. 
 
 Replacement produces an `entity_transferred` event per transferred entity, recording the old device, new device, capability diff, and user confirmation status.
 
+### 3.15 Device Orphan Lifecycle (AMD-17)
+
+A device becomes **orphaned** when its owning integration adapter transitions to FAILED or is removed from the system. Orphaned devices are not removed — they enter a frozen state that preserves their identity, state history, and automation bindings while clearly indicating that no integration is currently managing them.
+
+**Transition trigger.** The Device Model monitors integration lifecycle events from the Integration Runtime (doc 05). When an integration transitions to FAILED or is removed (integration_removed event), all devices owned by that integration are marked as orphaned. The system produces a `device_orphaned` event (NORMAL priority) for each affected device, carrying `device_id`, `integration_type`, `reason` (adapter_failed | adapter_removed), and the `correlation_id` of the integration lifecycle event that caused the orphaning.
+
+**Frozen state.** An orphaned device's entities enter a frozen state:
+
+1. **Entity state is marked stale.** The State Store (doc 03) sets `stale: true` on each entity's `EntityState` record via a synthesized `state_stale` event. This uses the same staleness model defined in doc 03 §3.8 (AMD-11) — orphaning is one path to staleness, alongside reporting interval expiration.
+2. **Availability is set to UNAVAILABLE.** An `availability_changed` event is produced for each entity, transitioning to `UNAVAILABLE` with `reason: device_orphaned`.
+3. **Attribute values are preserved.** No attribute values are cleared or modified. The last known state remains in the State Store for dashboard display (with stale indication).
+4. **Hardware identifiers remain claimed.** Unlike device removal (§3.13), orphaning does not release hardware identifiers. This prevents a re-paired device from being proposed as a new adoption when the intention is re-adoption by a restored integration.
+
+**Command rejection.** Commands targeting entities of an orphaned device are rejected at dispatch time with error type `device_orphaned` and a message indicating the owning integration is unavailable. The error includes the integration type and last-known integration status to aid user diagnosis.
+
+**Automation behavior.** The Automation Engine (doc 07) evaluates conditions involving orphaned entities using their last known attribute values but with `stale: true` in the evaluation context. Condition evaluation returns the last known value (not `null` or error), but the automation log records a `stale_input` warning. Actions targeting orphaned entities fail with `device_orphaned` and are logged as action failures. This preserves automation logic (conditions still evaluate) while preventing phantom control (actions are blocked).
+
+**Re-adoption matching.** When an integration adapter restarts or is re-added, the Discovery pipeline (§3.12) matches incoming `device_discovered` events against orphaned devices using the preserved hardware identifiers. A match triggers automatic re-adoption:
+
+1. The device's orphaned status is cleared. A `device_readopted` event is produced (NORMAL priority) carrying the `device_id`, old and new integration instance identifiers, and the `correlation_id` of the discovery event.
+2. Entity availability transitions to `AVAILABLE` (or remains at the adapter-reported availability).
+3. The `stale` flag is cleared on the next `state_reported` event for each entity (standard staleness model behavior from doc 03 §3.8).
+4. Automation actions targeting the device's entities resume normal operation.
+
+Re-adoption matching uses the same `DeviceIdentifiers` registry and matching logic as re-pairing after power loss (§3.12 Stage 2), ensuring consistency.
+
+**Explicit removal.** An orphaned device can be explicitly removed by the user via the REST API (doc 09). This follows the standard device removal cascade (§3.13), releasing hardware identifiers and soft-deleting entities. Orphaned devices are surfaced in the UI with a distinct status indicator so users can choose to wait for re-adoption or remove the device.
+
+**Health contribution.** If more than zero devices are orphaned, the Device Model reports `DEGRADED` health via the HealthContributor interface (doc 11 §8.1). The health detail includes the count of orphaned devices and the affected integration types.
+
 ---
 
 ## 4. Data Model
@@ -827,6 +857,12 @@ device_model:
     boolean_tolerance: exact        # Boolean confirmation mode (always exact)
     numeric_default_tolerance_pct: 3  # Default ±% for numeric attributes when not specified
     enum_tolerance: exact           # Enum confirmation mode (always exact)
+
+  # Orphan lifecycle (AMD-17)
+  orphan:
+    auto_remove_after_days: null      # If set, orphaned devices are automatically removed after
+                                       # this many days. null = never auto-remove (user must act).
+    health_degraded_threshold: 1       # Number of orphaned devices before health reports DEGRADED.
 
   # Energy-specific
   energy:
