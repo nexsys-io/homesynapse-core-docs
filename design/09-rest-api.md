@@ -835,6 +835,8 @@ All metrics are exposed via JFR custom events (LTD-15). No Prometheus or OpenTel
 
 The REST API's health indicator is reported to the system health aggregation. It is also exposed at `GET /api/v1/system/health`, which requires authentication like all other endpoints (INV-SE-02). A completely unhealthy API — or one whose auth store is unavailable — cannot serve its own health endpoint. External process liveness monitoring is provided by the systemd watchdog via `sd_notify` (LTD-13), which operates outside the HTTP stack and remains functional regardless of API health state.
 
+> **HealthContributor upstream note (Doc 11).** The REST API implements `HealthContributor` (Doc 11 §8.1, §8.2) and is classified as **INTERFACE_SERVICES** tier (Doc 11 §7.1). Startup grace period: 10 seconds. The `reportHealth()` callback returns the three-state indicator from the table above. Because the REST API is the subsystem that exposes `/api/v1/system/health`, its own health state is both a contributor to and a consumer of the HealthAggregator — it reports its own state, then serves the aggregated result. If the REST API itself is UNHEALTHY, the health endpoint is unreachable; the systemd watchdog (LTD-13) provides the external liveness fallback.
+
 ---
 
 ## 12. Security Considerations

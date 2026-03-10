@@ -680,6 +680,8 @@ The Configuration System reports a health status consumed by the Observability s
 | DEGRADED | Configuration loaded, but one or more keys reverted to schema defaults due to ERROR-severity validation issues. The system is functional but not operating with the user's intended configuration. |
 | UNHEALTHY | Configuration load failed entirely (FATAL issue). This state is reachable only if a future startup mode allows forced operation past FATAL errors, or if the secrets store becomes corrupt after initial load. For MVP, a FATAL load failure prevents startup, so this state is theoretical at startup. It becomes reachable if a post-startup secrets store corruption is detected during a reload attempt. |
 
+This subsystem implements the `HealthContributor` interface (Doc 11 §8.1, §8.2) to report health state transitions to the HealthAggregator. The Configuration System is classified as CORE_SERVICES tier (Doc 11 §7.1) with a 10-second startup grace period. Health state changes are reported via `HealthContributor.reportHealth(status, reason)` when the conditions in the table above transition, including transitions caused by configuration reload (§3.3) or secrets store corruption detection.
+
 ---
 
 ## 12. Security Considerations

@@ -1,7 +1,7 @@
 # HomeSynapse Core — WebSocket API
 
 **Document type:** Subsystem design
-**Status:** Draft
+**Status:** Locked (2026-03-09)
 **Subsystem:** WebSocket API
 **Dependencies:** Event Model & Event Bus (§3.4 subscription model, §4.1 event envelope, §4.3 event type taxonomy, §3.2 state event lifecycle, §3.6 backpressure and coalescing, §8.1 EventStore query interface, §8.2 EventEnvelope/SubscriptionFilter types, §8.3 EventPublisher), Device Model & Capability System (§8.1 EntityRegistry interface, CapabilityRegistry interface — used for subscription filter resolution), REST API (§3.3 request lifecycle authentication model, §3.8 RFC 9457 error response model, §12.1 API key authentication, §3.7 ETag/viewPosition consistency model, §3.5 cursor-based pagination via global_position), State Store & State Projection (§8.1 StateQueryService interface, §4.1 EntityState record, §5 viewPosition contract), Identity and Addressing Model (§2 three-layer identity, §4 entity selectors, §7 label resolution), Glossary v1 (§2 Device Model vocabulary, §3 Event-Sourced Model vocabulary)
 **Dependents:** Web UI (real-time event streaming for dashboard rendering, live state updates), Master Architecture Document (API surface consolidation, streaming contract specification), Observability & Debugging (live event trace streaming, subscriber health metrics)
@@ -157,6 +157,7 @@ The `id` field is a client-assigned integer that correlates requests with respon
 | `error` | Protocol-level error | `error_type`, `detail`, `fatal` (boolean) |
 | `pong` | Response to client ping | `server_time` |
 | `subscription_ended` | Server-initiated subscription termination | `subscription_id`, `reason` |
+| `replay_queued` | Replay request queued during post-restart admission control (§3.9) | `position_in_queue`, `estimated_wait_ms`, `last_seen_position` |
 
 **Error types follow Doc 09's RFC 9457 pattern**, using the same `error_type` identifiers (e.g., `authentication-required`, `forbidden`, `rate-limited`, `invalid-parameters`) for consistency across the API surface.
 
@@ -307,6 +308,58 @@ The server manages per-client backpressure using a three-stage model. Per INV-ES
 **Graceful shutdown.** During system shutdown (coordinated by Startup, Lifecycle & Shutdown, Doc 12), the WebSocket API sends a `subscription_ended` message to each active subscription with reason `server_shutting_down`, then closes all connections with close code 1001 (Going Away). The shutdown drain period is 5 seconds — matching the REST API's `shutdown_drain_seconds` (Doc 09 §9) is a reasonable starting point, though WebSocket connections may need less time since there are no in-flight request-response cycles to complete.
 
 **Reconnection guidance.** Clients are expected to implement reconnection with exponential backoff (initial delay: 1 second, maximum delay: 30 seconds, jitter: ±500 ms). On reconnection, clients should authenticate and resubscribe with the `global_position` of the last event they processed. The server does not persist client subscription state across connections — subscriptions are ephemeral. This matches HomeKit's HAP event model, where notification registrations do not persist across sessions.
+
+### 3.9 Reconnection Admission Control
+
+After a server restart, all connected clients detect the connection drop (via keepalive failure or transport close) and reconnect simultaneously. Each client authenticates and resubscribes with `from_global_position` to replay missed events. Without admission control, N clients requesting concurrent replays produce N parallel EventStore read streams competing with the State Store's own startup replay for SQLite reader throughput and CPU — a thundering herd that degrades startup performance on constrained hardware.
+
+**Admission model.** The server separates connection acceptance from replay serving:
+
+1. All reconnections are accepted immediately. Authentication is processed normally. Clients are not held in a disconnected state longer than necessary.
+2. Subscriptions that request `from_global_position` replay are queued in a bounded replay queue. The queue is FIFO (first authenticated, first served).
+3. Replay requests are served sequentially — at most `max_concurrent_replays` (default: 1, configurable range: 1–4, see §9) replay streams are active at any time. Each client's replay is fully served before the next client's replay begins.
+4. While a client's replay is queued, the server sends a `replay_queued` message:
+
+```json
+{
+  "id": null,
+  "type": "replay_queued",
+  "subscription_id": "sub_01HV...",
+  "position_in_queue": 3,
+  "estimated_wait_ms": 1500,
+  "last_seen_position": 84200
+}
+```
+
+The `last_seen_position` echoes the client's requested `from_global_position`, confirming the server registered the replay starting point. `estimated_wait_ms` is a best-effort estimate based on the average replay throughput of previously completed replays in this restart cycle (or the performance target from §10 if no replays have completed yet).
+
+5. While queued, the client receives LIVE events normally — the subscription is active for new events even before replay fills the gap. The client is responsible for deduplicating events that arrive via both the live stream and the subsequent replay (events carry `global_position`; the client ignores live events whose position is below the replay cursor).
+6. When the client's replay turn arrives, the server delivers replay events in `global_position` order. When the replay cursor reaches the relay's current live position, the gap is filled and the client transitions to live-only delivery.
+
+**Queue overflow.** The replay queue is bounded at `max_connections` entries (matching the connection limit). If the queue is full — which should not happen under normal operation since each connection can only have one pending replay — additional replay requests are rejected with a `subscription_error` (error_type: `replay-queue-full`, detail: "Too many concurrent replay requests. Retry in 5 seconds.").
+
+**Rationale.** Sequential replay serving on constrained hardware is the right tradeoff. With `max_concurrent_replays: 1`, a single replay stream at > 5,000 events/sec (§10) completes a 50,000-event gap in ~10 seconds. With 10 reconnecting clients, the last client waits ~100 seconds — acceptable for a server restart scenario that occurs infrequently. Increasing `max_concurrent_replays` to 2–4 on higher-tier hardware halves or quarters the wait time, but on a Pi 5, concurrent EventStore reads compete for the single NVMe I/O queue and produce diminishing throughput returns.
+
+### 3.10 Client Rate Limiting
+
+Each WebSocket connection is subject to per-message-type rate limits. Rate limiting prevents a misbehaving client (buggy automation tool, runaway integration script, or intentionally abusive client on the local network) from consuming disproportionate server resources.
+
+**Rate limit enforcement is per-connection**, not per-IP and not per-API-key. A single API key may have multiple legitimate connections (e.g., three open dashboard tabs); each connection is independently rate-limited. Per-IP limiting is inappropriate for a local-network smart home system where all clients share the same subnet — a misbehaving tablet should not affect the phone.
+
+**Rate limit table:**
+
+| Message type | Limit | Window | Exceeded behavior |
+|---|---|---|---|
+| `subscribe` | 20 messages | 10 seconds | `error` frame with `error_type: rate-limited`, 5-second cooldown per connection |
+| `unsubscribe` | 20 messages | 10 seconds | `error` frame with `error_type: rate-limited`, 5-second cooldown per connection |
+| `ping` | 2 messages | 1 second | Silently dropped (no error frame — avoids amplification) |
+| Any message (aggregate) | 100 messages | 1 second | Connection terminated with close code 4429 (client too slow) |
+
+During a cooldown period, messages of the rate-limited type are silently dropped. Messages of other types continue to be processed normally.
+
+**Repeated violation escalation.** If a connection triggers the aggregate rate limit (100 messages/sec) 3 times within 60 seconds, the connection is closed with close code 4429. The `api_key_id` is logged but not banned — the user may have a legitimate client with a bug. A structured `ws.rate_limit.violation` log event (WARN level) is emitted with `connection_id`, `api_key_id`, `message_type`, `rate`, and `violation_count`.
+
+**Implementation.** Rate limiting uses a sliding-window counter per connection per message type. The counters are stored in the `WsClientState` record (§8.2) and consume negligible memory (one long per message type per connection: ~32 bytes total).
 
 ---
 
@@ -513,9 +566,9 @@ Internal type representing a resolved subscription filter:
 
 | Type | Kind | Responsibility |
 |---|---|---|
-| `WsMessage` | Sealed interface | Root of the WebSocket message type hierarchy. Subtypes: `AuthenticateMsg`, `SubscribeMsg`, `UnsubscribeMsg`, `PingMsg` (client-to-server); `AuthResultMsg`, `SubscriptionConfirmedMsg`, `EventsMsg`, `StateSnapshotMsg`, `DeliveryModeChangedMsg`, `ErrorMsg`, `PongMsg`, `SubscriptionEndedMsg` (server-to-client). |
+| `WsMessage` | Sealed interface | Root of the WebSocket message type hierarchy. Subtypes: `AuthenticateMsg`, `SubscribeMsg`, `UnsubscribeMsg`, `PingMsg` (client-to-server); `AuthResultMsg`, `SubscriptionConfirmedMsg`, `EventsMsg`, `StateSnapshotMsg`, `DeliveryModeChangedMsg`, `ErrorMsg`, `PongMsg`, `SubscriptionEndedMsg`, `ReplayQueuedMsg` (server-to-client). |
 | `WsSubscription` | Record | Active subscription state: `subscriptionId`, `connectionId`, resolved filter, delivery mode, replay cursor (nullable), coalescing state. |
-| `WsClientState` | Record | Per-connection state: `connectionId`, `apiKeyIdentity`, authentication timestamp, active subscription map, send buffer metrics. |
+| `WsClientState` | Record | Per-connection state: `connectionId`, `apiKeyIdentity`, authentication timestamp, active subscription map, send buffer metrics, per-message-type rate limit counters (§3.10). |
 | `DeliveryMode` | Enum | `NORMAL`, `BATCHED`, `COALESCED` |
 | `WsCloseCode` | Enum | Application-specific close codes: `AUTH_FAILED(4403)`, `AUTH_TIMEOUT(4408)`, `CLIENT_TOO_SLOW(4429)`, `SUBSCRIPTION_LIMIT(4409)`, `MALFORMED_MESSAGES(4400)` |
 
@@ -586,6 +639,26 @@ websocket:
   # Shutdown
   shutdown_drain_seconds: 5             # Grace period for connection drain during shutdown.
                                         # Range: 1–30.
+
+  # Reconnection admission control (§3.9)
+  max_concurrent_replays: 1             # Maximum concurrent replay streams after server restart.
+                                        # Range: 1–4. Default 1. Higher values reduce reconnection
+                                        # wait time at the cost of increased concurrent SQLite reads.
+                                        # On Pi 5, diminishing returns above 2 due to single NVMe
+                                        # I/O queue contention.
+
+  # Client rate limiting (§3.10)
+  rate_limit:
+    subscribe_limit: 20                 # Max subscribe messages per window. Range: 5–100.
+    subscribe_window_seconds: 10        # Window for subscribe rate limit. Range: 5–60.
+    unsubscribe_limit: 20              # Max unsubscribe messages per window. Range: 5–100.
+    unsubscribe_window_seconds: 10     # Window for unsubscribe rate limit. Range: 5–60.
+    ping_limit: 2                       # Max client ping messages per second. Range: 1–10.
+    aggregate_limit: 100                # Max total messages per second per connection. Range: 10–500.
+    cooldown_seconds: 5                 # Cooldown period after per-type rate limit hit. Range: 1–30.
+    violation_threshold: 3              # Aggregate violations within violation_window before disconnect.
+                                        # Range: 1–10.
+    violation_window_seconds: 60        # Window for violation counting. Range: 10–300.
 ```
 
 **Configuration rationale:**
@@ -633,6 +706,9 @@ All metrics are exposed via JFR custom events (LTD-15). No Prometheus or OpenTel
 | `hs.ws.replay.events_delivered` | Counter | — | Events delivered during replay (catch-up). |
 | `hs.ws.messages.received` | Counter | `type` (`authenticate`, `subscribe`, `unsubscribe`, `ping`) | Client messages received by type. |
 | `hs.ws.messages.malformed` | Counter | — | Malformed messages received. |
+| `hs.ws.replay.queue_depth` | Gauge | — | Current number of replay requests queued during post-restart admission control (§3.9). |
+| `hs.ws.replay.queue_wait_ms` | Histogram | — | Time each client waited in the replay queue before replay began. |
+| `hs.ws.rate_limit.violations` | Counter | `message_type` (`subscribe`, `unsubscribe`, `ping`, `aggregate`) | Rate limit violations by message type (§3.10). |
 
 ### 11.2 Structured Logging
 
@@ -648,6 +724,9 @@ All metrics are exposed via JFR custom events (LTD-15). No Prometheus or OpenTel
 | `ws.client.disconnected_slow` | WARN | `connection_id`, `api_key_id`, `buffer_bytes`, `events_dropped` | Connection closed because client exceeded buffer ceiling. |
 | `ws.auth.failure` | WARN | `remote_address`, `reason` | Authentication failure (invalid key, timeout). |
 | `ws.message.malformed` | WARN | `connection_id`, `raw_length`, `error_detail` | Unparseable or invalid client message. |
+| `ws.replay.queued` | INFO | `connection_id`, `subscription_id`, `position_in_queue`, `from_global_position` | Replay request queued during admission control (§3.9). |
+| `ws.replay.started` | INFO | `connection_id`, `subscription_id`, `from_global_position`, `queue_wait_ms` | Replay stream began after queue wait. |
+| `ws.rate_limit.violation` | WARN | `connection_id`, `api_key_id`, `message_type`, `rate`, `violation_count` | Rate limit exceeded (§3.10). |
 
 ### 11.3 Health Indicator
 
@@ -656,6 +735,8 @@ All metrics are exposed via JFR custom events (LTD-15). No Prometheus or OpenTel
 | **HEALTHY** | WebSocket handler is registered and accepting connections, Event Relay subscriber is within 1,000 positions of the log head, authentication store is accessible. |
 | **DEGRADED** | Event Relay subscriber is more than 1,000 positions behind the log head (clients are receiving stale data). OR more than 50% of connected clients are in backpressure (batched or coalesced) mode. |
 | **UNHEALTHY** | Event Relay subscriber checkpoint has expired (retention purged events before relay processed them). OR WebSocket handler is not accepting connections. OR the authentication store is unavailable. |
+
+> **HealthContributor upstream note (Doc 11).** The WebSocket API implements `HealthContributor` (Doc 11 §8.1, §8.2) and is classified as **INTERFACE_SERVICES** tier (Doc 11 §7.1). Startup grace period: 10 seconds. The `reportHealth()` callback returns the three-state indicator from the table above. The WebSocket API also streams system health changes to subscribed clients in real time — it is both a health contributor and a health distribution channel.
 
 ---
 
@@ -739,6 +820,8 @@ When the `event_category` envelope field is added to the Event Model (pending am
 - **Connection limit enforcement.** Open 50 connections. Attempt a 51st. Verify HTTP 503 on upgrade. Close one connection. Verify the next attempt succeeds.
 - **Slow client escalation.** Connect a client that reads frames slowly (100 ms per frame). Publish events at 100/sec. Verify backpressure transitions: normal → batched → coalesced → connection closed. Verify the slow client does not affect delivery to other clients.
 - **Authentication store failure.** Corrupt the key store. Verify new connections receive `auth_result` with `success: false` and are closed. Verify existing authenticated connections continue receiving events.
+- **Reconnection thundering herd.** Establish 10 connected clients. Restart the server. Verify all 10 reconnect, authenticate, and receive `replay_queued` messages with sequential `position_in_queue` values. Verify replays are served sequentially (only one replay active at a time with default `max_concurrent_replays: 1`). Verify all clients receive live events during replay queue wait. Verify no EventStore contention failures.
+- **Rate limit enforcement.** Send 25 `subscribe` messages within 10 seconds. Verify that after the 20th, the server responds with `error_type: rate-limited` and subsequent subscribe messages are dropped for 5 seconds. Verify unsubscribe and ping messages continue to be processed during the cooldown. Send 150 messages in 1 second. Verify connection closure with close code 4429.
 
 ---
 

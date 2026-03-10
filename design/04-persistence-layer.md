@@ -4,7 +4,7 @@
 **Status:** Locked
 **Subsystem:** Persistence Layer
 **Dependencies:** Event Model & Event Bus (§3.5 telemetry boundary, §4.2 domain event store schema, §4.3 event type taxonomy, §3.3 retention tiers, §3.4 subscription model, §6.5 emergency retention), State Store & State Projection (§8.3 CheckpointStore interface, §3.3 checkpoint strategy), Device Model & Capability System (§3.1 entity registry structure, §6.6 registry rebuild logic), Identity and Addressing Model (§2.1 ULID references in storage), Glossary v1 (§3.19 Telemetry Ring Store)
-**Dependents:** REST API (§8.5 telemetry query interface for telemetry history endpoints per Doc 09 §3.2 Plane 4)
+**Dependents:** REST API (§8.5 telemetry query interface for telemetry history endpoints per Doc 09 §3.2 Plane 4), Observability & Debugging (Doc 11: §11 health indicator for health aggregation per Doc 11 §7.1, §3.10 migration framework for trace query indexes per Doc 11 §3.4, §3.9 storage pressure monitoring for storage metrics per Doc 11 §3.5)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-05
 
@@ -1011,7 +1011,7 @@ The Persistence Layer reports a composite health status derived from its compone
 | Storage pressure | Below WARNING threshold | At WARNING or CRITICAL threshold | At EMERGENCY threshold |
 | Backup status | Last backup < 25 hours old and validated | Last backup > 25 hours old or last attempt failed | No valid backup exists |
 
-The composite status is the worst of the component statuses. The health endpoint returns JSON with per-component detail and the composite status.
+The composite status is the worst of the component statuses. The health endpoint returns JSON with per-component detail and the composite status. This subsystem implements the `HealthContributor` interface (Doc 11 §8.1, §8.2) to report the composite health state to the HealthAggregator. The Persistence Layer is classified as CRITICAL_INFRASTRUCTURE tier (Doc 11 §7.1) with a 15-second startup grace period. Health state changes are reported via `HealthContributor.reportHealth(status, reason)` when any component transitions, recomputing the composite before reporting.
 
 ---
 

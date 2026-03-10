@@ -847,6 +847,8 @@ All targets measured on Raspberry Pi 4 (4 GB RAM) as the validation floor (LTD-0
 | **SUSPENDED** | Serial port disconnected, or coordinator not responding to pings. Probes attempt reconnection on backoff schedule. |
 | **FAILED** | Restart intensity exhausted (3 restarts in 60 seconds), or `PermanentIntegrationException` thrown (wrong port, incompatible coordinator, corrupt network state). Requires manual intervention. |
 
+> **HealthContributor upstream note (Doc 11).** The Zigbee Adapter does not implement `HealthContributor` directly. Its health state (HEALTHY, DEGRADED, SUSPENDED, FAILED) is reported through the Integration Runtime's per-integration health model (Doc 05 §11.3). The Integration Runtime's composite `HealthContributor` aggregates the Zigbee Adapter's health alongside any other enabled integrations before reporting to the HealthAggregator (Doc 11 §7.1). The adapter's four-state health model maps to the HealthAggregator's three-state model as: HEALTHY → HEALTHY, DEGRADED → DEGRADED, SUSPENDED → DEGRADED, FAILED → UNHEALTHY.
+
 ---
 
 ## 12. Security Considerations

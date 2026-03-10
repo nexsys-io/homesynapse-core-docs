@@ -1,7 +1,7 @@
 # HomeSynapse Core — Observability & Debugging
 
 **Document type:** Subsystem design
-**Status:** Draft
+**Status:** Locked (2026-03-09)
 **Subsystem:** Observability & Debugging
 **Dependencies:** Event Model & Event Bus (Doc 01: §3.4 subscription model, §4.1 event envelope, §4.3 event type taxonomy, §4.4 causal chain projection, §8.1 EventStore query interface, §11 metrics/health), State Store & State Projection (Doc 03: §8.1 StateQueryService, §11 health indicator, §5 viewPosition contract)
 **Dependents:** Web UI (Doc 13: real-time metrics streaming, health dashboard, trace viewer data), Startup Lifecycle & Shutdown (Doc 12: health reporting interface, subsystem initialization order), Master Architecture Document (Doc 14: system health model, memory budget for observability)

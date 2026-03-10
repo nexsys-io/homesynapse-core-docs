@@ -815,6 +815,8 @@ The Automation Engine reports a composite health indicator combining the engine 
 | `DEGRADED` | One or more automations auto-disabled, or any subscriber lag exceeds 100 events, or pending command timeout rate exceeds 20% over 5-minute window. |
 | `UNHEALTHY` | Any subscriber checkpoint expired, or automation engine subscriber cannot process events (exception in main loop). |
 
+This subsystem implements the `HealthContributor` interface (Doc 11 §8.1, §8.2) to report the composite automation health to the HealthAggregator. The Automation Engine is classified as CORE_SERVICES tier (Doc 11 §7.1) with a 15-second startup grace period. Health state changes are reported via `HealthContributor.reportHealth(status, reason)` when any of the three subscriber health states (automation_engine, command_dispatch_service, pending_command_ledger) transition, recomputing the composite before reporting.
+
 ---
 
 ## 12. Security Considerations
