@@ -1,8 +1,8 @@
 # HomeSynapse Core — Project Status
 
-**Last updated:** 2026-03-10 (A-01-DR-1 applied)
-**Current phase:** Phase 1 — COMPLETE. All 14 design documents locked.
-**Active documents:** None. Phase 2 preparation begins.
+**Last updated:** 2026-03-10
+**Current phase:** Phase 2 — Interface-Level Specification. All Phase 1 prerequisites resolved. See `governance/phase-2-transition-guide.md`.
+**Active documents:** Phase 2 transition guide locked. Next: project scaffold setup, then Doc 01 interface specification.
 
 ---
 
@@ -45,10 +45,10 @@
 Before Phase 2 interface specification begins:
 
 1. ~~A-01-DR-1 event_category envelope amendment~~ — COMPLETE. Applied to Doc 01 §4.1, §4.4, §12, §16. Glossary §3.9 updated. Doc 14 §15 Open Question 1 resolved. Forward references in Docs 07, 08, 09, 10 verified consistent.
-2. **JDK distribution selection** — Corretto 21 recommended per LTD-01 specification. Pin the exact version for reproducible builds.
-3. **Copyright header template** — Define the standard copyright header for all Java source files.
-4. **sqlite-jdbc version pin gate** — Validate the xerial sqlite-jdbc version against SQLite WAL behavior on ARM64 Linux before committing to a version catalog entry.
-5. **Licensing model decision** — Open source license selection (if applicable) before any code is public.
+2. ~~**JDK distribution selection**~~ — COMPLETE. Amazon Corretto 21.0.10.7.1 pinned. See `governance/phase-2-transition-guide.md` §1.
+3. ~~**Copyright header template**~~ — COMPLETE. Proprietary header with SPDX identifier defined. See `governance/phase-2-transition-guide.md` §4.
+4. ~~**sqlite-jdbc version pin gate**~~ — COMPLETE. xerial sqlite-jdbc 3.51.2.0 pinned. WAL validation spike deferred to first Phase 3 task. See `governance/phase-2-transition-guide.md` §2.
+5. ~~**Licensing model decision**~~ — COMPLETE. Proprietary, all rights reserved. See `governance/phase-2-transition-guide.md` §3.
 6. **9 RECOMMENDED review amendments** — AMD-12, AMD-18, AMD-19, AMD-20, AMD-21, AMD-22, AMD-23, AMD-24. Apply opportunistically during Phase 2 interface work. See `research/Critical_Design_Review_Docs_01_11_v1.md` §3 for full list.
 
 ---
@@ -496,14 +496,16 @@ homesynapse-core-docs/
 3. ~~Begin Doc 11 (Observability & Debugging) research.~~ COMPLETE — Locked 2026-03-09.
 4. ~~Draft Doc 10.~~ COMPLETE — Locked 2026-03-09.
 5. ~~Draft Doc 11.~~ COMPLETE — Locked 2026-03-09.
-6. **Begin Doc 13 framework investigation. ← NEXT SESSION.** Resolves RQ-11 through RQ-14.
-7. ~~Cross-audit + Lock Doc 10.~~ COMPLETE — Round 8–9.
-8. ~~Cross-audit + Lock Doc 11.~~ COMPLETE — Round 8–9.
-9. ~~Draft + audit + lock Doc 12.~~ COMPLETE — Round 12. Locked 2026-03-09.
-10. **Draft + audit + lock Doc 13.** Web UI framework research required first.
-11. **Draft + audit + lock Doc 14.** Master Architecture Document. Pure synthesis.
-12. **Reference artifacts** — event-type-registry, subscriber-registry, configuration-schema-registry. Can begin now (all source docs locked).
-13. **Phase 2 Transition Guide** — finalize alongside Doc 14.
+1. **Project scaffold setup** — Initialize `homesynapse-core` repository with Gradle structure, version catalog, convention plugins, LICENSE, CI. See `governance/phase-2-transition-guide.md` §8.
+2. **Doc 01 interface specification** — Event Model & Event Bus. First Phase 2 deliverable.
+3. ~~Begin Doc 13 framework investigation.~~ COMPLETE — LTD-18 created.
+4. ~~Cross-audit + Lock Doc 10.~~ COMPLETE — Round 8–9.
+5. ~~Cross-audit + Lock Doc 11.~~ COMPLETE — Round 8–9.
+6. ~~Draft + audit + lock Doc 12.~~ COMPLETE — Round 12. Locked 2026-03-09.
+7. ~~Draft + audit + lock Doc 13.~~ COMPLETE — Round 13. Locked 2026-03-10.
+8. ~~Draft + audit + lock Doc 14.~~ COMPLETE — Round 14. Locked 2026-03-10.
+9. **Reference artifacts** — event-type-registry, subscriber-registry, configuration-schema-registry. Can begin now (all source docs locked).
+10. ~~**Phase 2 Transition Guide**~~ — COMPLETE. Locked 2026-03-10. See `governance/phase-2-transition-guide.md`.
 
 ---
 
