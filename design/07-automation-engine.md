@@ -257,6 +257,34 @@ All Run events are produced via `EventPublisher.publish()` (§8.3 of Doc 01) wit
 
 `automation_disabled` is NORMAL priority (not DIAGNOSTIC) because it represents a significant operational state change that affects system behavior and should survive the 7-day DIAGNOSTIC retention window. The user needs to know an automation was disabled even if they do not check the system for several weeks.
 
+#### 3.7.1 Cascade Governance (AMD-04)
+
+When an automation's action produces a state change that triggers another automation, and that automation in turn triggers another, the result is a cascade chain. Without governance, circular or deep cascades can produce unbounded event and command production — a known failure mode in Home Assistant, SmartThings, and Node-RED where users create A→B→C→...→A loops that saturate the event bus and issue conflicting commands.
+
+**Cascade depth counter.** Each `AutomationRun` carries a `cascade_depth` field:
+
+- Runs initiated by a user command, device event, or time-based trigger: `cascade_depth = 0`.
+- Runs initiated by a `state_changed` event whose causal chain includes an `automation_triggered` event: `cascade_depth = parent_run.cascade_depth + 1`. The parent Run's `cascade_depth` is extracted from the triggering event's causal context — specifically, from the `automation_triggered` event that started the parent Run.
+- The `cascade_depth` is recorded in the `automation_triggered` event payload.
+
+**Maximum cascade depth.** When `cascade_depth` exceeds the configured maximum, the Run is suppressed:
+
+- Default: `8`. Configurable via `automation.max_cascade_depth` (range: 1–32, default: 8).
+- A well-behaved cascade rarely exceeds 3 levels (e.g., motion sensor → light on → presence update → security arm). The default of 8 provides generous headroom while preventing runaway chains.
+- Suppression produces a `cascade_depth_exceeded` event (DIAGNOSTIC priority, automation subject) with payload: `{ "automation_id", "triggering_event_id", "cascade_depth", "max_cascade_depth", "correlation_id" }`.
+- A WARNING structured log entry is emitted: `automation.cascade.depth_exceeded`.
+- If the cascade depth limit is hit more than 3 times within 60 seconds, the automation engine's health indicator transitions to DEGRADED. This indicates a likely configuration error (automation loop) rather than a transient spike.
+
+**Duplicate suppression within a causal chain.** Within a single causal chain (shared `correlation_id`), each automation fires at most once. If a trigger evaluation matches an automation that has already fired within the current `correlation_id`, the second trigger is suppressed:
+
+- Suppression produces a `cascade_loop_detected` event (DIAGNOSTIC priority, automation subject) with payload: `{ "automation_id", "triggering_event_id", "correlation_id", "original_run_id" }`.
+- This catches the direct A→B→A cycle that cascade depth alone would permit (since A's second firing would be at depth 2, well under the limit).
+- The duplicate check uses an in-memory set of `(correlation_id, automation_id)` pairs maintained by the RunManager. The set is bounded by the active correlation chain window (Doc 01 §4.4 — default 60 minutes, max 10,000 active chains). Entries are evicted when the correlation chain expires.
+
+**Natural termination via change detection.** The State Projection's change-detection logic (Doc 03 §3.2) provides natural loop termination for the most common circular pattern: if a command produces no actual state change (the new value matches the current canonical state), no `state_changed` event is emitted, and no downstream automation triggers. The cascade depth limit catches the indirect A→B→C→...→A case where each step changes different state, and the duplicate suppression catches the direct A→...→A case. Together, the three mechanisms — natural termination, duplicate suppression, and depth limiting — provide defense in depth against all cascade pathologies (INV-PR-03, INV-TO-02).
+
+**Invariant alignment.** INV-PR-03 (resource usage is bounded and predictable): cascade depth and duplicate suppression bound the maximum events and commands produced by any single triggering event. INV-TO-02 (automation determinism): cascade governance is deterministic — given the same event stream and configuration, the same cascades are permitted or suppressed.
+
 ### 3.8 Condition Evaluation
 
 Conditions are boolean guards evaluated after the trigger fires but before actions execute. They check current state, not events (Glossary §4.3).
@@ -278,7 +306,7 @@ Conditions are boolean guards evaluated after the trigger fires but before actio
 |---|---|---|
 | `zone` | Whether a person or entity is within a specified geographic zone. | Requires Tier 2 presence infrastructure and zone definition model. |
 
-**State source for condition evaluation.** Conditions read from the State Store's `StateQuery` interface (Doc 03 §8.1). In LIVE mode, this returns the current materialized state. The state is read synchronously within the Run's virtual thread — no suspension point between condition evaluation and the decision to proceed, ensuring atomicity within a single Run.
+**State source for condition evaluation (AMD-03).** When the Automation Engine evaluates conditions for a triggered Run, it captures a `StateSnapshot` via `StateQueryService.getSnapshot()` (Doc 03 §3.5, §8.1) at trigger time. All condition evaluators read entity state from this snapshot, not from individual `getState()` calls. This ensures all conditions within a single Run evaluate against a consistent view of the world at the moment the trigger fired. The snapshot's `viewPosition` is recorded in the `automation_triggered` event payload for diagnostic traceability — if a condition evaluated unexpectedly, the trace viewer can show exactly what state the engine saw. The `getSnapshot()` call is O(N) at the entity count (< 1 ms at 150 entities per Doc 03 §10) and is performed once per Run, not once per condition.
 
 **Condition evaluation produces events.** Each top-level condition evaluation produces an `automation_condition_evaluated` DIAGNOSTIC event recording the condition type, the evaluated state values, and the boolean result. This satisfies INV-TO-01 (observable) and enables the trace viewer to show exactly why a Run proceeded or was skipped.
 
@@ -725,6 +753,10 @@ automation:
   # within the window, it is automatically disabled.
   auto_disable_failure_count: 5       # range: 1-50, default: 5
   auto_disable_window_minutes: 10     # range: 1-60, default: 10
+
+  # Cascade governance (AMD-04)
+  max_cascade_depth: 8               # range: 1-32, default: 8
+  cascade_depth_health_threshold: 3  # depth-exceeded events in 60s before DEGRADED
 
   command_pipeline:
     # Default confirmation timeout for commands whose capability

@@ -181,6 +181,39 @@ During REPLAY (startup catch-up from a checkpoint behind the log head), the Stat
 
 **Key invariant across both modes:** `stateVersion` advances on every processed event for the entity, regardless of whether state mutated. This ensures the idempotency cursor tracks *processing*, not just *mutations*. A `state_reported` event that matches canonical state still advances `stateVersion`, so if it is redelivered (at-least-once semantics), the duplicate is correctly detected.
 
+#### 3.2.1 REPLAY→LIVE Reconciliation Pass (AMD-02)
+
+The REPLAY gap described in §3.2 (in-flight `state_reported` events) creates a correctness exposure: if the process crashes after a `state_reported` is persisted but before the State Projection produces the corresponding `state_changed`, the derived event is permanently absent from the log. The reconciliation pass closes this gap at the REPLAY→LIVE transition point.
+
+**When it runs.** Once per startup, immediately after the subscriber reaches the REPLAY→LIVE threshold (§3.6, Phase 2) and before the subscriber begins LIVE processing. The pass executes on the projection subscriber's virtual thread — no additional thread is created.
+
+**What it does.** The reconciliation pass piggybacks on the replay scan rather than performing a separate post-replay entity scan. During REPLAY, the subscriber already processes every event from the checkpoint forward. As events are processed, the subscriber tracks, per entity, the most recent `state_reported` event seen in the replay window. At the REPLAY→LIVE transition:
+
+1. For each entity that has a tracked `state_reported` in the replay window, check whether a `state_changed` event exists in the replay window with a `causation_id` matching that `state_reported`'s `event_id`.
+2. If no matching `state_changed` exists and the `state_reported`'s value differs from the entity's current canonical state (as rebuilt during replay), the State Projection re-derives the `state_changed` event. The re-derived event is produced via `EventPublisher.publish()` with the original `state_reported`'s `CausalContext`, preserving the causal chain.
+3. If the `state_reported`'s value matches canonical state, no re-derivation is needed — the original LIVE processing would not have produced a `state_changed` either.
+
+**Scope and performance.** The reconciliation pass is bounded by the replay window, not by total entity count. For a typical crash recovery (the most recent checkpoint is < 5 minutes old per §3.3), the replay window contains at most a few thousand events. For each entity, the pass checks at most one `state_reported` (the most recent in the window). The additional memory cost is one `EventRef` per entity that had a `state_reported` in the replay window — negligible at MVP scale. The computation is O(replay_window_size) for tracking during replay, plus O(entity_count_in_window) for the final reconciliation check.
+
+**Events produced.** After all re-derivations (if any), the reconciliation pass produces a single `system.reconciliation_completed` event (DIAGNOSTIC priority, system subject) with payload:
+
+```json
+{
+  "entity_count_checked": 42,
+  "events_re_derived": 1,
+  "replay_window_events": 2847,
+  "duration_ms": 12
+}
+```
+
+If `events_re_derived > 0`, the reconciliation pass also emits a WARNING structured log entry: `state_store.reconciliation.re_derived` with the entity refs and event IDs of the re-derived `state_changed` events.
+
+**Invariant alignment.** INV-ES-02 (state is always derivable from events): the reconciliation pass ensures that every `state_reported` that should have produced a `state_changed` has one in the log, even across crash boundaries. INV-ES-06 (every state change is explainable): the re-derived `state_changed` events preserve the causal chain from the original `state_reported`, maintaining traceability.
+
+**What it does not do.** The reconciliation pass does not scan the entire event log or the entire entity set. It does not re-derive events for entities outside the replay window. It does not run during normal operation — it is strictly a startup-time, once-per-boot mechanism.
+
+> **Cross-reference: EventPublisher durability semantics.** The `EventPublisher.publish()` and `EventPublisher.publishRoot()` methods are synchronous from the caller's perspective: the event is persisted to SQLite and the method returns only after the WAL commit (Doc 01 §8.3). The reconciliation pass depends on this guarantee — re-derived `state_changed` events are durable before the subscriber transitions to LIVE mode.
+
 **Disabled entity processing.** When an entity is in the `disabledEntities` set:
 
 - `state_reported` events update `lastReported` and `lastUpdated` timestamps and advance `stateVersion`, but do not trigger value comparison or `state_changed` derivation. Attribute values remain frozen. This preserves freshness monitoring — a disabled entity that is still actively reporting is distinguishable from one that has gone silent. The `lastReported` timestamp continues to reflect device communication regardless of administrative state.
@@ -198,6 +231,7 @@ Checkpoints are full snapshots of the in-memory state view. A checkpoint contain
 ```json
 {
   "schema_version": 1,
+  "projection_version": 1,
   "view_position": 48523,
   "checkpoint_time": "2026-03-05T14:30:00.000000Z",
   "disabled_entities": ["01HV...abc", "01HV...def"],
@@ -305,7 +339,13 @@ This is an O(N) copy, but `getSnapshot()` is called infrequently (initial page l
 
 Startup proceeds in three phases:
 
-**Phase 1: Checkpoint load.** The State Store requests the most recent checkpoint from `CheckpointStore.readLatestCheckpoint("entity_state")`. If a checkpoint exists and its `schema_version` matches the runtime's expected version, the in-memory state is populated from the checkpoint data and the `disabled_entities` set is restored. If the checkpoint is absent, corrupted (deserialization failure), or has a mismatched schema version, the State Store starts with empty state and position 0, falling through to a full replay.
+**Phase 1: Checkpoint load.** The State Store requests the most recent checkpoint from `CheckpointStore.readLatestCheckpoint("entity_state")`. If a checkpoint exists and its `schema_version` matches the runtime's expected version, the checkpoint's `projection_version` is compared against the runtime's `CURRENT_PROJECTION_VERSION` (see below). If both versions match, the in-memory state is populated from the checkpoint data and the `disabled_entities` set is restored. If the checkpoint is absent, corrupted (deserialization failure), has a mismatched `schema_version`, or has a mismatched `projection_version`, the State Store starts with empty state and position 0, falling through to a full replay.
+
+**Projection logic versioning (AMD-10).** The State Projection maintains a compile-time constant `CURRENT_PROJECTION_VERSION` (integer, starting at 1) that represents the version of the derivation logic — the rules by which `state_changed` events are derived from `state_reported` events, including comparison semantics, attribute initialization, and disabled-entity handling. This constant is incremented manually by the developer when derivation logic changes in a way that would produce different state from the same event stream. Version bumps are enforced by code review (governance rule, not automatic detection).
+
+When the checkpoint's `projection_version` does not match `CURRENT_PROJECTION_VERSION`, the checkpoint's `stateMap` is discarded and the State Projection replays from position 0 (or from a checkpoint whose `projection_version` matches, if one exists in the checkpoint history). This guarantees that the in-memory state is consistent with the current derivation logic, satisfying INV-ES-02 (state is always derivable from events).
+
+**Performance note on full replay.** A projection version mismatch forces a full event log replay, which at one year of data (~1.5 million events) takes approximately 150 seconds at 10,000 events/sec. This is an acceptable cost for a rare event (derivation logic changes only during development or version upgrades). The replay progress is reported via the `hs_state_store_replay_progress` gauge (§11.1) and the system transitions to functional-with-stale-state rather than blocking. Operators deploying a version with a projection logic change should expect a one-time extended startup.
 
 **Phase 2: Replay.** The subscriber registers with the Event Bus at the checkpoint's `view_position` (or 0 if no checkpoint). The Event Bus delivers all events from that position to the log head. The subscriber processes these events in REPLAY mode (see **Event Model & Event Bus** §3.7).
 
@@ -622,7 +662,8 @@ public record CheckpointRecord(
     String viewName,
     long position,
     byte[] data,
-    Instant writtenAt
+    Instant writtenAt,
+    int projectionVersion
 ) {}
 ```
 
@@ -640,6 +681,9 @@ state_store:
     event_threshold: 1000          # Event-count-based checkpoint trigger
     min_interval_seconds: 30       # Minimum spacing between checkpoints (storm protection)
     schema_version: 1              # Current EntityState schema version
+    # projection_version is a compile-time constant (CURRENT_PROJECTION_VERSION),
+    # not a user-configurable value. It is written into checkpoint JSON and compared
+    # at startup. See §3.6 for versioning semantics. (AMD-10)
 
   # Defensive bounds
   max_entity_count: 5000           # Warn and stop accepting new entities above this count
