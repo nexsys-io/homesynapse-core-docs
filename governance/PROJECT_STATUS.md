@@ -1,8 +1,8 @@
 # HomeSynapse Core — Project Status
 
 **Last updated:** 2026-03-10
-**Current phase:** Phase 1 — Subsystem Design Documentation
-**Active documents:** Doc 14 — Master Architecture Document (next to draft). All design documents through Doc 13 locked. Doc 14 is the final Phase 1 document.
+**Current phase:** Phase 1 — COMPLETE. All 14 design documents locked.
+**Active documents:** None. Phase 2 preparation begins.
 
 ---
 
@@ -25,7 +25,31 @@
 | 11 | Observability & Debugging | **Locked** | 2026-03-09 | Round 8–9 applied. HealthContributor interface definition (§8.1, §8.2). Health aggregation model (§7.1). Upstream Dependents updates (U-01-R9, U-03-R9, U-04-R9) applied to Docs 01, 03, 04. **Round 11 applied (AMD-05 daily_bytes_written metric in §3.5 table, collection method and health threshold description, storage monitoring config §9).** |
 | 12 | Startup, Lifecycle & Shutdown | **Locked** | 2026-03-09 | Round 12 cross-audit complete: 1 critical, 6 significant, 1 minor. All amendments applied. Upstream Dependents (U-01 through U-10 for Doc 12) applied. Locked 2026-03-09. |
 | 13 | Web UI (Observability MVP) | **Locked** | 2026-03-10 | Depends on Docs 09, 10, 11, 12. Framework research complete (research/Web_UI_Framework_Research_v1.md). LTD-18 created. Full design document drafted. **Round 13 cross-audit complete: 0 critical, 5 significant, 5 minor. All amendments applied.** Significant: §8.2 missing 5 WebSocket message types from Doc 10, §3.8 missing Observability from Tier 2, WebSocket path /api/v1/ws→/ws/v1 per Doc 10, §3.5 missing replay_queued handling per Doc 10 §3.9, missing INV-TO-01 and INV-SE-02 citations. Minor: integration path param {id}→{integration_id}, §10 Pi 4 validation floor note, §13 missing browser memory and compatibility tests. Upstream Dependents (U-09, U-10, U-11, U-12 for Doc 13) applied. 16 key decisions, 3 non-blocking open questions. Locked 2026-03-10. |
-| 14 | Master Architecture Document | Not started | — | Synthesizes all preceding. Written last. Wave 3. No research — pure synthesis. Portability Architecture (Track C) feeds directly into this document. Must include comprehensive memory budget. |
+| 14 | Master Architecture Document | **Locked** | 2026-03-10 | Round 14 cross-audit complete: 0 critical, 3 significant, 2 minor. All amendments applied (A-14-R14-1 through A-14-R14-5). Synthesizes all 13 subsystem designs. Memory budget: ~175 MB heap, ~230–260 MB native, 650–850 MB total RSS. INV-PR-02 measurement methodology defined. Gradle module map verified. Tier model (6 tiers from Portability Architecture). CI/CD testing matrix (4 tiers). All 18 LTDs referenced. 4 non-blocking open questions. Locked 2026-03-10. |
+
+---
+
+## Phase 1 Completion Summary
+
+**Completed:** 2026-03-10
+**Duration:** 2026-02-22 (Glossary v1 locked) to 2026-03-10 (Doc 14 locked) — 17 days
+**Documents:** 14 design documents + 2 foundation documents (Glossary v1, Identity and Addressing Model v1) = 16 total
+**Cross-audit rounds:** 14 (Rounds 1–14)
+**Total amendments applied:** ~120 across all rounds (including upstream Dependents updates, cross-document consistency passes, and Critical Design Review)
+**Locked decisions:** 18 (LTD-01 through LTD-18)
+**Architecture invariants:** 72 across 15 categories
+**Research artifacts:** 7 (Event Systems Autopsy, Device Model Architectures, Language Evaluation, Event System Design, Portability Architecture, Observability Debugging Research, Web UI Framework Research)
+
+### Phase 2 Prerequisites
+
+Before Phase 2 interface specification begins:
+
+1. **A-01-DR-1 event_category envelope amendment** — Add `event_category` string array field to the event envelope (Doc 01). Eight categories defined. Forward references exist in Docs 07, 08, 09. This is the only pending amendment from Phase 1.
+2. **JDK distribution selection** — Corretto 21 recommended per LTD-01 specification. Pin the exact version for reproducible builds.
+3. **Copyright header template** — Define the standard copyright header for all Java source files.
+4. **sqlite-jdbc version pin gate** — Validate the xerial sqlite-jdbc version against SQLite WAL behavior on ARM64 Linux before committing to a version catalog entry.
+5. **Licensing model decision** — Open source license selection (if applicable) before any code is public.
+6. **9 RECOMMENDED review amendments** — AMD-12, AMD-18, AMD-19, AMD-20, AMD-21, AMD-22, AMD-23, AMD-24. Apply opportunistically during Phase 2 interface work. See `research/Critical_Design_Review_Docs_01_11_v1.md` §3 for full list.
 
 ---
 
@@ -33,19 +57,15 @@
 
 ### Progress Summary
 
-**13 of 14 documents locked** (foundations + Docs 01–13). 1 remaining (Doc 14 — Master Architecture Document). The architecture's core — event model, device model, state management, persistence, integration runtime, configuration, automation, protocol adapter, both API surfaces, observability, startup/lifecycle/shutdown, and the observability dashboard — is fully designed, audited, and post-review hardened.
+**14 of 14 documents locked.** Phase 1 complete. The architecture's core — event model, device model, state management, persistence, integration runtime, configuration, automation, protocol adapter, both API surfaces, observability, startup/lifecycle/shutdown, the observability dashboard, and the master architecture synthesis — is fully designed, audited, and post-review hardened.
 
 **Critical Design Review complete.** 24 amendments identified; 22 accepted (4 BLOCKING, 9 REQUIRED, 9 RECOMMENDED), 2 rejected (AMD-01, AMD-06). All 13 BLOCKING + REQUIRED amendments applied across Rounds 10–11. 9 RECOMMENDED amendments deferred for opportunistic application. See `research/Critical_Design_Review_Docs_01_11_v1.md` for full decision record.
 
 ### Remaining Work
 
-| Priority | Action | Blocks | Estimated Effort |
-|---|---|---|---|
-| **1 (next session)** | Doc 14 — Master Architecture Document | Phase 2 transition | 1 session (synthesis) |
+All Phase 1 design documents are locked. No remaining design work.
 
-**Critical path:** Doc 14 → Phase 2 transition.
-
-**Estimated remaining sessions:** 1–2 to complete Phase 1.
+**Next:** Phase 2 prerequisites (see Phase 1 Completion Summary below), then interface specification.
 
 ### Per-Document Workflow
 
@@ -199,6 +219,13 @@ Minor: (M-01) Path parameter `{id}` → `{integration_id}` per Doc 09. (M-02) §
 Upstream Dependents: Doc 09 Dependents updated with Doc 13 section-level references (§8.1, §3.6, §3.8, §3.9, §12). Doc 10 Dependents updated (§3.5, §8.2, §3.7, §3.8). Doc 11 Dependents updated (§3.8, §3.6.3, §3.6.2, §11.3). Doc 12 Dependents updated (§3.2, §7).
 LTD-18 (Web UI Technology — Preact SPA for Observability, HTMX reserved for Tier 2+) created during Doc 13 drafting session.
 
+### Round 14 (Doc 14 — Master Architecture Document) — Complete:
+**Cross-audit results:** 0 critical, 3 significant, 2 minor. **All findings applied. Locked 2026-03-10.**
+Significant: A-14-R14-1 Observability memory reclassification (25 MB JFR moved from heap table to native table, ~10 MB heap estimate added for in-JVM components, subtotals corrected from 190→175 MB heap). A-14-R14-3 Template variance note added to §0 documenting that Doc 14 is "Architecture synthesis" not "Subsystem design." A-14-R14-4 MVP §8 source citation added to §10.1 Constitutional Targets.
+Minor: A-14-R14-2 JFR native memory label corrected in §3.5.2. A-14-R14-5 event_category open question cross-reference strengthened with category list and forward reference docs.
+No upstream Dependents — Doc 14 depends on all docs but no Phase 1 doc depends on Doc 14.
+**Phase 1 complete. All 14 design documents locked.**
+
 ### Round 11 (Design Review — 11 REQUIRED amendments, 10 applied, 1 pre-applied): AMD-11 state TTL applied to Doc 03 (staleAfter/stale fields on EntityState record, new §3.8 staleness model with capability-based defaults, passive 30-second scan, state_stale event emission, lazy read-time evaluation, staleness config §9, API contract note in §5). AMD-17 device orphan lifecycle applied to Doc 02 (new §3.15: ORPHANED state triggered by integration FAILED/removed, frozen state with stale:true via AMD-11 staleness model, command rejection with device_orphaned error, automation evaluation returns last known value with stale_input warning, re-adoption matching via preserved hardware identifiers, explicit removal via REST API, health DEGRADED when orphaned devices exist, orphan config §9). AMD-14 adapter dependency ordering applied to Doc 05 (new §3.13: dependsOn field on IntegrationDescriptor, topological sort startup via Kahn's algorithm, cycle detection rejects cyclic integrations, SUSPENDED state for dependency failure propagation, reverse-order shutdown, dependency config §9). AMD-13 configuration migration framework applied to Doc 06 (new §3.7: ConfigMigrator interface, MigrationResult/ConfigChange/ChangeType records, sequential migration chain, migration preview CLI, backup before migration, testing contract, migration config §9; supersedes §14 future consideration). AMD-16 secrets store backup applied to Doc 06 (§3.4: per-operation backup before set/delete, 5-rotation retention, recovery CLI with homesynapse secrets restore/list-backups, backup config §9, §6.9 updated to reference backups). AMD-07 route health monitoring applied to Doc 08 (new §3.15: RouteHealth record with HEALTHY/DEGRADED/UNREACHABLE states, command-failure-triggered recovery at 3 consecutive failures, device UNAVAILABLE at 10 failures, weak-link analysis on topology scan, coordinator exclusion, route_health config §9). AMD-08 idempotency keys applied to Doc 09 (§3.4: optional Idempotency-Key header on command endpoint, in-memory LRU cache 10K entries 24h TTL, IdempotencyEntry record, idempotency_key on command_issued event, conflict detection, idempotency-key-conflict problem type, idempotency config §9). AMD-15 correlation ID in error responses applied to Doc 09 (§3.8: correlation_id extension member in all RFC 9457 error bodies, X-Correlation-ID response header on all responses, auto-generated ULID when client omits header). AMD-09-RL rate limiting table confirmed pre-applied to Doc 10 (Part 1 Round 8–9). AMD-05 daily_bytes_written applied to Doc 11 (§3.5 metric table updated, collection via /proc/diskstats hourly, daily reset with JFR total event, health DEGRADED threshold at 10 GB/day, storage monitoring config §9). Cross-document consistency verified: AMD-11 staleness model and AMD-17 orphan lifecycle both set stale:true via the same mechanism (Doc 03 §3.8). AMD-17 device_orphaned error added to Doc 09 problem type table.
 
 ---
@@ -225,7 +252,7 @@ See Pending Governance Actions section: isolation language correction required i
 
 ### Memory Budget Tightness
 
-LTD-01 allocates -Xmx1536m. LTD-03 specifies 128 MB SQLite native page cache (outside JVM heap) plus 1 GB mmap. LTD-13 caps the systemd cgroup at MemoryMax=2G. Subtotal ~1792 MB against 2048 MB limit. ~256 MB headroom for OS, mmap promotion, native allocations, per-integration HTTP clients. Master Architecture Document (Doc 14) must include comprehensive memory budget with a precise definition of the INV-PR-02 "steady-state memory < 512 MB" measurement methodology (live heap after major GC, not total RSS). Phase 3 spikes should include RSS monitoring.
+LTD-01 allocates -Xmx1536m. LTD-03 specifies 128 MB SQLite native page cache (outside JVM heap) plus 1 GB mmap. LTD-13 caps the systemd cgroup at MemoryMax=2G. **Resolved in Doc 14 §3.5.** Comprehensive memory budget compiled: ~175 MB JVM heap (against 1536 MB limit), ~230–260 MB native resident, 650–850 MB total RSS estimate. INV-PR-02 measurement methodology defined: live heap after major GC via JFR GCHeapSummary events. 512 MB target applies to live heap only, not total RSS. Phase 3 spikes should include RSS monitoring to validate estimates empirically.
 
 **Doc 07 memory contribution (added 2026-03-07).** Doc 07 §10 estimates the automation subsystem at < 50 MB steady-state: Automation Registry (~500 KB), trigger index (~50 KB), active Runs at max concurrent 200 (~300 KB), Pending Command Ledger at max 500 entries (~100 KB), plus subscriber overhead. The three independent subscribers (automation_engine, command_dispatch_service, pending_command_ledger) add three virtual threads (~3 KB). This is well within budget but must be validated empirically during Phase 3.
 

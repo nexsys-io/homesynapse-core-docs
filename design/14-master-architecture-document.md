@@ -1,7 +1,7 @@
 # HomeSynapse Core — Master Architecture Document
 
 **Document type:** Architecture synthesis
-**Status:** Draft
+**Status:** Locked
 **Subsystem:** All (system-level synthesis)
 **Dependencies:** Docs 01–13 (all locked subsystem designs), Architecture Invariants v1, Locked Decisions Register v1 (LTD-01 through LTD-18), Portability Architecture v1, Glossary v1, Identity and Addressing Model v1
 **Dependents:** Phase 2 interface specifications (all subsystems)
@@ -15,6 +15,8 @@
 The Master Architecture Document is the single document a new team member reads to understand how HomeSynapse Core works as a whole. It is not a replacement for the 13 subsystem designs — it is the map that shows how they connect.
 
 HomeSynapse Core is a local-first, event-sourced smart home platform. It runs as a single long-lived Java 21 process on a Raspberry Pi, managing devices across protocol adapters, persisting every state change as an immutable event, deriving current state from the event log, executing automations in response to events, and exposing the system through REST and WebSocket APIs with an observability-focused web dashboard. Thirteen subsystem design documents define how each piece works. This document defines how the pieces form a system.
+
+**Template variance:** This document follows the DESIGN_DOC_TEMPLATE.md section structure (§0–§16) but its content is synthesis, not subsystem design. The metadata header uses "Architecture synthesis" rather than "Subsystem design" as the document type. Sections serve different purposes than in a subsystem design doc — §3 Architecture contains system-level diagrams and budgets rather than a single subsystem's internal architecture, §4 Data Model provides cross-cutting registries rather than one subsystem's schemas, and §8 Key Interfaces summarizes external API surfaces rather than one subsystem's public interfaces. All 16 template sections are present and substantive.
 
 The document serves three purposes. First, it provides the architectural narrative that connects subsystem designs into a coherent whole — the data flows, initialization sequences, memory budgets, and module boundaries that no single subsystem document can express. Second, it consolidates cross-cutting concerns — security posture, performance targets, configuration namespaces, observability surfaces — that span multiple subsystems and must be understood at the system level. Third, it establishes the deployment tier model and CI/CD strategy that govern how HomeSynapse Core is built, tested, and shipped.
 
@@ -272,12 +274,12 @@ JVM configured with `-Xms512m -Xmx1536m` (LTD-01).
 | Zigbee Adapter | ~30 MB | Doc 08 §10 | 50 devices: profiles, cluster handlers, frame queues, transport buffers |
 | REST API | ~20 MB | Doc 09 §10 | HTTP server buffers, Jackson ObjectReader/ObjectWriter, rate limiter |
 | WebSocket API | ~15 MB | Doc 10 §10 | 20 connections × < 256 KB each, relay subscriber, filter state |
-| Observability | ~25 MB | Doc 11 §10 | HealthAggregator, TraceQueryService caches, MetricsStreamBridge queue |
+| Observability | ~10 MB | Doc 11 §3, §10 | HealthAggregator, TraceQueryService caches, MetricsStreamBridge queue (JFR native memory accounted separately in §3.5.2) |
 | Lifecycle | ~5 MB | Doc 12 §10 | Lightweight orchestration structures, phase state |
 | Web UI | ~0 MB | Doc 13 | Static files served from classpath; no heap allocation beyond Javalin serving |
-| **Subtotal (JVM heap)** | **~190 MB** | | |
+| **Subtotal (JVM heap)** | **~175 MB** | | |
 
-Against `-Xmx1536m`, this leaves approximately **1,346 MB** for GC headroom, class metadata, JIT-compiled code, thread stacks, and transient allocations during event processing, serialization, and query evaluation.
+Against `-Xmx1536m`, this leaves approximately **1,361 MB** for GC headroom, class metadata, JIT-compiled code, thread stacks, and transient allocations during event processing, serialization, and query evaluation.
 
 #### 3.5.2 Native Memory (Outside JVM Heap)
 
@@ -286,7 +288,7 @@ Against `-Xmx1536m`, this leaves approximately **1,346 MB** for GC headroom, cla
 | SQLite page cache | 128 MB | Configured via PRAGMA cache_size (LTD-03) |
 | SQLite mmap | up to 1 GB | Virtual address space; resident pages depend on working set |
 | Serial I/O buffers | ~1 MB | Platform thread stack + jSerialComm native buffers |
-| JFR recording | ~25 MB heap, ≤ 256 MB disk | Configured via maxsize; disk I/O to NVMe |
+| JFR recording | ~25 MB native memory, ≤ 256 MB disk | Global buffers + metadata + active chunk (Doc 11 §10); disk I/O to NVMe |
 | Logback buffers | ~5 MB | Async appender queue + encoder buffers |
 | JVM metaspace | ~50–80 MB | Class metadata, method data, interned strings |
 | Thread stacks | ~20 MB | ~40 platform/carrier threads × 512 KB |
@@ -303,7 +305,7 @@ Against `-Xmx1536m`, this leaves approximately **1,346 MB** for GC headroom, cla
 3. **Steady-state definition:** System running for ≥ 1 hour with ≥ 50 active Zigbee devices producing events at typical reporting intervals (~5 events/minute aggregate). No startup replay in progress. No retention pass executing.
 4. **Threshold:** If post-GC live heap exceeds 512 MB under steady-state conditions, this is a performance investigation trigger per MVP §8.2.
 
-**Total RSS will be higher than live heap.** At steady state, expected total RSS is approximately 700–900 MB: ~190 MB live heap + ~200 MB GC headroom and transient allocations + ~128 MB SQLite page cache + ~50–80 MB metaspace + ~20 MB thread stacks + ~25 MB JFR + ~5 MB Logback + variable mmap resident pages. The systemd `MemoryMax=2G` cgroup (LTD-13) provides the hard ceiling, leaving ~1.1 GB for the operating system and other services on a 4 GB Raspberry Pi.
+**Total RSS will be higher than live heap.** At steady state, expected total RSS is approximately 650–850 MB: ~175 MB live heap + ~200 MB GC headroom and transient allocations + ~128 MB SQLite page cache + ~50–80 MB metaspace + ~20 MB thread stacks + ~25 MB JFR + ~5 MB Logback + variable mmap resident pages. The systemd `MemoryMax=2G` cgroup (LTD-13) provides the hard ceiling, leaving ~1.2 GB for the operating system and other services on a 4 GB Raspberry Pi.
 
 **What the 512 MB target excludes:** SQLite mmap pages (virtual, demand-paged by the kernel, evictable under memory pressure), JFR disk repository (not memory-resident), Logback log files on disk.
 
@@ -719,9 +721,9 @@ dashboard:
 
 All targets measured on Raspberry Pi 5 (primary) with Pi 4 as validation floor. Targets are investigation triggers per MVP §8.2, not architecture revision triggers.
 
-### 10.1 Constitutional Targets (INV-PR-02)
+### 10.1 Constitutional Targets (INV-PR-02, MVP §8)
 
-These targets are locked in the Architecture Invariants document and are non-negotiable:
+These targets are defined in the Architecture Invariants (INV-PR-02) and the Project MVP document (§8.1 Hard Invariants, §8.2 Budget Goals). They are non-negotiable:
 
 | Metric | Target | Source |
 |---|---|---|
@@ -928,7 +930,7 @@ INV-LF-05 (Convergent Sync Architecture) reserves the path for multiple HomeSyna
 
 ## 15. Open Questions
 
-1. **event_category envelope field amendment.** The Data-Readiness design concern (PROJECT_STATUS) proposes adding `event_category` as a required string array on the event envelope, populated by static lookup from event type to consent-scope categories. Amendment A-01-DR-1 is pending for Doc 01. The field enables future category-scoped access controls and crypto-shredding boundaries (INV-PD-07). **Status: [NON-BLOCKING]** — the amendment is additive and does not change any locked design decision.
+1. **event_category envelope field amendment.** The Data-Readiness design concern (PROJECT_STATUS §Data-Readiness Design Concerns) proposes adding `event_category` as a required string array on the event envelope, populated by static lookup from event type to consent-scope categories. Eight categories defined: device_state, energy, presence, environmental, security, automation, device_health, system. Amendment A-01-DR-1 is pending for Doc 01. The field enables future category-scoped access controls and crypto-shredding boundaries (INV-PD-07). Forward references exist in Doc 07 §12, Doc 08 §12, and Doc 09. **Status: [NON-BLOCKING]** — the amendment is additive and does not change any locked design decision.
 
 2. **Data-Readiness materialized views.** The Home Health Score subscriber (~5 MB), Device Reliability Projection (~10 MB), and multi-tier aggregation engine (~15 MB) are proposed as additional subscribers. Their memory contribution (~30 MB combined) is within budget but has not been formally assigned to a design document. They may warrant a dedicated document or amendments to Docs 03/04. **Status: [NON-BLOCKING]** — the subscriber-based architecture accommodates them without structural changes.
 
