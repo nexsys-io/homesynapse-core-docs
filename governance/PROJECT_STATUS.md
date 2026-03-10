@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-03-10
 **Current phase:** Phase 1 — Subsystem Design Documentation
-**Active documents:** Doc 13 — Web UI (next to draft). All design documents through Doc 12 locked. Doc 13 framework research begins next session.
+**Active documents:** Doc 14 — Master Architecture Document (next to draft). All design documents through Doc 13 locked. Doc 14 is the final Phase 1 document.
 
 ---
 
@@ -24,7 +24,7 @@
 | 10 | WebSocket API | **Locked** | 2026-03-09 | Round 8–9 applied. AMD-09 (reconnection admission control + rate limiting) applied pre-lock. HealthContributor upstream note applied. Upstream Dependents updates (U-01-R8, U-02-R8, U-05-R8) applied to Docs 01, 02, 05. |
 | 11 | Observability & Debugging | **Locked** | 2026-03-09 | Round 8–9 applied. HealthContributor interface definition (§8.1, §8.2). Health aggregation model (§7.1). Upstream Dependents updates (U-01-R9, U-03-R9, U-04-R9) applied to Docs 01, 03, 04. **Round 11 applied (AMD-05 daily_bytes_written metric in §3.5 table, collection method and health threshold description, storage monitoring config §9).** |
 | 12 | Startup, Lifecycle & Shutdown | **Locked** | 2026-03-09 | Round 12 cross-audit complete: 1 critical, 6 significant, 1 minor. All amendments applied. Upstream Dependents (U-01 through U-10 for Doc 12) applied. Locked 2026-03-09. |
-| 13 | Web UI (Observability MVP) | Not started | — | Depends on Docs 09, 10, 11. Wave 3. **Research need: high (framework selection).** See Research Strategy below. |
+| 13 | Web UI (Observability MVP) | **Locked** | 2026-03-10 | Depends on Docs 09, 10, 11, 12. Framework research complete (research/Web_UI_Framework_Research_v1.md). LTD-18 created. Full design document drafted. **Round 13 cross-audit complete: 0 critical, 5 significant, 5 minor. All amendments applied.** Significant: §8.2 missing 5 WebSocket message types from Doc 10, §3.8 missing Observability from Tier 2, WebSocket path /api/v1/ws→/ws/v1 per Doc 10, §3.5 missing replay_queued handling per Doc 10 §3.9, missing INV-TO-01 and INV-SE-02 citations. Minor: integration path param {id}→{integration_id}, §10 Pi 4 validation floor note, §13 missing browser memory and compatibility tests. Upstream Dependents (U-09, U-10, U-11, U-12 for Doc 13) applied. 16 key decisions, 3 non-blocking open questions. Locked 2026-03-10. |
 | 14 | Master Architecture Document | Not started | — | Synthesizes all preceding. Written last. Wave 3. No research — pure synthesis. Portability Architecture (Track C) feeds directly into this document. Must include comprehensive memory budget. |
 
 ---
@@ -33,7 +33,7 @@
 
 ### Progress Summary
 
-**12 of 14 documents locked** (foundations + Docs 01–12). 2 remaining (Docs 13–14). The architecture's core — event model, device model, state management, persistence, integration runtime, configuration, automation, protocol adapter, both API surfaces, observability, and startup/lifecycle/shutdown — is fully designed, audited, and post-review hardened.
+**13 of 14 documents locked** (foundations + Docs 01–13). 1 remaining (Doc 14 — Master Architecture Document). The architecture's core — event model, device model, state management, persistence, integration runtime, configuration, automation, protocol adapter, both API surfaces, observability, startup/lifecycle/shutdown, and the observability dashboard — is fully designed, audited, and post-review hardened.
 
 **Critical Design Review complete.** 24 amendments identified; 22 accepted (4 BLOCKING, 9 REQUIRED, 9 RECOMMENDED), 2 rejected (AMD-01, AMD-06). All 13 BLOCKING + REQUIRED amendments applied across Rounds 10–11. 9 RECOMMENDED amendments deferred for opportunistic application. See `research/Critical_Design_Review_Docs_01_11_v1.md` for full decision record.
 
@@ -41,12 +41,11 @@
 
 | Priority | Action | Blocks | Estimated Effort |
 |---|---|---|---|
-| **1 (next session)** | Doc 13 framework research + drafting | Doc 14 | 1–2 sessions |
-| **2** | Doc 14 — Master Architecture Document | Phase 2 transition | 1 session (synthesis) |
+| **1 (next session)** | Doc 14 — Master Architecture Document | Phase 2 transition | 1 session (synthesis) |
 
-**Critical path:** Doc 13 → Doc 14 → Phase 2 transition.
+**Critical path:** Doc 14 → Phase 2 transition.
 
-**Estimated remaining sessions:** 2–3 to complete Phase 1.
+**Estimated remaining sessions:** 1–2 to complete Phase 1.
 
 ### Per-Document Workflow
 
@@ -57,13 +56,13 @@ Each document follows the established cycle:
 4. Amendment application → to both new document and any upstream documents.
 5. Lock → once all blocking open questions are resolved.
 
-Doc 13 requires framework selection research. Doc 14 requires no research (pure synthesis).
+Doc 13 framework research complete (LTD-18 created). Doc 14 requires no research (pure synthesis).
 
 ---
 
 ## Research Strategy for Remaining Documents (added 2026-03-08, updated 2026-03-09)
 
-**Status update:** Docs 10, 11, and 12 are COMPLETE and locked. The only remaining research need is Doc 13 framework selection. Doc 14 requires no research (pure synthesis).
+**Status update:** All research is COMPLETE. Docs 10, 11, 12, and 13 are locked. Doc 13 framework research (research/Web_UI_Framework_Research_v1.md) resulted in LTD-18 (Preact SPA). Doc 14 requires no research (pure synthesis).
 
 ### ~~Priority 1 — Doc 11: Observability & Debugging~~ COMPLETE — Locked 2026-03-09
 
@@ -193,6 +192,13 @@ A fresh-perspective adversarial review of all 11 design documents identified 24 
 ### Round 12 (Doc 12) — Complete:
 **Cross-audit results:** 1 critical, 6 significant, 1 minor. Critical: checkpoint field name `globalPosition` should be `view_position` (Doc 03 §3.3 schema). Significant: missing `cell_size_check` PRAGMA (Doc 04 §3.3), schema composition timing conflict with integration schemas (Doc 06 §3.2), REST API section reference §3.1→§3.9, health aggregation model description imprecise vs Doc 11 §3.3 tier model, 10 upstream Dependents updates. Minor: unclean shutdown marker write step not explicit. **All findings addressed. Upstream Dependents applied. Locked 2026-03-09.**
 
+### Round 13 (Doc 13 — Web UI Observability MVP) — Complete:
+**Cross-audit results:** 0 critical, 5 significant, 5 minor. **All findings applied. Upstream Dependents applied. Locked 2026-03-10.**
+Significant: (S-01) §8.2 missing 5 WebSocket message types from Doc 10 §3.3 — `auth_result`, `subscription_confirmed`, `subscription_error`, `pong`, `replay_queued` added. (S-02) §3.8 health tier grid omitted Observability (Doc 11) from Tier 2 — added to diagram. (S-03) WebSocket endpoint path `/api/v1/ws` contradicts Doc 10 §3.1 `/ws/v1` — corrected throughout. (S-04) §3.5 reconnection sequence missing `replay_queued` handling per Doc 10 §3.9 admission control — new step 7 added with queue indicator and deduplication behavior, new §6 failure mode added. (S-05) Missing INV-TO-01 (observable behavior) and INV-SE-02 (authentication required) citations — added to §0 and §12 respectively.
+Minor: (M-01) Path parameter `{id}` → `{integration_id}` per Doc 09. (M-02) §10 Pi 4 validation floor note added per LTD-02 pattern. (M-04) §13 browser memory exhaustion test added. (M-05) §13 browser compatibility test section added (new §13.5, accessibility renumbered to §13.6).
+Upstream Dependents: Doc 09 Dependents updated with Doc 13 section-level references (§8.1, §3.6, §3.8, §3.9, §12). Doc 10 Dependents updated (§3.5, §8.2, §3.7, §3.8). Doc 11 Dependents updated (§3.8, §3.6.3, §3.6.2, §11.3). Doc 12 Dependents updated (§3.2, §7).
+LTD-18 (Web UI Technology — Preact SPA for Observability, HTMX reserved for Tier 2+) created during Doc 13 drafting session.
+
 ### Round 11 (Design Review — 11 REQUIRED amendments, 10 applied, 1 pre-applied): AMD-11 state TTL applied to Doc 03 (staleAfter/stale fields on EntityState record, new §3.8 staleness model with capability-based defaults, passive 30-second scan, state_stale event emission, lazy read-time evaluation, staleness config §9, API contract note in §5). AMD-17 device orphan lifecycle applied to Doc 02 (new §3.15: ORPHANED state triggered by integration FAILED/removed, frozen state with stale:true via AMD-11 staleness model, command rejection with device_orphaned error, automation evaluation returns last known value with stale_input warning, re-adoption matching via preserved hardware identifiers, explicit removal via REST API, health DEGRADED when orphaned devices exist, orphan config §9). AMD-14 adapter dependency ordering applied to Doc 05 (new §3.13: dependsOn field on IntegrationDescriptor, topological sort startup via Kahn's algorithm, cycle detection rejects cyclic integrations, SUSPENDED state for dependency failure propagation, reverse-order shutdown, dependency config §9). AMD-13 configuration migration framework applied to Doc 06 (new §3.7: ConfigMigrator interface, MigrationResult/ConfigChange/ChangeType records, sequential migration chain, migration preview CLI, backup before migration, testing contract, migration config §9; supersedes §14 future consideration). AMD-16 secrets store backup applied to Doc 06 (§3.4: per-operation backup before set/delete, 5-rotation retention, recovery CLI with homesynapse secrets restore/list-backups, backup config §9, §6.9 updated to reference backups). AMD-07 route health monitoring applied to Doc 08 (new §3.15: RouteHealth record with HEALTHY/DEGRADED/UNREACHABLE states, command-failure-triggered recovery at 3 consecutive failures, device UNAVAILABLE at 10 failures, weak-link analysis on topology scan, coordinator exclusion, route_health config §9). AMD-08 idempotency keys applied to Doc 09 (§3.4: optional Idempotency-Key header on command endpoint, in-memory LRU cache 10K entries 24h TTL, IdempotencyEntry record, idempotency_key on command_issued event, conflict detection, idempotency-key-conflict problem type, idempotency config §9). AMD-15 correlation ID in error responses applied to Doc 09 (§3.8: correlation_id extension member in all RFC 9457 error bodies, X-Correlation-ID response header on all responses, auto-generated ULID when client omits header). AMD-09-RL rate limiting table confirmed pre-applied to Doc 10 (Part 1 Round 8–9). AMD-05 daily_bytes_written applied to Doc 11 (§3.5 metric table updated, collection via /proc/diskstats hourly, daily reset with JFR total event, health DEGRADED threshold at 10 GB/day, storage monitoring config §9). Cross-document consistency verified: AMD-11 staleness model and AMD-17 orphan lifecycle both set stale:true via the same mechanism (Doc 03 §3.8). AMD-17 device_orphaned error added to Doc 09 problem type table.
 
 ---
@@ -201,7 +207,7 @@ A fresh-perspective adversarial review of all 11 design documents identified 24 
 
 ### Active — None
 
-All pending upstream Dependents (U-01 through U-07 from Round 7, U-01 through U-10 from Round 12) have been applied. No active amendments remain.
+All pending upstream Dependents (U-01 through U-07 from Round 7, U-01 through U-10 from Round 12, U-09 through U-12 from Round 13) have been applied. No active amendments remain.
 
 ### Deferred — Apply opportunistically
 

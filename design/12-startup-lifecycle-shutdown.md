@@ -14,7 +14,7 @@
   REST API (Doc 09 — §3.9 HTTP server selection, §3.4 idempotency per AMD-08),
   WebSocket API (Doc 10 — §3.1 upgrade handler, §3.3 relay subscriber, §3.14 admission control per AMD-09),
   Observability & Debugging (Doc 11 — §3.1 JFR start, §3.3 health aggregation, §8.1–§8.2 HealthContributor)
-**Dependents:** Web UI (Doc 13), Master Architecture Document (Doc 14)
+**Dependents:** Web UI (Doc 13 — §3.2 static file serving in Phase 5 via Javalin classpath resources, §7 interaction with Startup subsystem for /dashboard/ serving), Master Architecture Document (Doc 14)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-09
 

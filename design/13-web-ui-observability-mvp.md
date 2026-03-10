@@ -1,7 +1,7 @@
 # HomeSynapse Core — Web UI (Observability MVP)
 
 **Document type:** Subsystem design
-**Status:** Draft
+**Status:** Locked
 **Subsystem:** Web UI (Observability MVP)
 **Dependencies:** REST API (Doc 09 — §3.2 endpoint taxonomy, §3.4 command lifecycle, §3.9 Javalin HTTP server, §8 health/event/device/config endpoints, §9 CORS configuration),
   WebSocket API (Doc 10 — §3.3 message protocol, §3.4 subscription model and filter specification, §3.5 first-message authentication, §3.6 Event Relay architecture, §3.7 backpressure and delivery modes, §3.9 reconnection admission control),
@@ -19,7 +19,7 @@ The Web UI is the primary observability interface for HomeSynapse Core at Tier 1
 
 This subsystem exists because HomeSynapse's event-sourced internals are invisible without a rendering surface. The REST API (Doc 09) and WebSocket API (Doc 10) expose the data — health snapshots, event histories, trace chains, metric streams — but raw JSON endpoints are not an observability tool. A user who sees their porch light turn on at 3 AM needs a single click to see the causal chain: motion detected → automation evaluated → condition passed → command issued → device confirmed. Without this subsystem, that investigation requires curl commands against the REST API and manual correlation_id lookups.
 
-The Web UI is an Observability MVP. It is not a full device control dashboard, not a Lovelace-style customizable layout system, not a mobile application, and not a configuration editor. It ships as pre-built static files inside the jlink distribution (LTD-13, LTD-18) and is served from the Raspberry Pi to browsers on the local network. The server's contribution to the dashboard is serving files and JSON — zero CPU is consumed for rendering.
+The Web UI is an Observability MVP and the primary surface for INV-TO-01 (system behavior is observable) at Tier 1. It is not a full device control dashboard, not a Lovelace-style customizable layout system, not a mobile application, and not a configuration editor. It ships as pre-built static files inside the jlink distribution (LTD-13, LTD-18) and is served from the Raspberry Pi to browsers on the local network. The server's contribution to the dashboard is serving files and JSON — zero CPU is consumed for rendering.
 
 ---
 
@@ -114,7 +114,7 @@ Javalin's `staticFiles.add("/dashboard", Location.CLASSPATH)` serves the built f
 /dashboard/                → SPA index.html (Preact app)
 /dashboard/assets/*        → JS, CSS (content-hashed, immutable cache)
 /api/v1/*                  → REST API (Doc 09)
-/api/v1/ws                 → WebSocket API (Doc 10)
+/ws/v1                     → WebSocket API (Doc 10)
 ```
 
 The dashboard and API share the same Javalin HTTP server instance and the same port (Doc 09 §3.9, Doc 10 §3.1). No additional server, no additional port, no additional TLS termination point.
@@ -177,13 +177,14 @@ The WebSocket integration layer is the most architecturally significant componen
 
 **`useWebSocket` hook — connection lifecycle:**
 
-1. On app mount, opens a WebSocket connection to `/api/v1/ws`.
+1. On app mount, opens a WebSocket connection to `/ws/v1` (Doc 10 §3.1).
 2. Sends `authenticate` message with the stored API key (§12 for key storage).
 3. On `auth_result` success, transitions to `CONNECTED` state. On failure, displays an authentication error with guidance to configure an API key.
 4. Registers subscriptions for each active view's required event filters.
 5. On connection loss, transitions to `RECONNECTING` state, displays a reconnecting indicator, and begins exponential backoff reconnection (initial: 1s, max: 30s, jitter: ±25%).
 6. On reconnection, re-authenticates and re-subscribes with `from_global_position` set to the `global_position` of the last received event. This triggers Doc 10's replay mechanism (§3.4) to deliver any events missed during disconnection.
-7. On tab visibility change (Page Visibility API), pauses non-essential subscriptions when the tab is hidden and resumes when visible. The health subscription remains active (for tab title updates).
+7. If the server responds with a `replay_queued` message (Doc 10 §3.9 reconnection admission control), the dashboard displays a "Replay queued — position N, estimated wait Xms" indicator below the reconnecting banner. Live events continue arriving normally during the queued state — the client deduplicates live events whose `global_position` is below the replay cursor once replay begins. The queue indicator is dismissed when the replay stream starts.
+8. On tab visibility change (Page Visibility API), pauses non-essential subscriptions when the tab is hidden and resumes when visible. The health subscription remains active (for tab title updates).
 
 **Update batching:**
 
@@ -237,7 +238,7 @@ Expanded health for a specific subsystem. Answers: "What's wrong with this speci
 **Layout:**
 
 1. **Service header.** Name, tier, current health status, status reason, health duration.
-2. **Health history chart.** Full time-series chart (with axes, zoom, time-range selection) showing health score over selected period (1h, 6h, 24h, 7d). Data source: REST query `GET /api/v1/system/integrations/{id}` (for integrations) or metric history.
+2. **Health history chart.** Full time-series chart (with axes, zoom, time-range selection) showing health score over selected period (1h, 6h, 24h, 7d). Data source: REST query `GET /api/v1/system/integrations/{integration_id}` (for integrations) or metric history.
 3. **Recent health events.** List of health state transitions for this subsystem. Data source: REST event query filtered by subsystem entity.
 4. **Component metrics.** Subsystem-specific metrics from the per-subsystem metric surface (Doc 11 §3.5). Displayed as labeled values with sparklines.
 5. **For integration subsystems:** Per-device health table showing RSSI/LQI, availability percentage, command success rate, and last-seen timestamp.
@@ -323,6 +324,10 @@ The three-tier health display mirrors the HealthAggregator's composition model (
 │ │Automation│ │Integration│ │Config    │ │Device   ││
 │ │Engine ●  │ │Runtime ●  │ │System ●  │ │Model ●  ││
 │ └──────────┘ └──────────┘ └──────────┘ └─────────┘│
+│ ┌──────────┐                                       │
+│ │Observ-   │                                       │
+│ │ability ● │                                       │
+│ └──────────┘                                       │
 ├─────────────────────────────────────────────────────┤
 │ TIER 3 — Interface Services                          │
 │ ┌──────────┐ ┌──────────┐                           │
@@ -418,6 +423,8 @@ The event stream maintains a ring buffer of the most recent 10,000 events. When 
 
 **WebSocket disconnection.** Trigger: network interruption, server restart, or idle timeout. Impact: live data stops updating. Recovery: the WebSocket layer enters `RECONNECTING` state, displays a reconnecting indicator (yellow banner below the health banner), and begins exponential backoff reconnection. On reconnection, re-authenticates and resumes from `lastEventPosition` via Doc 10's `from_global_position` parameter. Events missed during disconnection are delivered as a replay batch. The user sees a brief gap in live data followed by a catch-up burst. Event: `ws.reconnection` structured log (client-side console).
 
+**WebSocket replay queued after server restart.** Trigger: multiple clients reconnect simultaneously after server restart, triggering Doc 10 §3.9 admission control. Impact: the replay of missed events is delayed — the dashboard displays live events but has a gap in history. Recovery: the server sends a `replay_queued` message with queue position and estimated wait. The dashboard displays a "Replay queued" indicator. Live events continue arriving normally during the wait. When the client's replay turn arrives, the gap is filled. The client deduplicates events that arrive via both live delivery and replay using `global_position` comparison. Event: `ws.replay_queued` structured log (client-side console).
+
 **REST API unavailable.** Trigger: server overloaded, server restarting, or network issue. Impact: initial data load fails or refreshes fail. Recovery: each REST query has a retry policy (3 attempts, exponential backoff starting at 500ms). Failed queries display an inline error state in the affected component with a "Retry" button. The rest of the dashboard remains functional — a failed trace query does not affect the health display.
 
 **Authentication failure.** Trigger: invalid or expired API key. Impact: WebSocket connection rejected, REST queries return 401/403. Recovery: the dashboard displays a full-screen authentication error with instructions to configure a valid API key. No partial rendering of unauthenticated data.
@@ -455,7 +462,7 @@ This subsystem is a consumer, not a producer of Java interfaces. It exposes no J
 | `GET /api/v1/system/health` | Initial health snapshot for System Overview |
 | `GET /api/v1/system/info` | System version, uptime, device counts for header |
 | `GET /api/v1/system/integrations` | Integration list for Service Detail |
-| `GET /api/v1/system/integrations/{id}` | Per-integration health detail |
+| `GET /api/v1/system/integrations/{integration_id}` | Per-integration health detail |
 | `GET /api/v1/entities` | Entity listing with state for Device Detail |
 | `GET /api/v1/devices/{device_id}` | Device with entities for Device Detail |
 | `GET /api/v1/events` | Event history with filtering for Event Stream |
@@ -470,11 +477,16 @@ This subsystem is a consumer, not a producer of Java interfaces. It exposes no J
 | `subscribe` | Client → Server | Create event subscription for current view |
 | `unsubscribe` | Client → Server | Remove subscription on view change |
 | `ping` | Client → Server | Keepalive (every 30 seconds) |
+| `auth_result` | Server → Client | Authentication outcome; transition to CONNECTED on success, display auth error on failure |
+| `subscription_confirmed` | Server → Client | Subscription created; store `subscription_id` for later unsubscribe |
+| `subscription_error` | Server → Client | Subscription creation failed; display error in affected view |
 | `events` | Server → Client | Real-time event delivery (batched client-side before render) |
 | `state_snapshot` | Server → Client | Initial state on subscription with `include_initial_state` |
 | `delivery_mode_changed` | Server → Client | Backpressure notification (display indicator) |
+| `pong` | Server → Client | Response to client ping; confirms connection liveness |
 | `error` | Server → Client | Protocol error handling |
 | `subscription_ended` | Server → Client | Replay limit or server-initiated termination |
+| `replay_queued` | Server → Client | Replay queued during post-restart admission control (Doc 10 §3.9); display queue position and estimated wait |
 
 ### 8.3 Exposed Client-Side Interfaces (Preact Hooks)
 
@@ -557,7 +569,7 @@ dashboard:
 
 ## 10. Performance Targets
 
-All targets are measured with the dashboard served from a Raspberry Pi 5 (LTD-02) to a modern browser on the same LAN (gigabit Ethernet or 802.11ac WiFi).
+All targets are measured with the dashboard served from a Raspberry Pi 5 (LTD-02 recommended target) to a modern browser on the same LAN (gigabit Ethernet or 802.11ac WiFi). The Raspberry Pi 4 (4 GB) validation floor (LTD-02) must also meet these targets — the server-side cost of serving static files and JSON is negligible on both platforms, so the Pi 4 vs Pi 5 distinction affects only REST/WebSocket response latency (governed by Docs 09 and 10 performance targets), not dashboard rendering performance (which is client-side).
 
 | Metric | Target | Rationale |
 |---|---|---|
@@ -620,7 +632,7 @@ The Web UI is classified as **INTERFACE_SERVICES** tier (Tier 3) in the HealthAg
 
 ## 12. Security Considerations
 
-**Authentication.** The dashboard requires a valid API key to function. On first load, if no API key is stored in the browser, the dashboard displays an API key entry screen. The key is stored in a JavaScript variable for the session duration — not in `localStorage` or cookies (avoiding persistence of credentials across sessions). The key is transmitted in every REST request via the `Authorization: Bearer` header and in the WebSocket `authenticate` message. All authentication validation is performed by the existing REST API (Doc 09 §3.3) and WebSocket API (Doc 10 §3.5) auth layers.
+**Authentication (INV-SE-02).** The dashboard requires a valid API key to function. On first load, if no API key is stored in the browser, the dashboard displays an API key entry screen. The key is stored in a JavaScript variable for the session duration — not in `localStorage` or cookies (avoiding persistence of credentials across sessions). The key is transmitted in every REST request via the `Authorization: Bearer` header and in the WebSocket `authenticate` message. All authentication validation is performed by the existing REST API (Doc 09 §3.3) and WebSocket API (Doc 10 §3.5) auth layers.
 
 **No credential persistence.** The API key is held in memory only. Closing the browser tab clears it. This is a deliberate Tier 1 choice — the single-user LAN deployment (INV-SE-01) does not justify persistent credential storage with its associated risks (XSS extraction from localStorage, cookie theft).
 
@@ -693,8 +705,16 @@ End-to-end tests against a mock Javalin server serving the static dashboard and 
 - Invalid API key: verify full-screen auth error, no partial dashboard rendering.
 - Server sending `delivery_mode_changed` (backpressure): verify indicator appears, verify coalesced events render correctly.
 - Tab hidden for 60 seconds during active event stream: verify subscriptions paused, verify resume on tab focus with no event gaps.
+- Replay queued during reconnection: simulate post-restart admission control (Doc 10 §3.9), verify `replay_queued` indicator displays queue position, verify live events continue during queued state, verify deduplication after replay completes.
+- Browser memory after extended session: run dashboard for 1 hour at 50 events/sec, verify browser memory stays below 50 MB (§10 target), verify ring buffer eviction keeps event count at 10,000 max.
 
-### 13.5 Accessibility Tests
+### 13.5 Browser Compatibility Tests
+
+- Evergreen browser coverage: verify full dashboard functionality on the last 2 versions of Chrome, Firefox, Safari, and Edge (§6 browser compatibility target).
+- ES2020+ feature usage: verify no runtime errors from optional chaining, nullish coalescing, or dynamic import on all target browsers.
+- CSS feature usage: verify CSS Grid, Custom Properties, and container queries render correctly on all target browsers.
+
+### 13.6 Accessibility Tests
 
 - Keyboard navigation: all interactive elements (service cards, event rows, filter controls, trace nodes) reachable via Tab/Enter/Escape.
 - Screen reader: ARIA labels on status indicators (not just color), live regions for health state changes, semantic heading hierarchy.
@@ -745,7 +765,7 @@ End-to-end tests against a mock Javalin server serving the static dashboard and 
 | Bundle budget | 100 KB gzipped hard limit | Build-time enforced; prevents bundle bloat on constrained LAN delivery (LTD-18) | §3.1, §5 C13-01 |
 | Charting library | uPlot (~35 KB) with Chartist fallback | Purpose-built for time-series; handles 100K+ datapoints; fits budget (LTD-18) | §3.1, §3.9 |
 | Build toolchain | Vite (development-time only) | Fast HMR, tree-shaking, content hashing; no runtime dependency on RPi | §3.2 |
-| WebSocket integration pattern | Single connection, per-view subscriptions, 16ms update batching | Prevents HA failure mode of per-event re-renders; aligns with Doc 10 subscription model | §3.5 |
+| WebSocket integration pattern | Single connection, per-view subscriptions, 16ms update batching, replay admission handling | Prevents HA failure mode of per-event re-renders; aligns with Doc 10 subscription model and §3.9 admission control | §3.5 |
 | Virtual scrolling | Custom implementation, ~30 DOM nodes regardless of event count | Prevents unbounded DOM growth at 50+ events/sec (C13-04) | §3.7 |
 | Update batching interval | 16ms (requestAnimationFrame cadence) | One render per frame regardless of event rate (C13-03) | §3.5 |
 | Progressive disclosure | Four levels: Glance → Overview → Investigation → Root Cause | Non-technical users at Levels 0–1, developers at Levels 2–3; research-informed (§4.5 research) | §3.6 |
