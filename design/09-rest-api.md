@@ -1,12 +1,12 @@
 # HomeSynapse Core — REST API
 
 **Document type:** Subsystem design
-**Status:** Draft
+**Status:** Locked
 **Subsystem:** REST API
 **Dependencies:** Event Model & Event Bus (§4.1 event envelope, §4.3 event type taxonomy, §3.2 causal chain semantics, §8.1 EventStore query interface, §8.2 EventEnvelope type, §8.3 EventPublisher), Device Model & Capability System (§3.1 structural overview, §8.1 DeviceRegistry/EntityRegistry/CapabilityRegistry read interfaces, §8.2 Device/Entity/Capability/AttributeValue types, §3.8 command model), State Store & State Projection (§8.1 StateQueryService interface, §4.1 EntityState record, §4.2 StateSnapshot, §5 viewPosition contract), Automation Engine (§8.1 AutomationRegistry/RunManager/PendingCommandLedger interfaces, §8.2 AutomationDefinition/PendingCommand types, §4.1 Run record, §4.2 run trace assembly), Integration Runtime (§8.1 IntegrationSupervisor health interface), Configuration System (§8.1 ConfigurationProvider read interface), Persistence Layer (§8.5 telemetry query interface), Identity and Addressing Model (§2 three-layer identity, §3 slug rules), Glossary v1 (§2 Device Model vocabulary, §4 TCA vocabulary)
 **Dependents:** WebSocket API (§3.3 request lifecycle authentication model for first-message auth per Doc 10 §3.5, §3.8 RFC 9457 error_type vocabulary for WebSocket error messages per Doc 10 §3.3, §3.9 shared Javalin HTTP server instance for WebSocket upgrade handler per Doc 10 §3.1, §12.1 API key store and AuthMiddleware for WebSocket key validation per Doc 10 §3.5, §3.5 cursor-based pagination via global_position as REST-to-WebSocket handoff per Doc 10 §3.4), Web UI (primary data source for dashboard rendering), Observability & Debugging (API metrics as observability input), Startup, Lifecycle & Shutdown (HTTP server lifecycle)
 **Author:** HomeSynapse Core Architecture
-**Date:** 2026-03-07
+**Date:** 2026-03-09
 
 ---
 
