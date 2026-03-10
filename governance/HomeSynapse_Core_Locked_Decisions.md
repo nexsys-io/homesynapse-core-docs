@@ -705,9 +705,41 @@ Each integration runs in its own virtual thread group with:
 
 ---
 
+### LTD-18: Web UI Technology — Preact SPA for Observability, HTMX Reserved for Tier 2+ Configuration
+
+**Choice:** The Observability MVP dashboard (Doc 13) is built as a Preact single-page application served as pre-built static files from Javalin. HTMX with server-rendered templates (JTE) is reserved for future Tier 2+ configuration and management UI. Both coexist on the same Javalin HTTP server at distinct URL paths.
+
+**Specification:**
+
+*Observability Dashboard (Tier 1 MVP):*
+- Framework: Preact (~4 KB gzipped core) with preact/compat (~2 KB) for React ecosystem access.
+- Architecture: Pure client-side SPA. Zero server CPU consumed for UI rendering. All rendering happens in the browser.
+- Build: Vite at development/release time. Output is `index.html`, `app.[hash].js`, `style.[hash].css`. No runtime Node.js dependency on the RPi.
+- Distribution: Static files ship inside the jlink distribution (LTD-13) at a classpath resource path. Served by Javalin's static file handler at `/dashboard/`.
+- Bundle budget: 100 KB gzipped total (framework + charting + application logic + styles).
+- Data: Consumes Doc 09 REST API (JSON) and Doc 10 WebSocket API (JSON) exclusively. No new server endpoints.
+- Charting: uPlot (~35 KB gzipped) for time-series visualization, selected for performance on large datasets and purpose-built time-series API. Chartist (~10 KB) is the documented fallback if uPlot proves unsuitable during Phase 2.
+- No CDN, no external resources — fully self-contained on LAN (INV-LF-01).
+
+*Configuration and Management UI (Tier 2+, not implemented in MVP):*
+- Framework: HTMX + JTE (Java Template Engine) for form-driven CRUD pages.
+- Use cases: Configuration editing, integration management, user administration, automation editing.
+- Architecture: Server-rendered HTML fragments pushed via HTMX. Appropriate for form-heavy interactions where server rendering cost is proportional to user-initiated actions (not continuous streaming).
+- URL path: `/config/` (coexists with `/dashboard/` and `/api/v1/` on the same Javalin server).
+
+**Rationale:** Framework research (research/Web_UI_Framework_Research_v1.md) evaluated six candidates against HomeSynapse-specific constraints. The Observability MVP requires real-time WebSocket event streaming, interactive time-series charts, virtual-scrolling event logs, and causal chain trace visualization — all inherently client-side rendering problems. Server-rendered HTML (HTMX) is unsuitable for this use case for three reasons: (1) every UI update would require RPi CPU for template rendering, competing with event processing on 4-core Cortex-A76 (LTD-02); (2) the WebSocket API (Doc 10) publishes JSON events, requiring either a duplicate HTML-fragment endpoint or client-side JavaScript escape hatches that defeat HTMX's purpose; (3) virtual scrolling and interactive charts cannot be built with HTML fragment swaps. Preact was selected over Svelte 5 (smaller bundles but smaller ecosystem) and Solid.js (finest-grained reactivity but smaller community) because its React-compatible API provides the largest support ecosystem, the safest 5-year maintainability for a solo developer, and mechanical migration to React if Preact ever stalls. HTMX remains the intended technology for Tier 2+ configuration UI, where form-driven CRUD pages align with its server-rendered model and where user-initiated actions (not continuous streaming) drive rendering cost.
+
+**Invariant alignment:** INV-LF-01 (dashboard fully functional on LAN with no internet — all assets self-contained in jlink distribution), INV-PR-01 (constrained hardware — zero server CPU for dashboard rendering, entire rendering budget offloaded to client browser), INV-PR-02 (performance targets — 100 KB bundle budget, <200ms first paint on LAN), INV-TO-01 (observable behavior — the dashboard is the primary observability surface for Tier 1), INV-CE-02 (zero-configuration — dashboard served automatically, no user build step).
+
+**Reversal criteria:** If the Preact ecosystem shows signs of abandonment (no release for 12 months, maintainer departure without succession) before Phase 3 implementation, evaluate Svelte 5 as the primary alternative — migration cost is a full rewrite of the component layer but not the WebSocket/REST integration logic. If the 100 KB bundle budget proves insufficient for the required dashboard functionality during Phase 2 interface specification, evaluate whether code splitting (lazy-loaded routes) resolves the issue before increasing the budget. If uPlot proves unsuitable for the required chart types during Phase 2, switch to Chartist; if both are insufficient, evaluate Chart.js (~65 KB) with an increased bundle budget (150 KB maximum).
+
+**Confidence:** High for the SPA architecture and Preact selection. Medium for the specific charting library (uPlot vs. Chartist is resolvable during Phase 2 without architectural impact).
+
+---
+
 ## 10. Decision Dependency Graph
 
-These 17 decisions form an interdependent system. The dependency graph shows which decisions constrain which others:
+These 18 decisions form an interdependent system. The dependency graph shows which decisions constrain which others:
 
 ```
 LTD-01 (Java 21) ──────────────────────────────────────────────────────┐
@@ -742,6 +774,8 @@ LTD-08 (Jackson) ── serialization for LTD-06, LTD-15, LTD-16
 LTD-09 (YAML) ── user-facing config; validated by JSON Schema
 LTD-12 (Zigbee) ── exercises LTD-17 (Integration Runtime)
 LTD-16 (API) ── governs LTD-17 (Integration API versioning)
+LTD-18 (Web UI) ── consumes LTD-13 (jlink distribution for static files)
+                 ── serves via LTD-11 (Javalin HTTP server, no external broker)
 ```
 
 ---
@@ -767,6 +801,7 @@ LTD-16 (API) ── governs LTD-17 (Integration API versioning)
 | **LTD-15** | Observability | SLF4J + Logback JSON + JFR continuous recording | High | No Prometheus/OTEL in MVP; JFR is primary metrics |
 | **LTD-16** | API Compatibility | Semver; URL-versioned REST; additive-only within major | High | 1 major version minimum deprecation window |
 | **LTD-17** | Integration Model | In-process compiled modules; API boundary enforced at build | High | No dynamic loading; mechanism is swappable |
+| **LTD-18** | Web UI Technology | Preact SPA for observability; HTMX reserved for Tier 2+ config | High/Medium | SPA architecture High; charting library Medium |
 
 ---
 
@@ -813,6 +848,9 @@ Every architectural invariant must be served by at least one locked decision. Th
 | INV-TO-04 (Structured logs) | LTD-15 (JSON with correlation, entity, integration IDs) |
 | INV-PD-01 (Zero telemetry) | LTD-14 (no auto-update phoning home), LTD-15 (no remote log shipping) |
 | INV-PD-08 (Tamper-evident) | LTD-13 (read-only runtime), LTD-14 (package signature verification) |
+| INV-LF-01 (Core without internet) | LTD-18 (self-contained static files in jlink, no CDN) |
+| INV-TO-01 (Observable) | LTD-18 (Preact dashboard is primary observability surface) |
+| INV-PR-01 (Constrained hardware) | LTD-18 (zero server CPU for rendering, client-side only) |
 
 ---
 
