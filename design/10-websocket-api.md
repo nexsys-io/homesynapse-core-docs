@@ -4,7 +4,7 @@
 **Status:** Locked (2026-03-09)
 **Subsystem:** WebSocket API
 **Dependencies:** Event Model & Event Bus (§3.4 subscription model, §4.1 event envelope, §4.3 event type taxonomy, §3.2 state event lifecycle, §3.6 backpressure and coalescing, §8.1 EventStore query interface, §8.2 EventEnvelope/SubscriptionFilter types, §8.3 EventPublisher), Device Model & Capability System (§8.1 EntityRegistry interface, CapabilityRegistry interface — used for subscription filter resolution), REST API (§3.3 request lifecycle authentication model, §3.8 RFC 9457 error response model, §12.1 API key authentication, §3.7 ETag/viewPosition consistency model, §3.5 cursor-based pagination via global_position), State Store & State Projection (§8.1 StateQueryService interface, §4.1 EntityState record, §5 viewPosition contract), Identity and Addressing Model (§2 three-layer identity, §4 entity selectors, §7 label resolution), Glossary v1 (§2 Device Model vocabulary, §3 Event-Sourced Model vocabulary)
-**Dependents:** Web UI (real-time event streaming for dashboard rendering, live state updates), Master Architecture Document (API surface consolidation, streaming contract specification), Observability & Debugging (live event trace streaming, subscriber health metrics)
+**Dependents:** Web UI (real-time event streaming for dashboard rendering, live state updates), Master Architecture Document (API surface consolidation, streaming contract specification), Observability & Debugging (live event trace streaming, subscriber health metrics), Startup, Lifecycle & Shutdown (Doc 12 — Phase 5 WebSocket handler registration, §3.9 shutdown step 3)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-08
 

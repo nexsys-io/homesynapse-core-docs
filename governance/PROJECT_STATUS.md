@@ -1,8 +1,8 @@
 # HomeSynapse Core — Project Status
 
-**Last updated:** 2026-03-09
+**Last updated:** 2026-03-10
 **Current phase:** Phase 1 — Subsystem Design Documentation
-**Active documents:** Doc 12 — Startup, Lifecycle & Shutdown (next to draft). All design documents through Doc 11 locked. Doc 12 drafting begins next session.
+**Active documents:** Doc 13 — Web UI (next to draft). All design documents through Doc 12 locked. Doc 13 framework research begins next session.
 
 ---
 
@@ -23,7 +23,7 @@
 | 09 | REST API | **Locked** | 2026-03-09 | Depends on Docs 01, 02, 03, 04, 05, 06, 07. All dependencies locked. Competitive research complete. Full design document drafted. 8 pre-audit amendments applied (A-09-R7-1 through A-09-R7-8). **Round 7 full cross-audit complete (Tracks C–E): 0 findings. Pre-audit amendments resolved all issues.** Track D (cross-consistency with Doc 08): 0 findings. **Round 11 applied (AMD-08 idempotency keys on command endpoint §3.4, AMD-15 correlation_id in all error responses §3.8, idempotency config §9, idempotency-key-conflict and device-orphaned problem types added).** Upstream Dependents (U-01 through U-07) applied. Locked 2026-03-09. |
 | 10 | WebSocket API | **Locked** | 2026-03-09 | Round 8–9 applied. AMD-09 (reconnection admission control + rate limiting) applied pre-lock. HealthContributor upstream note applied. Upstream Dependents updates (U-01-R8, U-02-R8, U-05-R8) applied to Docs 01, 02, 05. |
 | 11 | Observability & Debugging | **Locked** | 2026-03-09 | Round 8–9 applied. HealthContributor interface definition (§8.1, §8.2). Health aggregation model (§7.1). Upstream Dependents updates (U-01-R9, U-03-R9, U-04-R9) applied to Docs 01, 03, 04. **Round 11 applied (AMD-05 daily_bytes_written metric in §3.5 table, collection method and health threshold description, storage monitoring config §9).** |
-| 12 | Startup, Lifecycle & Shutdown | Not started | — | Depends on all preceding. Wave 3. Synthesis — no new competitive research. Must define HealthReporter and PlatformPaths interfaces per Portability Architecture §7.1 and §7.2. |
+| 12 | Startup, Lifecycle & Shutdown | **Locked** | 2026-03-09 | Round 12 cross-audit complete: 1 critical, 6 significant, 1 minor. All amendments applied. Upstream Dependents (U-01 through U-10 for Doc 12) applied. Locked 2026-03-09. |
 | 13 | Web UI (Observability MVP) | Not started | — | Depends on Docs 09, 10, 11. Wave 3. **Research need: high (framework selection).** See Research Strategy below. |
 | 14 | Master Architecture Document | Not started | — | Synthesizes all preceding. Written last. Wave 3. No research — pure synthesis. Portability Architecture (Track C) feeds directly into this document. Must include comprehensive memory budget. |
 
@@ -33,7 +33,7 @@
 
 ### Progress Summary
 
-**11 of 14 documents locked** (foundations + Docs 01–11). Docs 08 and 09 pending upstream Dependents + lock (mechanical — no design work remaining). 3 remaining (Docs 12–14). The architecture's core — event model, device model, state management, persistence, integration runtime, configuration, automation, protocol adapter, both API surfaces, and observability — is fully designed, audited, and post-review hardened.
+**12 of 14 documents locked** (foundations + Docs 01–12). 2 remaining (Docs 13–14). The architecture's core — event model, device model, state management, persistence, integration runtime, configuration, automation, protocol adapter, both API surfaces, observability, and startup/lifecycle/shutdown — is fully designed, audited, and post-review hardened.
 
 **Critical Design Review complete.** 24 amendments identified; 22 accepted (4 BLOCKING, 9 REQUIRED, 9 RECOMMENDED), 2 rejected (AMD-01, AMD-06). All 13 BLOCKING + REQUIRED amendments applied across Rounds 10–11. 9 RECOMMENDED amendments deferred for opportunistic application. See `research/Critical_Design_Review_Docs_01_11_v1.md` for full decision record.
 
@@ -41,13 +41,12 @@
 
 | Priority | Action | Blocks | Estimated Effort |
 |---|---|---|---|
-| **1 (next session)** | Draft Doc 12 — Startup, Lifecycle & Shutdown | Docs 13–14 | 1 session (synthesis, no research) |
-| **2** | Doc 13 framework research + drafting | Doc 14 | 1–2 sessions |
-| **3** | Doc 14 — Master Architecture Document | Phase 2 transition | 1 session (synthesis) |
+| **1 (next session)** | Doc 13 framework research + drafting | Doc 14 | 1–2 sessions |
+| **2** | Doc 14 — Master Architecture Document | Phase 2 transition | 1 session (synthesis) |
 
-**Critical path:** Doc 12 → Doc 13 → Doc 14 → Phase 2 transition.
+**Critical path:** Doc 13 → Doc 14 → Phase 2 transition.
 
-**Estimated remaining sessions:** 3–4 to complete Phase 1.
+**Estimated remaining sessions:** 2–3 to complete Phase 1.
 
 ### Per-Document Workflow
 
@@ -58,13 +57,13 @@ Each document follows the established cycle:
 4. Amendment application → to both new document and any upstream documents.
 5. Lock → once all blocking open questions are resolved.
 
-Doc 12 requires no research (pure synthesis). Doc 13 requires framework selection research. Doc 14 requires no research (pure synthesis).
+Doc 13 requires framework selection research. Doc 14 requires no research (pure synthesis).
 
 ---
 
 ## Research Strategy for Remaining Documents (added 2026-03-08, updated 2026-03-09)
 
-**Status update:** Doc 10 and Doc 11 research and drafting are COMPLETE. Both documents are locked. The only remaining research need is Doc 13 framework selection. Doc 12 and Doc 14 require no research (pure synthesis).
+**Status update:** Docs 10, 11, and 12 are COMPLETE and locked. The only remaining research need is Doc 13 framework selection. Doc 14 requires no research (pure synthesis).
 
 ### ~~Priority 1 — Doc 11: Observability & Debugging~~ COMPLETE — Locked 2026-03-09
 
@@ -191,25 +190,18 @@ A governance artifact (`governance/phase-2-transition-guide.md`) mapping each Ph
 ### Round 10–11 Summary — Critical Design Review
 A fresh-perspective adversarial review of all 11 design documents identified 24 amendments (AMD-01 through AMD-24). Nick reclassified: 4 BLOCKING, 9 REQUIRED, 9 RECOMMENDED, 2 rejected (AMD-01 durability contract — already specified; AMD-06 single-writer contention — no real gap). Three systemic themes: (1) boundary contracts at subsystem interfaces, (2) production resilience gaps (failure modes, recovery paths), (3) API stability for client-facing contracts. All 13 BLOCKING + REQUIRED amendments applied in Rounds 10–11 across 8 design documents. 9 RECOMMENDED amendments remain for opportunistic application. Full decision record: `research/Critical_Design_Review_Docs_01_11_v1.md`.
 
+### Round 12 (Doc 12) — Complete:
+**Cross-audit results:** 1 critical, 6 significant, 1 minor. Critical: checkpoint field name `globalPosition` should be `view_position` (Doc 03 §3.3 schema). Significant: missing `cell_size_check` PRAGMA (Doc 04 §3.3), schema composition timing conflict with integration schemas (Doc 06 §3.2), REST API section reference §3.1→§3.9, health aggregation model description imprecise vs Doc 11 §3.3 tier model, 10 upstream Dependents updates. Minor: unclean shutdown marker write step not explicit. **All findings addressed. Upstream Dependents applied. Locked 2026-03-09.**
+
 ### Round 11 (Design Review — 11 REQUIRED amendments, 10 applied, 1 pre-applied): AMD-11 state TTL applied to Doc 03 (staleAfter/stale fields on EntityState record, new §3.8 staleness model with capability-based defaults, passive 30-second scan, state_stale event emission, lazy read-time evaluation, staleness config §9, API contract note in §5). AMD-17 device orphan lifecycle applied to Doc 02 (new §3.15: ORPHANED state triggered by integration FAILED/removed, frozen state with stale:true via AMD-11 staleness model, command rejection with device_orphaned error, automation evaluation returns last known value with stale_input warning, re-adoption matching via preserved hardware identifiers, explicit removal via REST API, health DEGRADED when orphaned devices exist, orphan config §9). AMD-14 adapter dependency ordering applied to Doc 05 (new §3.13: dependsOn field on IntegrationDescriptor, topological sort startup via Kahn's algorithm, cycle detection rejects cyclic integrations, SUSPENDED state for dependency failure propagation, reverse-order shutdown, dependency config §9). AMD-13 configuration migration framework applied to Doc 06 (new §3.7: ConfigMigrator interface, MigrationResult/ConfigChange/ChangeType records, sequential migration chain, migration preview CLI, backup before migration, testing contract, migration config §9; supersedes §14 future consideration). AMD-16 secrets store backup applied to Doc 06 (§3.4: per-operation backup before set/delete, 5-rotation retention, recovery CLI with homesynapse secrets restore/list-backups, backup config §9, §6.9 updated to reference backups). AMD-07 route health monitoring applied to Doc 08 (new §3.15: RouteHealth record with HEALTHY/DEGRADED/UNREACHABLE states, command-failure-triggered recovery at 3 consecutive failures, device UNAVAILABLE at 10 failures, weak-link analysis on topology scan, coordinator exclusion, route_health config §9). AMD-08 idempotency keys applied to Doc 09 (§3.4: optional Idempotency-Key header on command endpoint, in-memory LRU cache 10K entries 24h TTL, IdempotencyEntry record, idempotency_key on command_issued event, conflict detection, idempotency-key-conflict problem type, idempotency config §9). AMD-15 correlation ID in error responses applied to Doc 09 (§3.8: correlation_id extension member in all RFC 9457 error bodies, X-Correlation-ID response header on all responses, auto-generated ULID when client omits header). AMD-09-RL rate limiting table confirmed pre-applied to Doc 10 (Part 1 Round 8–9). AMD-05 daily_bytes_written applied to Doc 11 (§3.5 metric table updated, collection via /proc/diskstats hourly, daily reset with JFR total event, health DEGRADED threshold at 10 GB/day, storage monitoring config §9). Cross-document consistency verified: AMD-11 staleness model and AMD-17 orphan lifecycle both set stale:true via the same mechanism (Doc 03 §3.8). AMD-17 device_orphaned error added to Doc 09 problem type table.
 
 ---
 
 ## Pending Amendments
 
-### Active — Must apply before Doc 12 drafting
+### Active — None
 
-**Upstream Dependents field updates (U-01 through U-07).** Seven amendments updating the Dependents fields of Docs 01–07 with section-level references from Docs 08 and 09. Generated during Round 7 cross-audit Track B/C. Exact FIND/REPLACE text provided in the Round 7 Tracks C–E findings register. **Apply these, then lock Docs 08 and 09.**
-
-| Amendment | Target | New Dependents Added |
-|---|---|---|
-| U-01 | Doc 01 (Event Model) | Doc 08 (producer boundaries, priority, telemetry, origin, taxonomy, EventPublisher), Doc 09 (envelope, taxonomy, causal chain, EventStore, EventPublisher) |
-| U-02 | Doc 02 (Device Model) | Doc 08 (capabilities, attribute types, ExpectationFactory, entity types, multi-endpoint, discovery), Doc 09 (registries, types, command model) |
-| U-03 | Doc 03 (State Store) | Doc 09 (StateQueryService, EntityState, StateSnapshot, viewPosition) |
-| U-04 | Doc 04 (Persistence) | Doc 09 (telemetry query interface) |
-| U-05 | Doc 05 (Integration Runtime) | Section-level precision update for existing Doc 08 and Doc 09 entries |
-| U-06 | Doc 06 (Configuration) | Doc 09 (ConfigurationProvider read interface) |
-| U-07 | Doc 07 (Automation) | Doc 09 (AutomationRegistry, RunManager, PendingCommandLedger, types) |
+All pending upstream Dependents (U-01 through U-07 from Round 7, U-01 through U-10 from Round 12) have been applied. No active amendments remain.
 
 ### Deferred — Apply opportunistically
 
@@ -468,17 +460,19 @@ homesynapse-core-docs/
 
 ## Next Steps
 
-1. **Apply upstream Dependents (U-01 through U-07) + Lock Docs 08 and 09. ← IMMEDIATE.**
-2. **Begin Doc 10 (WebSocket API) research.** Moderate scope. Can be completed quickly. Resolves RQ-7 through RQ-10.
-3. **Begin Doc 11 (Observability & Debugging) research. ← CRITICAL PATH.** Deep scope. Resolves RQ-1 through RQ-6. Start immediately after Docs 08–09 lock.
-4. **Draft Doc 10.** Narrower scope than Docs 08–09. Target completion during Doc 11 research phase to unblock Doc 13.
-5. **Draft Doc 11.** Critical path. Must catalog full metric surface from Docs 01–10.
-6. **Begin Doc 13 framework investigation in parallel.** Resolves RQ-11 through RQ-14. Long-lead framework selection does not depend on Doc 13 dependencies.
-7. **Cross-audit + Lock Doc 10.** Round 8.
-8. **Cross-audit + Lock Doc 11.** Round 9. Triggers reference artifact generation (event-type-registry, subscriber-registry).
-9. **Draft + audit + lock Docs 12, 13, 14 in dependency order.** Wave 3.
-10. **Reference artifacts** after Doc 11 locks.
-11. **Phase 2 Transition Guide** — begin after Doc 09 locks, finalize alongside Doc 14.
+1. ~~Apply upstream Dependents (U-01 through U-07) + Lock Docs 08 and 09.~~ COMPLETE.
+2. ~~Begin Doc 10 (WebSocket API) research.~~ COMPLETE — Locked 2026-03-09.
+3. ~~Begin Doc 11 (Observability & Debugging) research.~~ COMPLETE — Locked 2026-03-09.
+4. ~~Draft Doc 10.~~ COMPLETE — Locked 2026-03-09.
+5. ~~Draft Doc 11.~~ COMPLETE — Locked 2026-03-09.
+6. **Begin Doc 13 framework investigation. ← NEXT SESSION.** Resolves RQ-11 through RQ-14.
+7. ~~Cross-audit + Lock Doc 10.~~ COMPLETE — Round 8–9.
+8. ~~Cross-audit + Lock Doc 11.~~ COMPLETE — Round 8–9.
+9. ~~Draft + audit + lock Doc 12.~~ COMPLETE — Round 12. Locked 2026-03-09.
+10. **Draft + audit + lock Doc 13.** Web UI framework research required first.
+11. **Draft + audit + lock Doc 14.** Master Architecture Document. Pure synthesis.
+12. **Reference artifacts** — event-type-registry, subscriber-registry, configuration-schema-registry. Can begin now (all source docs locked).
+13. **Phase 2 Transition Guide** — finalize alongside Doc 14.
 
 ---
 

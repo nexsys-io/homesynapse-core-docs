@@ -1,7 +1,7 @@
 # HomeSynapse Core — Startup, Lifecycle & Shutdown
 
 **Document type:** Subsystem design
-**Status:** Draft
+**Status:** Locked
 **Subsystem:** Startup, Lifecycle & Shutdown
 **Dependencies:** Event Model & Event Bus (Doc 01 — §3 event bus initialization, §3.7 processing modes, §4 subscriber registration, §8.3 EventPublisher),
   Device Model & Capability System (Doc 02 — §3.12 discovery pipeline, §3.15 orphan lifecycle per AMD-17, §8.1 registries),
@@ -11,7 +11,7 @@
   Configuration System (Doc 06 — §3.1 file loading, §3.2 schema validation, §3.4 watch thread, §3.7 migration per AMD-13),
   Automation Engine (Doc 07 — §3.1 registry loading, §3.2 trigger index, §3.4 subscriber, §3.6 RunManager, §3.7.1 cascade governance per AMD-04, §3.8 snapshot per AMD-03),
   Zigbee Adapter (Doc 08 — §3.2 coordinator connection, §3.3 network formation, §3.4 device cache),
-  REST API (Doc 09 — §3.1 server start, §3.4 idempotency per AMD-08),
+  REST API (Doc 09 — §3.9 HTTP server selection, §3.4 idempotency per AMD-08),
   WebSocket API (Doc 10 — §3.1 upgrade handler, §3.3 relay subscriber, §3.14 admission control per AMD-09),
   Observability & Debugging (Doc 11 — §3.1 JFR start, §3.3 health aggregation, §8.1–§8.2 HealthContributor)
 **Dependents:** Web UI (Doc 13), Master Architecture Document (Doc 14)
@@ -128,7 +128,7 @@ Platform Bootstrap executes before any HomeSynapse application code. It establis
 
 Foundation Services loads and validates the configuration that every subsequent subsystem reads.
 
-**Step 1.1: Configuration System loads and validates.** The Configuration System (Doc 06 §3.1–§3.2) executes its six-stage loading pipeline: file system read from `PlatformPaths.configDir()/config.yaml`, YAML parse via SnakeYAML Engine, tag resolution (`!secret`, `!env`), schema composition, schema validation, and typed model construction. If the configuration file is absent, the Configuration System generates defaults satisfying INV-CE-02 (zero-configuration first run). If schema validation produces fatal errors (corrupt YAML, broken secret references), the process exits with a diagnostic message listing every validation failure. Non-fatal errors (invalid value for one key) cause that key to revert to its default, and the system logs a WARNING.
+**Step 1.1: Configuration System loads and validates.** The Configuration System (Doc 06 §3.1–§3.2) executes its six-stage loading pipeline: file system read from `PlatformPaths.configDir()/config.yaml`, YAML parse via SnakeYAML Engine, tag resolution (`!secret`, `!env`), core-only schema composition (integration schemas are not yet available — they are registered after Phase 6 integration discovery), schema validation against the core schema, and typed model construction. After Phase 6 integration discovery, the Configuration System recomposes the full schema including integration schemas and revalidates the integration configuration sections. If the configuration file is absent, the Configuration System generates defaults satisfying INV-CE-02 (zero-configuration first run). If schema validation produces fatal errors (corrupt YAML, broken secret references), the process exits with a diagnostic message listing every validation failure. Non-fatal errors (invalid value for one key) cause that key to revert to its default, and the system logs a WARNING.
 
 **Step 1.2: Configuration migration check.** If the loaded configuration file's `schema_version` is older than the running code's `CURRENT_SCHEMA_VERSION`, the Configuration System executes the migration framework (AMD-13, Doc 06 §3.7). In service mode (non-interactive), non-destructive migrations (ADDED, VALUE_CHANGED) apply automatically. Destructive migrations (REMOVED, TYPE_CHANGED) cause a fatal startup error requiring manual migration via `homesynapse migrate-config`. A timestamped backup of the original configuration is created before any migration.
 
@@ -141,10 +141,10 @@ Data Infrastructure establishes the persistence and event distribution foundatio
 **Step 2.1: Persistence Layer initialization.** The Persistence Layer (Doc 04 §3.1–§3.4) executes its initialization sequence:
 
 1. Open (or create) `PlatformPaths.dataDir()/homesynapse-events.db`. On first run, set creation-time PRAGMAs: `PRAGMA auto_vacuum = INCREMENTAL` and `PRAGMA page_size = 4096`.
-2. Apply connection PRAGMAs in the order specified by LTD-03: `journal_mode = WAL`, `synchronous = NORMAL`, `cache_size = -128000`, `mmap_size = 1073741824`, `temp_store = MEMORY`, `journal_size_limit = 6144000`, `busy_timeout = 5000`. PRAGMA order matters — `journal_mode` must be set before any queries execute.
+2. Apply connection PRAGMAs in the order specified by LTD-03: `journal_mode = WAL`, `synchronous = NORMAL`, `cache_size = -128000`, `mmap_size = 1073741824`, `temp_store = MEMORY`, `journal_size_limit = 6144000`, `busy_timeout = 5000`, `cell_size_check = ON`. PRAGMA order matters — `journal_mode` must be set before any queries execute.
 3. Run schema migrations via the migration runner (LTD-07). Each migration is atomic within a transaction. If any migration fails, the process exits with a diagnostic listing the failed migration and suggesting rollback to the pre-upgrade snapshot (LTD-14).
 4. Execute integrity check (`PRAGMA quick_check`). If the check fails, log the corruption details at ERROR, emit a structured diagnostic, and exit. The diagnostic recommends restoring from backup.
-5. Check for unclean shutdown marker. If the marker file (`PlatformPaths.dataDir()/.unclean_shutdown`) exists, log a WARNING indicating the previous shutdown was unclean. The marker is removed after successful startup completes. A new marker is written at the end of Phase 2.
+5. Check for unclean shutdown marker. If the marker file (`PlatformPaths.dataDir()/.unclean_shutdown`) exists, log a WARNING indicating the previous shutdown was unclean. The marker is removed after successful startup completes. A new marker is written in Step 2.3 after all Phase 2 initialization completes.
 6. Open the telemetry ring store (`PlatformPaths.dataDir()/homesynapse-telemetry.db`) with the same PRAGMA and migration sequence.
 7. Initialize the WriteCoordinator (AMD-06) — the single-threaded priority executor that serializes all SQLite write operations.
 8. Start the retention scheduler, aggregation engine, and backup scheduler as background virtual threads. These do not execute immediately — they wait for their first scheduled interval.
@@ -155,6 +155,8 @@ Data Infrastructure establishes the persistence and event distribution foundatio
 2. Initialize the EventPublisher with its durability contract (AMD-01): `publish()` is synchronous and durable, `emit()` is asynchronous and best-effort.
 3. Initialize the subscriber registration API. No subscribers are registered yet — downstream subsystems register during their own initialization phases.
 4. Load subscriber checkpoint positions from the `subscriber_checkpoints` table.
+
+**Step 2.3: Write unclean shutdown marker.** After Phase 2 completes (Persistence Layer and Event Bus are operational), `SystemLifecycleManager` writes the unclean shutdown marker at `PlatformPaths.dataDir()/.unclean_shutdown`. This marker persists until removed during graceful shutdown (§3.9 step 11). If the process is killed after this point, the marker signals unclean shutdown on next startup.
 
 **Phase 2 failure semantics:** Persistence Layer or Event Bus failure is fatal. Without durable event storage and distribution, the system has no foundation. Exit with a diagnostic message. The HealthReporter calls `reportStatus("FATAL: data infrastructure failed")` before exit.
 
@@ -169,7 +171,7 @@ Core Domain initializes the subsystems that give HomeSynapse its semantic model:
 1. Load the most recent checkpoint from the `view_checkpoints` table (Doc 04 §3.12).
 2. Check projection versioning (AMD-10): compare the checkpoint's `projectionVersion` to the running code's `CURRENT_PROJECTION_VERSION`. If they differ, discard the checkpoint's state map and prepare for full replay from position 0 (or from the most recent checkpoint with a matching projection version).
 3. Register the State Projection as a subscriber of the Event Bus.
-4. Execute checkpoint recovery: replay events from the checkpoint's `globalPosition` (or position 0 if the checkpoint was discarded) to the current log head. During replay, the State Projection operates in REPLAY mode (Doc 01 §3.7) — it consumes existing `state_changed` events to rebuild state but does not re-derive them from `state_reported` events.
+4. Execute checkpoint recovery: replay events from the checkpoint's `view_position` (or position 0 if the checkpoint was discarded) to the current log head. During replay, the State Projection operates in REPLAY mode (Doc 01 §3.7) — it consumes existing `state_changed` events to rebuild state but does not re-derive them from `state_reported` events.
 5. Execute the reconciliation pass (AMD-02, Doc 03 §3.2.1): for each entity in the state map, verify that the most recent `state_reported` event has a corresponding `state_changed` event. Re-derive any missing derived events. This pass repairs state that was lost due to a prior unclean shutdown.
 6. Transition to LIVE mode. The State Projection now produces derived events for new incoming events.
 
@@ -193,7 +195,7 @@ Observability initialization collects health indicators from all subsystems init
 
 **Step 4.1: Collect HealthContributor implementations.** The `SystemLifecycleManager` queries each initialized subsystem for its `HealthContributor` implementation (Doc 11 §8.1–§8.2). Every subsystem that defines a §11.3 health indicator provides a `HealthContributor`. The collection is complete at this point because all subsystems that provide health indicators have initialized.
 
-**Step 4.2: Initialize health aggregation.** The HealthAggregator (Doc 11 §3.3) initializes with the collected `HealthContributor` set. It computes the initial system health state using the three-tier composition model: per-component health rolls up to per-subsystem health, which rolls up to system-wide health. Health states are HEALTHY, DEGRADED, or UNHEALTHY.
+**Step 4.2: Initialize health aggregation.** The HealthAggregator (Doc 11 §3.3) initializes with the collected `HealthContributor` set. It computes the initial system health state using the tier-based composition model (Doc 11 §3.3): subsystems are classified into three tiers (Tier 1: Critical Infrastructure; Tier 2: Core Services; Tier 3: Interface Services), each tier applies its own composition rule (e.g., any Tier 1 UNHEALTHY → system UNHEALTHY), and system health is the worst-of across tier results. Health states are HEALTHY, DEGRADED, or UNHEALTHY.
 
 **Step 4.3: Start metric ring buffer.** The MetricsInfrastructure (Doc 11 §3.2) starts the JFR Event Streaming bridge that reads JFR events and pushes aggregated metric snapshots to the ring buffer for WebSocket and REST consumers.
 
@@ -203,7 +205,7 @@ Observability initialization collects health indicators from all subsystems init
 
 External Interfaces starts the API layer that makes HomeSynapse accessible to clients. This phase ends with the `READY=1` notification to systemd.
 
-**Step 5.1: REST API server starts.** The REST API (Doc 09 §3.1) starts the Javalin HTTP server, registers all endpoint handlers, and initializes the idempotency key store (AMD-08). The server binds to the configured port (default 8123). If the port is unavailable, the process exits with a diagnostic — the API is the primary user interface.
+**Step 5.1: REST API server starts.** The REST API (Doc 09 §3.9) starts the Javalin HTTP server, registers all endpoint handlers, and initializes the idempotency key store (AMD-08). The server binds to the configured port (default 8123). If the port is unavailable, the process exits with a diagnostic — the API is the primary user interface.
 
 **Step 5.2: WebSocket upgrade handler registers.** The WebSocket API (Doc 10 §3.1) registers the WebSocket upgrade handler on the shared Javalin server instance (Doc 09 §3.9). The Event Relay subscriber registers with the Event Bus. Reconnection admission control initializes (AMD-09).
 

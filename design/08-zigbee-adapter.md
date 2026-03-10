@@ -4,7 +4,7 @@
 **Status:** Locked
 **Subsystem:** Zigbee Adapter
 **Dependencies:** Event Model & Event Bus (§3.1 producer boundaries, §3.3 priority model, §3.5 telemetry boundary, §3.9 origin model, §4.3 event type taxonomy, §8.3 EventPublisher two-method API), Device Model & Capability System (§3.5–§3.6 capability definitions and standard capability set, §3.7 attribute type system, §3.8 command confirmation model and ExpectationFactory, §3.10 entity type compositions, §3.11 multi-function device modeling, §3.12 discovery/adoption/deduplication pipeline), Integration Runtime (§3.2 hybrid thread architecture with IoType.SERIAL, §3.3 adapter lifecycle 8-state model, §3.4 OTP-style supervision, §3.5 health checking mechanisms, §3.7 exception classification, §3.8 IntegrationContext composed API surface, §4.1 IntegrationDescriptor with IoType.SERIAL and DataPath.DOMAIN + TELEMETRY, §4.4 integration lifecycle events), Identity and Addressing Model (§6 hardware identifier mapping rules), Glossary v1 (§2 Device Model vocabulary)
-**Dependents:** None yet
+**Dependents:** Startup, Lifecycle & Shutdown (Doc 12 — Phase 6 integration discovery and startup via IntegrationSupervisor)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-09
 

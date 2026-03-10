@@ -4,7 +4,7 @@
 **Status:** Locked
 **Subsystem:** Configuration System
 **Dependencies:** Event Model & Event Bus (§4.3 `config_changed` event type, §8.3 EventPublisher, §9 YAML schema convention), Integration Runtime (§3.8 ConfigurationAccess interface contract, §9 override precedence for integration health parameters, IntegrationDescriptor schema declaration), Glossary v1 (§6.1 Configuration concept), LTD-09 (YAML 1.2, SnakeYAML Engine, JSON Schema, `/etc/homesynapse/`), Architecture Invariants v1 (§8 INV-CE-01 through INV-CE-06, §10 INV-SE-03)
-**Dependents:** Automation Engine (§3.2 schema registration, §3.5 well-known file path for automation definitions), Zigbee Adapter (§3.2 integration schema via IntegrationDescriptor), REST API (§8.1 ConfigurationService for config read/write/reload endpoints), Startup, Lifecycle & Shutdown (§3.1 config loading as first stage in startup sequence)
+**Dependents:** Automation Engine (§3.2 schema registration, §3.5 well-known file path for automation definitions), Zigbee Adapter (§3.2 integration schema via IntegrationDescriptor), REST API (§8.1 ConfigurationService for config read/write/reload endpoints), Startup, Lifecycle & Shutdown (Doc 12 — Phase 1 config loading, §3.9 shutdown step 9)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-06
 
