@@ -165,6 +165,8 @@ javalin = { module = "io.javalin:javalin", version.ref = "javalin" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 assertj-core = { module = "org.assertj:assertj-core", version.ref = "assertj" }
+apiguardian-api = { module = "org.apiguardian:apiguardian-api", version = "1.1.2" }
+archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version = "1.4.0" }
 ```
 
 Note: These versions are the latest stable releases as of 2026-03-10. The version catalog is a living artifact — versions are updated as part of quarterly dependency review. The versions listed here are starting points, not locked decisions. Only the JDK (LTD-01) and SQLite (LTD-03) have architectural significance; all other dependency versions are implementation details that may be updated without governance review.

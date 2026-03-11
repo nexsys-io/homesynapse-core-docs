@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-03-10
 **Current phase:** Phase 2 — Interface-Level Specification. All Phase 1 prerequisites resolved. See `governance/phase-2-transition-guide.md`.
-**Active documents:** Phase 2 transition guide locked. Next: project scaffold setup, then Doc 01 interface specification.
+**Active documents:** Phase 2 transition guide locked. Refined Repository Architecture v2 locked (supersedes Implementation Plan v1). Next: project scaffold setup, then Doc 01 interface specification.
 
 ---
 
@@ -162,6 +162,10 @@ Applying the established principle: "research is only warranted when patterns ar
 | Doc 12 | **No** | Pure synthesis. Initialization order derivable from dependency graph. Shutdown derivable from Doc 05. HealthReporter and PlatformPaths contracts defined by Portability Architecture research (already complete). |
 | Doc 13 | **Yes** (framework only) | Framework selection is a long-lead decision with measurable criteria (bundle size, performance, DX). Dashboard patterns are informed by Docs 09, 10, 11 designs. Competitive analysis of HA's frontend failures is high-value. |
 | Doc 14 | **No** | Pure synthesis. Comprehensive memory budget, Gradle module map, and CI/CD matrix are compilation exercises, not design discovery. |
+
+### Repository Structure, Test Infrastructure & API Evolution Research — COMPLETE (2026-03-10)
+
+Cross-project competitive analysis covering 17 open-source projects across smart home platforms, event-sourcing frameworks, and Java infrastructure projects. Three focus areas: repository structure and module organization, test infrastructure patterns, and API stability/evolution strategies. Findings produced the Refined Repository Architecture v2 (superseding Implementation Plan v1) with 12 structural changes and 8 targeted amendments. See `research/Repository_Structure_Test_Infrastructure_And_API_Evolution_Research_v1.md` for full analysis and `governance/HomeSynapse_Core_Refined_Repo_Architecture_v2.md` for the resulting architecture.
 
 ---
 
@@ -496,7 +500,7 @@ homesynapse-core-docs/
 3. ~~Begin Doc 11 (Observability & Debugging) research.~~ COMPLETE — Locked 2026-03-09.
 4. ~~Draft Doc 10.~~ COMPLETE — Locked 2026-03-09.
 5. ~~Draft Doc 11.~~ COMPLETE — Locked 2026-03-09.
-1. **Project scaffold setup** — Initialize `homesynapse-core` repository with Gradle structure, version catalog, convention plugins, LICENSE, CI. See `governance/phase-2-transition-guide.md` §8.
+1. **Project scaffold setup** — Initialize `homesynapse-core` repository per `governance/HomeSynapse_Core_Refined_Repo_Architecture_v2.md` §9 (scaffold file list) and `governance/phase-2-transition-guide.md` §8. Refined Repo Architecture v2 supersedes Implementation Plan v1 for repository structure, convention plugins, test infrastructure, and Phase 2/3 sequencing. Research artifact: `research/Repository_Structure_Test_Infrastructure_And_API_Evolution_Research_v1.md`.
 2. **Doc 01 interface specification** — Event Model & Event Bus. First Phase 2 deliverable.
 3. ~~Begin Doc 13 framework investigation.~~ COMPLETE — LTD-18 created.
 4. ~~Cross-audit + Lock Doc 10.~~ COMPLETE — Round 8–9.
