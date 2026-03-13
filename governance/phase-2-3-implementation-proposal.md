@@ -60,156 +60,156 @@ homesynapse-core/
 │   ├── platform-api/                       # HealthReporter, PlatformPaths
 │   │   ├── build.gradle.kts
 │   │   └── src/
-│   │       ├── main/java/io/homesynapse/platform/
+│   │       ├── main/java/com/homesynapse/platform/
 │   │       │   ├── package-info.java
 │   │       │   ├── HealthReporter.java
 │   │       │   └── PlatformPaths.java
-│   │       └── test/java/io/homesynapse/platform/
+│   │       └── test/java/com/homesynapse/platform/
 │   │
 │   └── platform-systemd/                   # SystemdHealthReporter, LinuxSystemPaths
 │       ├── build.gradle.kts
 │       └── src/
-│           ├── main/java/io/homesynapse/platform/systemd/
-│           └── test/java/io/homesynapse/platform/systemd/
+│           ├── main/java/com/homesynapse/platform/systemd/
+│           └── test/java/com/homesynapse/platform/systemd/
 │
 ├── core/
 │   ├── event-model/                        # Doc 01: Event types, envelope, publisher
 │   │   ├── build.gradle.kts
 │   │   └── src/
-│   │       ├── main/java/io/homesynapse/event/
+│   │       ├── main/java/com/homesynapse/event/
 │   │       │   ├── package-info.java
 │   │       │   ├── model/                  # EventEnvelope, DomainEvent, EventPriority, etc.
 │   │       │   ├── publish/               # EventPublisher, CausalContext
 │   │       │   ├── store/                 # EventStore interface
 │   │       │   ├── bus/                   # EventBus, SubscriptionFilter, SubscriberLifecycle
 │   │       │   └── upcasting/             # UpcasterRegistry, Upcaster
-│   │       └── test/java/io/homesynapse/event/
+│   │       └── test/java/com/homesynapse/event/
 │   │
 │   ├── device-model/                       # Doc 02: Device/Entity/Capability
 │   │   ├── build.gradle.kts
 │   │   └── src/
-│   │       ├── main/java/io/homesynapse/device/
+│   │       ├── main/java/com/homesynapse/device/
 │   │       │   ├── model/                 # Device, Entity, Capability, EntityType, etc.
 │   │       │   ├── registry/              # DeviceRegistry, EntityRegistry, CapabilityRegistry
 │   │       │   ├── command/               # CommandValidator, ExpectationFactory, Expectation
 │   │       │   ├── discovery/             # DiscoveryPipeline, ProposedDevice
 │   │       │   └── replacement/           # DeviceReplacementService
-│   │       └── test/java/io/homesynapse/device/
+│   │       └── test/java/com/homesynapse/device/
 │   │
 │   ├── state-store/                        # Doc 03: State projection, query service
 │   │   ├── build.gradle.kts
 │   │   └── src/
-│   │       ├── main/java/io/homesynapse/state/
+│   │       ├── main/java/com/homesynapse/state/
 │   │       │   ├── model/                 # EntityState, AttributeValue (sealed)
 │   │       │   ├── projection/            # StateProjection
 │   │       │   └── query/                 # StateQueryService
-│   │       └── test/java/io/homesynapse/state/
+│   │       └── test/java/com/homesynapse/state/
 │   │
 │   ├── persistence/                        # Doc 04: EventStore impl, telemetry, maintenance
 │   │   ├── build.gradle.kts
 │   │   └── src/
-│   │       ├── main/java/io/homesynapse/persistence/
+│   │       ├── main/java/com/homesynapse/persistence/
 │   │       │   ├── event/                 # SQLiteEventStore
 │   │       │   ├── telemetry/             # TelemetryStore, TelemetryWriter
 │   │       │   ├── checkpoint/            # CheckpointService
 │   │       │   ├── maintenance/           # RetentionService, VacuumService
 │   │       │   └── migration/             # SchemaMigrator
-│   │       └── test/java/io/homesynapse/persistence/
+│   │       └── test/java/com/homesynapse/persistence/
 │   │
 │   ├── event-bus/                          # Doc 01 (bus implementation)
 │   │   ├── build.gradle.kts
 │   │   └── src/
-│   │       ├── main/java/io/homesynapse/event/bus/
+│   │       ├── main/java/com/homesynapse/event/bus/
 │   │       │   └── impl/                 # InProcessEventBus, dispatch logic
-│   │       └── test/java/io/homesynapse/event/bus/
+│   │       └── test/java/com/homesynapse/event/bus/
 │   │
 │   └── automation/                         # Doc 07: TCA engine
 │       ├── build.gradle.kts
 │       └── src/
-│           ├── main/java/io/homesynapse/automation/
+│           ├── main/java/com/homesynapse/automation/
 │           │   ├── model/                 # AutomationDefinition, Run, Trigger, Condition, Action
 │           │   ├── registry/              # AutomationRegistry
 │           │   ├── execution/             # RunManager, trigger evaluation
 │           │   ├── command/               # CommandDispatchService, PendingCommandLedger
 │           │   └── cascade/               # CascadeGovernor
-│           └── test/java/io/homesynapse/automation/
+│           └── test/java/com/homesynapse/automation/
 │
 ├── integration/
 │   ├── integration-api/                    # Doc 05: adapter-facing contracts
 │   │   ├── build.gradle.kts
 │   │   └── src/
-│   │       ├── main/java/io/homesynapse/integration/
+│   │       ├── main/java/com/homesynapse/integration/
 │   │       │   ├── api/                   # IntegrationAdapter, IntegrationFactory, IntegrationContext
 │   │       │   ├── health/               # HealthReporter (integration-level), HealthState, HealthParameters
 │   │       │   ├── command/              # CommandHandler, CommandEnvelope
 │   │       │   ├── descriptor/           # IntegrationDescriptor, IoType, RequiredService
 │   │       │   └── exception/            # PermanentIntegrationException
-│   │       └── test/java/io/homesynapse/integration/
+│   │       └── test/java/com/homesynapse/integration/
 │   │
 │   ├── integration-runtime/                # Doc 05: supervisor, lifecycle
 │   │   ├── build.gradle.kts
 │   │   └── src/
-│   │       ├── main/java/io/homesynapse/integration/runtime/
+│   │       ├── main/java/com/homesynapse/integration/runtime/
 │   │       │   ├── supervisor/           # IntegrationSupervisor
 │   │       │   ├── health/               # HealthStateMachine
 │   │       │   └── thread/               # Thread allocation (platform vs virtual)
-│   │       └── test/java/io/homesynapse/integration/runtime/
+│   │       └── test/java/com/homesynapse/integration/runtime/
 │   │
 │   └── integration-zigbee/                 # Doc 08: Zigbee adapter
 │       ├── build.gradle.kts
 │       └── src/
-│           ├── main/java/io/homesynapse/integration/zigbee/
+│           ├── main/java/com/homesynapse/integration/zigbee/
 │           │   ├── transport/            # ZNP/EZSP transport, serial I/O
 │           │   ├── protocol/             # ZCL, cluster handlers
 │           │   ├── device/               # Interview pipeline, profiles
 │           │   ├── codec/                # Tuya DP, Xiaomi TLV
 │           │   └── network/              # Topology, security, permit-join
-│           └── test/java/io/homesynapse/integration/zigbee/
+│           └── test/java/com/homesynapse/integration/zigbee/
 │
 ├── config/
 │   └── configuration/                      # Doc 06: config loading, secrets, schemas
 │       ├── build.gradle.kts
 │       └── src/
-│           ├── main/java/io/homesynapse/config/
+│           ├── main/java/com/homesynapse/config/
 │           │   ├── loading/              # Six-stage pipeline
 │           │   ├── schema/               # Schema composition, validation
 │           │   ├── secret/               # SecretStore (AES-256-GCM)
 │           │   ├── migration/            # ConfigMigrator
 │           │   └── reload/               # Hot reload, atomic swap
-│           └── test/java/io/homesynapse/config/
+│           └── test/java/com/homesynapse/config/
 │
 ├── api/
 │   ├── rest-api/                           # Doc 09: Javalin REST endpoints
 │   │   ├── build.gradle.kts
 │   │   └── src/
-│   │       ├── main/java/io/homesynapse/api/rest/
+│   │       ├── main/java/com/homesynapse/api/rest/
 │   │       │   ├── endpoint/             # One class per operational plane
 │   │       │   ├── error/                # RFC 9457 Problem Details
 │   │       │   ├── auth/                 # API key validation
 │   │       │   ├── pagination/           # Cursor-based pagination
 │   │       │   └── middleware/           # Rate limiting, correlation ID
-│   │       └── test/java/io/homesynapse/api/rest/
+│   │       └── test/java/com/homesynapse/api/rest/
 │   │
 │   └── websocket-api/                      # Doc 10: WebSocket relay
 │       ├── build.gradle.kts
 │       └── src/
-│           ├── main/java/io/homesynapse/api/websocket/
+│           ├── main/java/com/homesynapse/api/websocket/
 │           │   ├── relay/                # EventRelay subscriber
 │           │   ├── connection/           # Connection lifecycle, auth
 │           │   ├── subscription/         # Filter management, resume
 │           │   └── backpressure/         # Four-stage escalation
-│           └── test/java/io/homesynapse/api/websocket/
+│           └── test/java/com/homesynapse/api/websocket/
 │
 ├── observability/
 │   └── observability/                      # Doc 11: health, traces, JFR
 │       ├── build.gradle.kts
 │       └── src/
-│           ├── main/java/io/homesynapse/observability/
+│           ├── main/java/com/homesynapse/observability/
 │           │   ├── health/               # HealthAggregator, HealthContributor
 │           │   ├── trace/                # TraceQueryService, causal chain assembly
 │           │   ├── jfr/                  # Custom JFR events, recording management
 │           │   └── metrics/              # MetricsStreamBridge
-│           └── test/java/io/homesynapse/observability/
+│           └── test/java/com/homesynapse/observability/
 │
 ├── web-ui/
 │   └── dashboard/                          # Doc 13: Preact SPA
@@ -221,19 +221,19 @@ homesynapse-core/
 │   └── lifecycle/                          # Doc 12: startup, shutdown, watchdog
 │       ├── build.gradle.kts
 │       └── src/
-│           ├── main/java/io/homesynapse/lifecycle/
+│           ├── main/java/com/homesynapse/lifecycle/
 │           │   ├── startup/              # SystemLifecycleManager, phase sequencing
 │           │   ├── shutdown/             # Graceful shutdown orchestration
 │           │   └── watchdog/             # Systemd watchdog protocol
-│           └── test/java/io/homesynapse/lifecycle/
+│           └── test/java/com/homesynapse/lifecycle/
 │
 ├── app/
 │   └── homesynapse-app/                    # Assembly: main class, jlink, systemd unit
 │       ├── build.gradle.kts
 │       └── src/
-│           ├── main/java/io/homesynapse/app/
+│           ├── main/java/com/homesynapse/app/
 │           │   └── Main.java
-│           └── test/java/io/homesynapse/app/
+│           └── test/java/com/homesynapse/app/
 │
 ├── schema/                                 # JSON Schemas + API specs (Phase 2 output)
 │   ├── config/                             # JSON Schema per configuration namespace
@@ -502,7 +502,7 @@ These test utilities live in a shared `test-support` module:
 core/
 └── test-support/                       # Test fixtures, in-memory implementations
     ├── build.gradle.kts
-    └── src/main/java/io/homesynapse/test/
+    └── src/main/java/com/homesynapse/test/
         ├── InMemoryEventStore.java
         ├── SynchronousEventBus.java
         ├── TestFixtures.java

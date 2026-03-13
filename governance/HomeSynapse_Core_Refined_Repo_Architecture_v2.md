@@ -29,7 +29,7 @@ These aspects of Plan v1 are independently validated by multiple projects:
 | YAML-only configuration (LTD-09) | Validated as correct by Home Assistant's regret over YAML/UI dual paradigm (ADR-21) | High — avoid the dual-paradigm trap |
 | `homesynapse-app` as thin assembly module | Axon v5 eliminated its God Module `axon-configuration`; Spring Boot 4 modularizing `spring-boot-autoconfigure` | Critical anti-pattern to avoid |
 | 19-module count | Research says "well-sized — large enough for meaningful boundaries, small enough to manage" vs. Occurrent's 50+ modules | Right balance for constrained hardware |
-| `io.homesynapse` base package (Decision I) | Follows modern convention; matches company domain `nexsys.io` | Locked decision — no change |
+| `com.homesynapse` base package (Decision I) | Follows modern convention; matches company domain `nexsys.io` | Locked decision — no change |
 
 ### 1.2 What the Research Challenges (Changes Adopted)
 
@@ -68,15 +68,15 @@ These are concrete improvements extracted from the research that improve our arc
 - *Source:* Helidon's `.spi` sub-package pattern. Micronaut supplements with `@Internal` annotations.
 - *Problem in v1:* No distinction between "public API for consumers" and "SPI for implementors." Both live in the exported root package.
 - *Fix:* Three-tier package convention per module:
-  - `io.homesynapse.<subsystem>` — Public API. Consumed by other modules. Stable.
-  - `io.homesynapse.<subsystem>.spi` — Extension points. Implemented by adapters/plugins. Stable but narrower audience.
-  - `io.homesynapse.<subsystem>.internal` — Implementation details. Not exported. Free to change.
+  - `com.homesynapse.<subsystem>` — Public API. Consumed by other modules. Stable.
+  - `com.homesynapse.<subsystem>.spi` — Extension points. Implemented by adapters/plugins. Stable but narrower audience.
+  - `com.homesynapse.<subsystem>.internal` — Implementation details. Not exported. Free to change.
 - *Modules with SPI packages:*
-  - `integration-api` → `io.homesynapse.integration.spi` (IntegrationAdapter, AdapterFactory, CoordinatorStrategy)
-  - `persistence` → `io.homesynapse.persistence.spi` (StorageMigration, RetentionPolicy)
-  - `configuration` → `io.homesynapse.config.spi` (ConfigSource, SecretProvider)
-  - `observability` → `io.homesynapse.observability.spi` (HealthContributor, MetricExporter)
-  - `event-model` → `io.homesynapse.event.spi` (UpcasterProvider, EventSerializer)
+  - `integration-api` → `com.homesynapse.integration.spi` (IntegrationAdapter, AdapterFactory, CoordinatorStrategy)
+  - `persistence` → `com.homesynapse.persistence.spi` (StorageMigration, RetentionPolicy)
+  - `configuration` → `com.homesynapse.config.spi` (ConfigSource, SecretProvider)
+  - `observability` → `com.homesynapse.observability.spi` (HealthContributor, MetricExporter)
+  - `event-model` → `com.homesynapse.event.spi` (UpcasterProvider, EventSerializer)
 - *Impact:* JPMS `module-info.java` exports `.spi` packages selectively. Adapter authors know exactly what they can implement vs. what they should only consume.
 
 **Change 5: Finer-grained event store interfaces.**
@@ -146,13 +146,13 @@ These are research recommendations we considered and decided NOT to adopt, with 
 
 **Rejected: `com.homesynapse` package prefix.**
 - *Research argument:* Follow Java convention matching domain name.
-- *Rejection rationale:* Decision I locks `io.homesynapse` as the base package. This follows the modern convention used by many Java projects (io.micronaut, io.helidon, io.quarkus) and matches the company domain (nexsys.io). No change.
+- *Rejection rationale:* Decision I locks `com.homesynapse` as the base package. This follows the modern convention used by many Java projects (io.micronaut, io.helidon, io.quarkus) and matches the company domain (nexsys.io). No change.
 
 ---
 
 ## 2. Refined Repository Structure
 
-The `homesynapse-core` repository follows Doc 14 §3.6 with targeted refinements from §1.2 above. Base Java package: `io.homesynapse`. Changes from v1 are marked with `← CHANGED` or `← NEW`.
+The `homesynapse-core` repository follows Doc 14 §3.6 with targeted refinements from §1.2 above. Base Java package: `com.homesynapse`. Changes from v1 are marked with `← CHANGED` or `← NEW`.
 
 ```
 homesynapse-core/
@@ -191,20 +191,20 @@ homesynapse-core/
 │   │   └── src/
 │   │       ├── main/java/
 │   │       │   ├── module-info.java
-│   │       │   └── io/homesynapse/platform/
+│   │       │   └── com/homesynapse/platform/
 │   │       │       ├── HealthReporter.java
 │   │       │       ├── PlatformPaths.java
 │   │       │       └── package-info.java
-│   │       └── test/java/io/homesynapse/platform/
+│   │       └── test/java/com/homesynapse/platform/
 │   │
 │   └── platform-systemd/                   # SystemdHealthReporter, LinuxSystemPaths
 │       ├── build.gradle.kts                # Applies library-conventions. Depends: platform-api.
 │       └── src/
 │           ├── main/java/
 │           │   ├── module-info.java
-│           │   └── io/homesynapse/platform/systemd/
+│           │   └── com/homesynapse/platform/systemd/
 │           │       └── internal/           # Not exported via JPMS
-│           └── test/java/io/homesynapse/platform/systemd/
+│           └── test/java/com/homesynapse/platform/systemd/
 │
 ├── core/
 │   ├── event-model/                        # Event types, envelope, store interfaces, bus interfaces
@@ -212,7 +212,7 @@ homesynapse-core/
 │   │   └── src/
 │   │       ├── main/java/
 │   │       │   ├── module-info.java
-│   │       │   └── io/homesynapse/event/
+│   │       │   └── com/homesynapse/event/
 │   │       │       ├── model/              # EventEnvelope, DomainEvent, CausalContext, enums
 │   │       │       ├── publish/            # EventAppender (was EventPublisher)               ← CHANGED
 │   │       │       ├── store/              # EventReader, EventQuerier, EventStore            ← CHANGED
@@ -220,8 +220,8 @@ homesynapse-core/
 │   │       │       ├── upcasting/          # UpcasterRegistry, Upcaster, IntermediateRepresentation
 │   │       │       ├── spi/               # UpcasterProvider, EventSerializer                ← NEW
 │   │       │       └── package-info.java
-│   │       ├── test/java/io/homesynapse/event/
-│   │       └── testFixtures/java/io/homesynapse/event/test/                                  ← NEW
+│   │       ├── test/java/com/homesynapse/event/
+│   │       └── testFixtures/java/com/homesynapse/event/test/                                  ← NEW
 │   │           ├── InMemoryEventStore.java   # Implements EventAppender + EventReader + EventQuerier
 │   │           ├── TestEventFactory.java     # Builders for test EventEnvelopes
 │   │           └── TestCausalContext.java     # Pre-built causal contexts for tests
@@ -231,15 +231,15 @@ homesynapse-core/
 │   │   └── src/
 │   │       ├── main/java/
 │   │       │   ├── module-info.java
-│   │       │   └── io/homesynapse/device/
+│   │       │   └── com/homesynapse/device/
 │   │       │       ├── model/              # Device, Entity, Capability records
 │   │       │       ├── registry/           # DeviceRegistry, EntityRegistry interfaces
 │   │       │       ├── command/            # CommandType, CommandValidation
 │   │       │       ├── discovery/          # DiscoveryService interface
 │   │       │       ├── replacement/        # DeviceReplacementService interface
 │   │       │       └── package-info.java
-│   │       ├── test/java/io/homesynapse/device/
-│   │       └── testFixtures/java/io/homesynapse/device/test/                                 ← NEW
+│   │       ├── test/java/com/homesynapse/device/
+│   │       └── testFixtures/java/com/homesynapse/device/test/                                 ← NEW
 │   │           ├── TestDeviceFactory.java
 │   │           ├── TestEntityFactory.java
 │   │           └── TestCapabilityFactory.java
@@ -249,13 +249,13 @@ homesynapse-core/
 │   │   └── src/
 │   │       ├── main/java/
 │   │       │   ├── module-info.java
-│   │       │   └── io/homesynapse/state/
+│   │       │   └── com/homesynapse/state/
 │   │       │       ├── model/              # EntityState, StateSnapshot
 │   │       │       ├── projection/         # StateProjection, ProjectionLifecycle            ← CHANGED
 │   │       │       ├── query/              # StateQueryService interface
 │   │       │       └── package-info.java
-│   │       ├── test/java/io/homesynapse/state/
-│   │       └── testFixtures/java/io/homesynapse/state/test/                                  ← NEW
+│   │       ├── test/java/com/homesynapse/state/
+│   │       └── testFixtures/java/com/homesynapse/state/test/                                  ← NEW
 │   │           ├── InMemoryStateStore.java
 │   │           └── TestProjectionFixture.java
 │   │
@@ -264,7 +264,7 @@ homesynapse-core/
 │   │   └── src/
 │   │       ├── main/java/
 │   │       │   ├── module-info.java
-│   │       │   └── io/homesynapse/persistence/
+│   │       │   └── com/homesynapse/persistence/
 │   │       │       ├── event/              # SQLiteEventStore (implements EventAppender + EventReader + EventQuerier)
 │   │       │       │   └── internal/       # WAL management, PRAGMA configuration
 │   │       │       ├── telemetry/          # TelemetryWriter, TelemetryQueryService, ring store
@@ -275,8 +275,8 @@ homesynapse-core/
 │   │       │       ├── migration/          # Schema migration framework
 │   │       │       ├── spi/               # StorageMigration, RetentionPolicy              ← NEW
 │   │       │       └── package-info.java
-│   │       ├── test/java/io/homesynapse/persistence/
-│   │       └── testFixtures/java/io/homesynapse/persistence/test/                            ← NEW
+│   │       ├── test/java/com/homesynapse/persistence/
+│   │       └── testFixtures/java/com/homesynapse/persistence/test/                            ← NEW
 │   │           ├── InMemoryCheckpointStore.java
 │   │           └── InMemoryTelemetryStore.java
 │   │
@@ -285,16 +285,16 @@ homesynapse-core/
 │   │   └── src/
 │   │       ├── main/java/
 │   │       │   ├── module-info.java
-│   │       │   └── io/homesynapse/event/bus/
+│   │       │   └── com/homesynapse/event/bus/
 │   │       │       └── internal/           # InProcessEventBus impl, subscriber dispatch
-│   │       └── test/java/io/homesynapse/event/bus/
+│   │       └── test/java/com/homesynapse/event/bus/
 │   │
 │   └── automation/                         # AutomationRegistry, RunManager, trigger index
 │       ├── build.gradle.kts                # Applies library-conventions. Depends: event-model, device-model, configuration, state-store.
 │       └── src/
 │           ├── main/java/
 │           │   ├── module-info.java
-│           │   └── io/homesynapse/automation/
+│           │   └── com/homesynapse/automation/
 │           │       ├── model/              # AutomationRule, Trigger, Condition, Action
 │           │       ├── registry/           # AutomationRegistry interface
 │           │       ├── execution/          # RunManager, ActionExecutor
@@ -302,7 +302,7 @@ homesynapse-core/
 │           │       ├── cascade/            # CascadeGovernor, depth limiting
 │           │       │   └── internal/
 │           │       └── package-info.java
-│           └── test/java/io/homesynapse/automation/
+│           └── test/java/com/homesynapse/automation/
 │
 ├── integration/
 │   ├── integration-api/                    # IntegrationAdapter SPI, IntegrationContext
@@ -310,7 +310,7 @@ homesynapse-core/
 │   │   └── src/
 │   │       ├── main/java/
 │   │       │   ├── module-info.java
-│   │       │   └── io/homesynapse/integration/
+│   │       │   └── com/homesynapse/integration/
 │   │       │       ├── api/                # IntegrationContext (consumed by adapters)
 │   │       │       ├── health/             # HealthStateMachine states
 │   │       │       ├── command/            # CommandHandler interface
@@ -318,8 +318,8 @@ homesynapse-core/
 │   │       │       ├── exception/          # Integration exception hierarchy
 │   │       │       ├── spi/               # IntegrationAdapter, AdapterFactory, CoordinatorStrategy  ← NEW
 │   │       │       └── package-info.java
-│   │       ├── test/java/io/homesynapse/integration/
-│   │       └── testFixtures/java/io/homesynapse/integration/test/                            ← NEW
+│   │       ├── test/java/com/homesynapse/integration/
+│   │       └── testFixtures/java/com/homesynapse/integration/test/                            ← NEW
 │   │           ├── StubIntegrationContext.java
 │   │           ├── TestAdapter.java
 │   │           └── StubCommandHandler.java
@@ -329,22 +329,22 @@ homesynapse-core/
 │   │   └── src/
 │   │       ├── main/java/
 │   │       │   ├── module-info.java
-│   │       │   └── io/homesynapse/integration/runtime/
+│   │       │   └── com/homesynapse/integration/runtime/
 │   │       │       └── internal/           # Supervisor impl, restart intensity, thread management
-│   │       └── test/java/io/homesynapse/integration/runtime/
+│   │       └── test/java/com/homesynapse/integration/runtime/
 │   │
 │   └── integration-zigbee/                 # ZigbeeAdapter (depends on integration-api ONLY, LTD-17)
 │       ├── build.gradle.kts                # Applies library-conventions. Depends: integration-api ONLY.
 │       ├── src/
 │       │   ├── main/java/
 │       │   │   ├── module-info.java
-│       │   │   └── io/homesynapse/integration/zigbee/
+│       │   │   └── com/homesynapse/integration/zigbee/
 │       │   │       └── internal/           # Coordinator transports, ZCL mapping, interview pipeline
 │       │   │           ├── transport/      # Z-Stack ZNP, EmberZNet EZSP
 │       │   │           ├── zcl/            # Cluster-to-capability mapping
 │       │   │           ├── codec/          # Tuya, Xiaomi manufacturer codecs
 │       │   │           └── interview/      # Device interview pipeline
-│       │   └── test/java/io/homesynapse/integration/zigbee/
+│       │   └── test/java/com/homesynapse/integration/zigbee/
 │       └── src/main/resources/
 │           └── META-INF/homesynapse/
 │               └── integration.yaml        # Quality tier metadata manifest              ← NEW
@@ -355,7 +355,7 @@ homesynapse-core/
 │       └── src/
 │           ├── main/java/
 │           │   ├── module-info.java
-│           │   └── io/homesynapse/config/
+│           │   └── com/homesynapse/config/
 │           │       ├── loading/            # Six-stage pipeline
 │           │       ├── schema/             # Schema validation, JSON Schema
 │           │       ├── secret/             # AES-256-GCM encrypted secret store
@@ -364,8 +364,8 @@ homesynapse-core/
 │           │       ├── spi/               # ConfigSource, SecretProvider                  ← NEW
 │           │       │   └── internal/
 │           │       └── package-info.java
-│           ├── test/java/io/homesynapse/config/
-│           ├── testFixtures/java/io/homesynapse/config/test/                              ← NEW
+│           ├── test/java/com/homesynapse/config/
+│           ├── testFixtures/java/com/homesynapse/config/test/                              ← NEW
 │           │   ├── InMemoryConfigStore.java
 │           │   └── TestConfigFactory.java
 │           └── main/resources/
@@ -378,26 +378,26 @@ homesynapse-core/
 │   │   └── src/
 │   │       ├── main/java/
 │   │       │   ├── module-info.java
-│   │       │   └── io/homesynapse/api/rest/
+│   │       │   └── com/homesynapse/api/rest/
 │   │       │       └── internal/           # Route handlers, serialization, ETag, rate limiting
 │   │       │           ├── entity/         # Entity state endpoints
 │   │       │           ├── command/        # Command issuance endpoints
 │   │       │           ├── event/          # Event history endpoints
 │   │       │           ├── automation/     # Automation management endpoints
 │   │       │           └── system/         # Health and system endpoints
-│   │       └── test/java/io/homesynapse/api/rest/
+│   │       └── test/java/com/homesynapse/api/rest/
 │   │
 │   └── websocket-api/                      # WebSocket relay, subscription management
 │       ├── build.gradle.kts                # Applies library-conventions. Depends: event-model, event-bus.
 │       └── src/
 │           ├── main/java/
 │           │   ├── module-info.java
-│           │   └── io/homesynapse/api/websocket/
+│           │   └── com/homesynapse/api/websocket/
 │           │       └── internal/           # Event relay, backpressure, subscription filters
 │           │           ├── relay/          # EventRelay subscriber
 │           │           ├── session/        # Connection management
 │           │           └── protocol/       # Message framing
-│           └── test/java/io/homesynapse/api/websocket/
+│           └── test/java/com/homesynapse/api/websocket/
 │
 ├── observability/
 │   └── observability/                      # HealthAggregator, TraceQueryService, JFR events
@@ -405,13 +405,13 @@ homesynapse-core/
 │       └── src/
 │           ├── main/java/
 │           │   ├── module-info.java
-│           │   └── io/homesynapse/observability/
+│           │   └── com/homesynapse/observability/
 │           │       ├── health/             # HealthAggregator, tier model, flapping prevention
 │           │       ├── trace/              # TraceQueryService, causal chain assembly
 │           │       ├── spi/               # HealthContributor, MetricExporter              ← NEW
 │           │       │   └── internal/       # JFR event definitions, metrics bridge
 │           │       └── package-info.java
-│           └── test/java/io/homesynapse/observability/
+│           └── test/java/com/homesynapse/observability/
 │
 ├── web-ui/
 │   └── dashboard/                          # Pre-built static files (Preact SPA, Vite output)
@@ -425,12 +425,12 @@ homesynapse-core/
 │       └── src/
 │           ├── main/java/
 │           │   ├── module-info.java
-│           │   └── io/homesynapse/lifecycle/
+│           │   └── com/homesynapse/lifecycle/
 │           │       └── internal/           # Seven-phase initialization, watchdog, graceful shutdown
 │           │           ├── startup/        # Phase orchestrator
 │           │           ├── shutdown/       # Reverse-order shutdown
 │           │           └── watchdog/       # Systemd watchdog protocol
-│           └── test/java/io/homesynapse/lifecycle/
+│           └── test/java/com/homesynapse/lifecycle/
 │
 ├── app/
 │   └── homesynapse-app/                    # Assembly: main class, jlink, systemd unit
@@ -438,15 +438,15 @@ homesynapse-core/
 │       └── src/
 │           ├── main/java/
 │           │   ├── module-info.java
-│           │   └── io/homesynapse/app/
+│           │   └── com/homesynapse/app/
 │           │       ├── HomeSynapseMain.java
 │           │       └── package-info.java
-│           └── test/java/io/homesynapse/app/
+│           └── test/java/com/homesynapse/app/
 │
 ├── testing/
 │   └── test-support/                       # Cross-cutting test infrastructure
 │       ├── build.gradle.kts                # Applies library-conventions. Depends: event-model, device-model, integration-api.
-│       └── src/main/java/io/homesynapse/test/
+│       └── src/main/java/com/homesynapse/test/
 │           ├── TestClock.java              # Controllable clock for deterministic testing
 │           ├── TestIntegrationContext.java  # Full wired test context for integration tests
 │           ├── NoRealIoExtension.java      # JUnit extension preventing accidental real I/O
@@ -497,9 +497,9 @@ homesynapse-core/
 **Module count:** 18 Gradle modules (matching Doc 14 §3.6) + 1 test-support module = 19 total. Unchanged from v1.
 
 **Package convention (refined):**
-- `io.homesynapse.<subsystem>` — Public API. Exported via JPMS. Stable contract.
-- `io.homesynapse.<subsystem>.spi` — Extension points. Exported via JPMS. Stable but narrow. ← NEW
-- `io.homesynapse.<subsystem>.internal` — Implementation. Not exported. Free to change.
+- `com.homesynapse.<subsystem>` — Public API. Exported via JPMS. Stable contract.
+- `com.homesynapse.<subsystem>.spi` — Extension points. Exported via JPMS. Stable but narrow. ← NEW
+- `com.homesynapse.<subsystem>.internal` — Implementation. Not exported. Free to change.
 
 **Convention plugin assignment:**
 | Plugin | Applies To |
@@ -523,7 +523,7 @@ The CONTEXT.md file sits at the repository root. It provides the constitutional 
 ## Identity
 HomeSynapse Core is the local-first, event-sourced smart home operating system.
 Java 21 (Corretto), SQLite WAL, virtual threads, Raspberry Pi 5 primary target (Pi 4 validation floor).
-Base package: io.homesynapse. Proprietary license (LicenseRef-NexSys-Proprietary).
+Base package: com.homesynapse. Proprietary license (LicenseRef-NexSys-Proprietary).
 
 ## Locked Technical Decisions (source: Locked_Decisions.md)
 - LTD-01: Java 21 LTS. Amazon Corretto 21.0.10.7.1. No preview features.
@@ -594,25 +594,25 @@ All 7 columns. 19 rows. Changes from v1 marked with ←.
 
 | Module | Design Doc | Gradle Dependencies | Exported Packages | SPI Packages | Internal Packages | Phase 2 Wave |
 |---|---|---|---|---|---|---|
-| `platform-api` | Doc 12 §8 | (none) | `io.homesynapse.platform` | — | — | Wave 1 |
-| `event-model` | Doc 01 | **(none)** ← | `io.homesynapse.event.model`, `.publish`, `.store`, `.bus`, `.upcasting` | `io.homesynapse.event.spi` ← | — | Wave 1 |
-| `device-model` | Doc 02 | `event-model` | `io.homesynapse.device.model`, `.registry`, `.command`, `.discovery`, `.replacement` | — | — | Wave 2 |
-| `integration-api` | Doc 05 | `event-model`, `device-model` | `io.homesynapse.integration.api`, `.health`, `.command`, `.descriptor`, `.exception` | `io.homesynapse.integration.spi` ← | — | Wave 2 |
-| `configuration` | Doc 06 | `event-model` | `io.homesynapse.config.loading`, `.schema`, `.secret`, `.migration`, `.reload` | `io.homesynapse.config.spi` ← | `io.homesynapse.config.*.internal` | Wave 2 |
-| `state-store` | Doc 03 | `event-model`, `device-model` | `io.homesynapse.state.model`, `.projection`, `.query` | — | — | Wave 3 |
-| `persistence` | Doc 04 | `event-model`, `state-store` | `io.homesynapse.persistence.event`, `.telemetry`, `.checkpoint`, `.maintenance`, `.migration` | `io.homesynapse.persistence.spi` ← | `io.homesynapse.persistence.*.internal` | Wave 3 |
-| `automation` | Doc 07 | `event-model`, `device-model`, `configuration`, `state-store` | `io.homesynapse.automation.model`, `.registry`, `.execution`, `.command`, `.cascade` | — | `io.homesynapse.automation.*.internal` | Wave 3 |
-| `event-bus` | Doc 01 | `event-model`, **`platform-api`** ← | — | — | `io.homesynapse.event.bus.internal` | Wave 4 |
-| `integration-runtime` | Doc 05 | `integration-api`, `event-model`, **`platform-api`** ← | — | — | `io.homesynapse.integration.runtime.internal` | Wave 4 |
-| `rest-api` | Doc 09 | `event-model`, `device-model`, `state-store`, `automation`, `observability` | — | — | `io.homesynapse.api.rest.internal` | Wave 4 |
-| `websocket-api` | Doc 10 | `event-model`, `event-bus` | — | — | `io.homesynapse.api.websocket.internal` | Wave 4 |
-| `observability` | Doc 11 | `event-model`, `state-store` | `io.homesynapse.observability.health`, `.trace` | `io.homesynapse.observability.spi` ← | `io.homesynapse.observability.internal` | Wave 4 |
-| `integration-zigbee` | Doc 08 | `integration-api` ONLY | — | — | `io.homesynapse.integration.zigbee.internal` | Wave 5 |
-| `platform-systemd` | Doc 12 | `platform-api` | — | — | `io.homesynapse.platform.systemd.internal` | Wave 5 |
-| `lifecycle` | Doc 12 | `platform-api`, `event-model`, `observability`, (all subsystem modules) | — | — | `io.homesynapse.lifecycle.internal` | Wave 5 |
+| `platform-api` | Doc 12 §8 | (none) | `com.homesynapse.platform` | — | — | Wave 1 |
+| `event-model` | Doc 01 | **(none)** ← | `com.homesynapse.event.model`, `.publish`, `.store`, `.bus`, `.upcasting` | `com.homesynapse.event.spi` ← | — | Wave 1 |
+| `device-model` | Doc 02 | `event-model` | `com.homesynapse.device.model`, `.registry`, `.command`, `.discovery`, `.replacement` | — | — | Wave 2 |
+| `integration-api` | Doc 05 | `event-model`, `device-model` | `com.homesynapse.integration.api`, `.health`, `.command`, `.descriptor`, `.exception` | `com.homesynapse.integration.spi` ← | — | Wave 2 |
+| `configuration` | Doc 06 | `event-model` | `com.homesynapse.config.loading`, `.schema`, `.secret`, `.migration`, `.reload` | `com.homesynapse.config.spi` ← | `com.homesynapse.config.*.internal` | Wave 2 |
+| `state-store` | Doc 03 | `event-model`, `device-model` | `com.homesynapse.state.model`, `.projection`, `.query` | — | — | Wave 3 |
+| `persistence` | Doc 04 | `event-model`, `state-store` | `com.homesynapse.persistence.event`, `.telemetry`, `.checkpoint`, `.maintenance`, `.migration` | `com.homesynapse.persistence.spi` ← | `com.homesynapse.persistence.*.internal` | Wave 3 |
+| `automation` | Doc 07 | `event-model`, `device-model`, `configuration`, `state-store` | `com.homesynapse.automation.model`, `.registry`, `.execution`, `.command`, `.cascade` | — | `com.homesynapse.automation.*.internal` | Wave 3 |
+| `event-bus` | Doc 01 | `event-model`, **`platform-api`** ← | — | — | `com.homesynapse.event.bus.internal` | Wave 4 |
+| `integration-runtime` | Doc 05 | `integration-api`, `event-model`, **`platform-api`** ← | — | — | `com.homesynapse.integration.runtime.internal` | Wave 4 |
+| `rest-api` | Doc 09 | `event-model`, `device-model`, `state-store`, `automation`, `observability` | — | — | `com.homesynapse.api.rest.internal` | Wave 4 |
+| `websocket-api` | Doc 10 | `event-model`, `event-bus` | — | — | `com.homesynapse.api.websocket.internal` | Wave 4 |
+| `observability` | Doc 11 | `event-model`, `state-store` | `com.homesynapse.observability.health`, `.trace` | `com.homesynapse.observability.spi` ← | `com.homesynapse.observability.internal` | Wave 4 |
+| `integration-zigbee` | Doc 08 | `integration-api` ONLY | — | — | `com.homesynapse.integration.zigbee.internal` | Wave 5 |
+| `platform-systemd` | Doc 12 | `platform-api` | — | — | `com.homesynapse.platform.systemd.internal` | Wave 5 |
+| `lifecycle` | Doc 12 | `platform-api`, `event-model`, `observability`, (all subsystem modules) | — | — | `com.homesynapse.lifecycle.internal` | Wave 5 |
 | `dashboard` | Doc 13 | (none — static files) | — | — | — | Wave 5 |
-| `homesynapse-app` | — | (all modules) | — | — | `io.homesynapse.app` | Wave 5 |
-| `test-support` | — | `event-model`, `device-model`, `integration-api` | `io.homesynapse.test` | — | — | Wave 5 |
+| `homesynapse-app` | — | (all modules) | — | — | `com.homesynapse.app` | Wave 5 |
+| `test-support` | — | `event-model`, `device-model`, `integration-api` | `com.homesynapse.test` | — | — | Wave 5 |
 
 **19 modules total.** 8 columns (added SPI Packages).
 
@@ -708,7 +708,7 @@ plugins {
 }
 
 application {
-    mainClass = "io.homesynapse.app.HomeSynapseMain"
+    mainClass = "com.homesynapse.app.HomeSynapseMain"
 }
 
 // jlink custom runtime configuration (LTD-13)
@@ -1026,14 +1026,14 @@ Each module gets at minimum:
 |---|---|
 | `<module>/build.gradle.kts` | Applies appropriate convention plugin, declares dependencies |
 | `<module>/src/main/java/module-info.java` | JPMS module descriptor with explicit exports |
-| `<module>/src/main/java/io/homesynapse/<pkg>/package-info.java` | Package-level Javadoc placeholder |
-| `<module>/src/test/java/io/homesynapse/<pkg>/package-info.java` | Test package placeholder |
+| `<module>/src/main/java/com/homesynapse/<pkg>/package-info.java` | Package-level Javadoc placeholder |
+| `<module>/src/test/java/com/homesynapse/<pkg>/package-info.java` | Test package placeholder |
 
 For the 6 test-fixture modules, additionally:
 
 | File | Content |
 |---|---|
-| `<module>/src/testFixtures/java/io/homesynapse/<pkg>/test/package-info.java` | Test fixtures package placeholder |
+| `<module>/src/testFixtures/java/com/homesynapse/<pkg>/test/package-info.java` | Test fixtures package placeholder |
 
 For `integration-zigbee`, additionally:
 
@@ -1091,7 +1091,7 @@ This document incorporates all 12 previously resolved decisions (A through L) an
 
 ### Decision O: `.spi` sub-package convention for extension points
 
-**Proposed:** Add `io.homesynapse.<subsystem>.spi` packages for 5 modules with extension points (§1.2, Change 4).
+**Proposed:** Add `com.homesynapse.<subsystem>.spi` packages for 5 modules with extension points (§1.2, Change 4).
 **Rationale:** Helidon's practice, validated by Micronaut. Distinguishes "API for consumers" from "SPI for implementors." JPMS exports `.spi` packages selectively.
 **Alternative:** All public types in root package. Rejected: no visibility into extension vs. consumption intent.
 
@@ -1126,6 +1126,6 @@ This document incorporates all 12 previously resolved decisions (A through L) an
 | 11 | Custom AssertJ assertions in test-support | Testing | Domain-specific assertion methods |
 | 12 | `integration-runtime` explicit `platform-api` dep | Dependency structure | Health reporting for supervisor |
 
-**What did NOT change:** Module count (19), module names, directory layout layers, base package (`io.homesynapse`), monorepo structure, YAML-only configuration, JPMS enforcement, `.internal` convention, Phase 2/3 wave ordering, production order, acceptance criteria, performance budgets.
+**What did NOT change:** Module count (19), module names, directory layout layers, base package (`com.homesynapse`), monorepo structure, YAML-only configuration, JPMS enforcement, `.internal` convention, Phase 2/3 wave ordering, production order, acceptance criteria, performance budgets.
 
 The refined structure adopts the best-validated patterns from 17 projects while staying true to HomeSynapse's identity as a domain-specific product (not a generic framework) targeting constrained hardware.

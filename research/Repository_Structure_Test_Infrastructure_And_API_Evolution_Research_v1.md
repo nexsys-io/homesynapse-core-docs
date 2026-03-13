@@ -37,7 +37,7 @@ Every successful multi-module project centralizes shared domain types in a singl
 
 Monorepo is unambiguously correct for fewer than 50 tightly coupled modules (all surveyed core frameworks use monorepo).
 
-Namespace changes after release are catastrophically expensive. OpenHAB's `org.eclipse.smarthome` to `org.openhab.core` migration broke all bundles, all 130+ open pull requests, and required migration scripts for configuration files. Axon's package reorganization between v4 and v5 similarly created painful migrations. `io.homesynapse.*` must be permanent.
+Namespace changes after release are catastrophically expensive. OpenHAB's `org.eclipse.smarthome` to `org.openhab.core` migration broke all bundles, all 130+ open pull requests, and required migration scripts for configuration files. Axon's package reorganization between v4 and v5 similarly created painful migrations. `com.homesynapse.*` must be permanent.
 
 The "depends-on-everything" configuration module is a proven anti-pattern. Axon v4's `axon-configuration` module depended on messaging, modelling, and eventsourcing, creating a God Module that made independent module evolution impossible. Axon v5 eliminated it. Spring Boot 4 is modularizing its monolithic `spring-boot-autoconfigure` for the same reason. Only `homesynapse-app` may depend on all modules. The `lifecycle` module is the risk area to watch.
 
