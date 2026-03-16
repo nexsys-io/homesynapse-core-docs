@@ -1,8 +1,8 @@
 # HomeSynapse Core — Project Status
 
-**Last updated:** 2026-03-10
-**Current phase:** Phase 2 — Interface-Level Specification. All Phase 1 prerequisites resolved. See `governance/phase-2-transition-guide.md`.
-**Active documents:** Phase 2 transition guide locked. Refined Repository Architecture v2 locked (supersedes Implementation Plan v1). Next: project scaffold setup, then Doc 01 interface specification.
+**Last updated:** 2026-03-15
+**Current phase:** Phase 2 — Interface-Level Specification. Sprint 1 (Wave 1: Event Model + Platform API) complete.
+**Active work:** Sprint 1 delivered all event-model, event-bus, and platform-api interfaces. Sprint 2 (Week 2: Device Model + State Store) begins March 16.
 
 ---
 
@@ -50,6 +50,59 @@ Before Phase 2 interface specification begins:
 4. ~~**sqlite-jdbc version pin gate**~~ — COMPLETE. xerial sqlite-jdbc 3.51.2.0 pinned. WAL validation spike deferred to first Phase 3 task. See `governance/phase-2-transition-guide.md` §2.
 5. ~~**Licensing model decision**~~ — COMPLETE. Proprietary, all rights reserved. See `governance/phase-2-transition-guide.md` §3.
 6. **9 RECOMMENDED review amendments** — AMD-12, AMD-18, AMD-19, AMD-20, AMD-21, AMD-22, AMD-23, AMD-24. Apply opportunistically during Phase 2 interface work. See `research/Critical_Design_Review_Docs_01_11_v1.md` §3 for full list.
+
+---
+
+## Phase 2 Progress — Sprint 1 (Wave 1: Event Model + Platform API)
+
+**Sprint period:** 2026-03-13 (Fri) to 2026-03-15 (Sun) — completed ahead of schedule
+**Sprint goal:** All public Java interfaces, records, enums, and sealed interfaces for event-model, event-bus, and platform-api modules with full Javadoc contracts. All three modules compile cleanly.
+
+### Modules Delivered
+
+| Module | Package | Production Files | Types |
+|---|---|---|---|
+| platform-api | `com.homesynapse.platform` | 14 | Ulid, UlidFactory, 8 typed ID wrappers, PlatformPaths, HealthReporter |
+| event-model | `com.homesynapse.event` | 37 | EventEnvelope (13-component), EventId, CausalContext, DomainEvent, DegradedEvent, EventDraft, EventPublisher, EventStore, EventPage, SequenceConflictException, EventTypes (39 constants), 5 enums, 22 payload records |
+| event-bus | `com.homesynapse.event.bus` | 6 | SubscriptionFilter (with matches()), SubscriberInfo, EventBus, CheckpointStore |
+
+**Total production Java files:** 57 across 3 modules (plus module-info.java and package-info.java for each).
+
+### Execution Blocks
+
+| Block | Deliverables | Status |
+|---|---|---|
+| A (Identity + Enums) | Ulid, UlidFactory, 8 typed IDs, SubjectRef, SubjectType, 5 event enums | DONE |
+| B (EventEnvelope) | EventId, CausalContext rewrite, DomainEvent, DegradedEvent, EventEnvelope | DONE |
+| D (Publisher/Store) | EventDraft, EventPublisher, EventPage, SequenceConflictException, EventStore | DONE |
+| E (EventBus) | SubscriptionFilter, SubscriberInfo, EventBus, CheckpointStore, event-bus module-info | DONE |
+| F (Platform API) | PlatformPaths, HealthReporter, platform-api module-info update | DONE |
+| Payload Types | EventTypes constants, 22 event payload records (command, state, device, automation, presence, system, telemetry) | DONE |
+
+### Quality Gates
+
+- Full project compile (`./gradlew compileJava`): **PASS** — all 19 modules, zero warnings with `-Xlint:all -Werror`
+- Javadoc quality pass: **PASS** — all public types documented with @param, @return, @throws, @see tags; thread safety documented on all interfaces; nullability documented on all parameters
+- Traceability docs populated: `01-event-model.md` (41 types mapped), `12-lifecycle.md` (2 types mapped)
+- Spotless copyright headers: verified on all files
+
+### Key Decisions Made During Sprint 1
+
+- **EventEnvelope non-generic** (Block B Decision 1): payload typed as `DomainEvent`, not `EventEnvelope<T>`. Subscribers use pattern matching for dispatch.
+- **CausalContext uses raw Ulid** (Block B Decision 2): old typed wrappers (CorrelationId, CausationId, ActorRef) deleted. CausalContext carries `Ulid correlationId`, nullable `Ulid causationId`, nullable `Ulid actorRef`.
+- **DomainEvent non-sealed initially** (Block B Decision 4): marker interface for Phase 2. Becomes sealed when payload records are finalized in Phase 3.
+- **EventPublisher CausalContext handling** (Block D): callers construct the derived event's CausalContext via `CausalContext.chain()` and pass it ready-made. Publisher trusts the caller's construction. For root events, publisher constructs CausalContext internally.
+- **Event payload value fields use String** (Sprint 1): dynamic/Any-typed value fields (attribute values, parameters) represented as serialized String form in Phase 2. Phase 3 introduces typed `AttributeValue` when capabilities define attribute schemas.
+- **EventTypes as static final Strings** (Sprint 1): non-instantiable utility class, not enum. Extensible for integration-defined types at runtime.
+
+### Scaffold Fixes
+
+- `device-model/module-info.java`: exports of empty `com.homesynapse.device` commented out (re-enable in Sprint 2)
+- `integration-api/module-info.java`: exports of empty `com.homesynapse.integration` commented out (re-enable when integration types added)
+
+### Next: Sprint 2 (Week 2: Device Model + State Store)
+
+Target modules: device-model, state-store, integration-api. Design authority: Doc 02 (Device Model), Doc 03 (State Store), Doc 05 (Integration Runtime).
 
 ---
 
