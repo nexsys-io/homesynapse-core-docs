@@ -1,8 +1,8 @@
 # HomeSynapse Core — Project Status
 
-**Last updated:** 2026-03-15
-**Current phase:** Phase 2 — Interface-Level Specification. Sprint 1 (Wave 1: Event Model + Platform API) complete.
-**Active work:** Sprint 1 delivered all event-model, event-bus, and platform-api interfaces. Sprint 2 (Week 2: Device Model + State Store) begins March 16.
+**Last updated:** 2026-03-16
+**Current phase:** Phase 2 — Interface-Level Specification. Sprint 1 complete. Architecture Review Fixes applied. Sprint 2 begins.
+**Active work:** Architecture Review Fixes (pre-Sprint 2) delivered March 16. Sprint 2 (Week 2: Device Model + State Store) begins now.
 
 ---
 
@@ -63,7 +63,7 @@ Before Phase 2 interface specification begins:
 | Module | Package | Production Files | Types |
 |---|---|---|---|
 | platform-api | `com.homesynapse.platform` | 14 | Ulid, UlidFactory, 8 typed ID wrappers, PlatformPaths, HealthReporter |
-| event-model | `com.homesynapse.event` | 37 | EventEnvelope (13-component), EventId, CausalContext, DomainEvent, DegradedEvent, EventDraft, EventPublisher, EventStore, EventPage, SequenceConflictException, EventTypes (39 constants), 5 enums, 22 payload records |
+| event-model | `com.homesynapse.event` | 43 | EventEnvelope (14-component), EventId, CausalContext (2-field), DomainEvent, DegradedEvent, EventDraft (8-field), EventPublisher, EventStore, EventPage, SequenceConflictException, HomeSynapseException + 5 subclasses, EventTypes (41 constants), 6 enums (incl. EventPriority with severity()), 22 payload records |
 | event-bus | `com.homesynapse.event.bus` | 6 | SubscriptionFilter (with matches()), SubscriberInfo, EventBus, CheckpointStore |
 
 **Total production Java files:** 57 across 3 modules (plus module-info.java and package-info.java for each).
@@ -89,7 +89,7 @@ Before Phase 2 interface specification begins:
 ### Key Decisions Made During Sprint 1
 
 - **EventEnvelope non-generic** (Block B Decision 1): payload typed as `DomainEvent`, not `EventEnvelope<T>`. Subscribers use pattern matching for dispatch.
-- **CausalContext uses raw Ulid** (Block B Decision 2): old typed wrappers (CorrelationId, CausationId, ActorRef) deleted. CausalContext carries `Ulid correlationId`, nullable `Ulid causationId`, nullable `Ulid actorRef`.
+- **CausalContext uses raw Ulid** (Block B Decision 2): old typed wrappers (CorrelationId, CausationId, ActorRef) deleted. CausalContext now carries `Ulid correlationId`, nullable `Ulid causationId` only (2 fields). actorRef was promoted to EventEnvelope during Architecture Review Fixes (March 16, 2026).
 - **DomainEvent non-sealed initially** (Block B Decision 4): marker interface for Phase 2. Becomes sealed when payload records are finalized in Phase 3.
 - **EventPublisher CausalContext handling** (Block D): callers construct the derived event's CausalContext via `CausalContext.chain()` and pass it ready-made. Publisher trusts the caller's construction. For root events, publisher constructs CausalContext internally.
 - **Event payload value fields use String** (Sprint 1): dynamic/Any-typed value fields (attribute values, parameters) represented as serialized String form in Phase 2. Phase 3 introduces typed `AttributeValue` when capabilities define attribute schemas.
@@ -99,6 +99,42 @@ Before Phase 2 interface specification begins:
 
 - `device-model/module-info.java`: exports of empty `com.homesynapse.device` commented out (re-enable in Sprint 2)
 - `integration-api/module-info.java`: exports of empty `com.homesynapse.integration` commented out (re-enable when integration types added)
+
+---
+
+## Architecture Review Fixes — March 16, 2026
+
+**Scope:** Ten structural fixes identified during the critical architecture review, applied before Sprint 2 begins.
+**Status:** Complete. All code compiles. All documentation updated.
+
+### Code Changes (event-model, event-bus)
+
+| Fix | Change | Impact |
+|---|---|---|
+| **Fix 1** | `EventEnvelope` promoted to **14 fields** — `actorRef` (Ulid, nullable) added as 14th field, positioned after `causalContext` and before `payload`. | Enables direct indexing for multi-user audit trails (INV-MU-01). |
+| **Fix 1** | `CausalContext` reduced to **2 fields** — `actorRef` removed. Static factories: `root(Ulid)` (1 param), `chain(Ulid, Ulid)` (2 params). | Pure causality semantics only. |
+| **Fix 1** | `EventDraft` gained `actorRef` field — now **8 fields**. actorRef flows from caller → draft → envelope. | Consistent actorRef path for both root and derived events. |
+| **Fix 1** | `EventPublisher.publishRoot(EventDraft)` changed to **single-parameter** — actorRef comes from the EventDraft, not a separate parameter. | Consistent API: actorRef always on the draft. |
+| **Fix 2** | `EventPriority` gained **`severity()` method** — CRITICAL(0), NORMAL(1), DIAGNOSTIC(2). | Ordinal-independent comparison for subscription filtering. |
+| **Fix 2** | `SubscriptionFilter.matches()` updated to use `severity()` instead of `ordinal()`. | Stable against enum reordering. |
+| **Fix 3** | `HomeSynapseException` abstract class added to `com.homesynapse.event` with `errorCode()` and `suggestedHttpStatus()` abstract methods. | Structured error infrastructure for REST API translation. |
+| **Fix 3** | 5 concrete exception subclasses: `EntityNotFoundException` (404), `DeviceNotFoundException` (404), `CapabilityMismatchException` (409), `ConfigurationValidationException` (422), `IntegrationUnavailableException` (503). | Type-safe error handling across all modules. |
+
+### Documentation Changes
+
+| Fix | Document | Change |
+|---|---|---|
+| **Fix 4** | Repo Architecture v2 | Verified clean — zero instances of `io.homesynapse`. All references already use `com.homesynapse`. |
+| **Fix 5** | event-model MODULE_CONTEXT.md | Added Configuration Reload Ordering Contract section documenting the direct-callback → event → subscriber ordering. |
+| **Fix 6** | rest-api MODULE_CONTEXT.md | Added Idempotency-Key Contract section documenting best-effort semantics, LRU cache limitations, and guidance on non-idempotent commands. |
+| **Fix 7** | websocket-api MODULE_CONTEXT.md | Added WebSocket Replay/Live Merge Protocol section documenting parallel-stream architecture, client-side buffering and merge, and overflow handling via REST fallback. |
+| **Fix 8** | event-model MODULE_CONTEXT.md | Presence events (`PresenceSignalEvent`, `PresenceChangedEvent`) marked as Tier 2 — reserved vocabulary with no MVP producer or consumer. |
+| **Fix 9** | Design_Review_Amendments_v1.md | Status changed from "Draft — pending Nick's review" to "Approved" with date 2026-03-16 and approval note. |
+| **Fix 10** | PROJECT_STATUS.md | This section. Sprint 1 module summary updated to reflect new type counts. |
+
+### Compile Gate
+
+`./gradlew compileJava` — **PASS** — all 19 modules, zero errors, zero warnings.
 
 ### Next: Sprint 2 (Week 2: Device Model + State Store)
 
