@@ -1,8 +1,8 @@
 # HomeSynapse Core — Project Status
 
-**Last updated:** 2026-03-16
-**Current phase:** Phase 2 — Interface-Level Specification. Sprint 1 complete. Architecture Review Fixes applied. Sprint 2 begins.
-**Active work:** Architecture Review Fixes (pre-Sprint 2) delivered March 16. Sprint 2 (Week 2: Device Model + State Store) begins now.
+**Last updated:** 2026-03-17
+**Current phase:** Phase 2 — Interface-Level Specification. Sprint 1 complete. Architecture Review Fixes applied. Sprint 2 in progress.
+**Active work:** Sprint 2 (Week 2: Device Model + State Store). AMD-25 (temporal duration trigger modifier) drafted for Doc 07. Demand Response research artifact complete.
 
 ---
 
@@ -50,6 +50,7 @@ Before Phase 2 interface specification begins:
 4. ~~**sqlite-jdbc version pin gate**~~ — COMPLETE. xerial sqlite-jdbc 3.51.2.0 pinned. WAL validation spike deferred to first Phase 3 task. See `governance/phase-2-transition-guide.md` §2.
 5. ~~**Licensing model decision**~~ — COMPLETE. Proprietary, all rights reserved. See `governance/phase-2-transition-guide.md` §3.
 6. **9 RECOMMENDED review amendments** — AMD-12, AMD-18, AMD-19, AMD-20, AMD-21, AMD-22, AMD-23, AMD-24. Apply opportunistically during Phase 2 interface work. See `research/Critical_Design_Review_Docs_01_11_v1.md` §3 for full list.
+7. **AMD-25 (temporal duration trigger modifier)** — Draft, pending Hivemind review. Must land before Wave 3 Phase 2 (automation module). See `design/amendments/AMD-25_Temporal_Duration_Trigger_Modifier.md`.
 
 ---
 
@@ -139,6 +140,39 @@ Before Phase 2 interface specification begins:
 ### Next: Sprint 2 (Week 2: Device Model + State Store)
 
 Target modules: device-model, state-store, integration-api. Design authority: Doc 02 (Device Model), Doc 03 (State Store), Doc 05 (Integration Runtime).
+
+---
+
+## AMD-25: Temporal Duration Trigger Modifier — March 17, 2026
+
+**Status:** Draft — pending Hivemind review
+**Target:** Doc 07 (Automation Engine) — amendment to locked document
+**Priority:** HIGH — must land before Wave 3 Phase 2 interface specification (automation module)
+
+AMD-25 adds a `for_duration` modifier to the four Tier 1 trigger types (`state_change`, `state`, `numeric_threshold`, `availability`) that delays trigger firing until the predicate has been continuously true for a specified duration. This is the HomeSynapse equivalent of Home Assistant's `for:` modifier — table-stakes functionality for temporal automation patterns ("turn off HVAC if no occupancy for 30 minutes").
+
+**Amendment scope:** §3.4 (trigger evaluation — duration timer lifecycle), §3.7 (hot-reload interaction), §3.10 (REPLAY suppression and REPLAY→LIVE timer reconstruction), §8.2 (DurationTimer type, TriggerDefinition update), §9 (configuration — max_for_duration_ms, max_concurrent_duration_timers), §10 (performance targets — timer management overhead), §11 (5 new metrics, 4 new structured log events, health indicator update), §13 (7 new unit tests, 4 new integration tests), §14 (Tier 2 applicability note).
+
+**Design decision:** Option (A) — trigger-level modifier, not a new condition type or trigger type. Matches HA semantics, matches user mental model, avoids type proliferation, timer is pre-Run (no Run slot consumed).
+
+**New DIAGNOSTIC events:** `trigger_duration_started`, `trigger_duration_expired`, `trigger_duration_cancelled`, `trigger_duration_limit_exceeded`, `trigger_duration_state_validated`.
+
+**Artifact:** `design/amendments/AMD-25_Temporal_Duration_Trigger_Modifier.md`
+
+---
+
+## Demand Response Grid-Interactive Research — March 17, 2026
+
+**Status:** Complete
+**Artifact:** `research/Demand_Response_Grid_Interactive_Research_v1.md`
+
+Research evaluating whether HomeSynapse's automation engine can serve as the orchestration layer for demand response events. Covers OpenADR 3.0, CTA-2045, and three utility DR programs (ERCOT ERS, CAISO, ConEd SmartCharge).
+
+**Key finding:** The existing automation engine can handle incentive-based and standard DR programs (10–30 minute response windows). Multi-device coordinated DR responses with rollback semantics require new action types (`capture_state`, `restore_state`, `sequence` with compensating transactions) — implementable as Tier 2 extensions to the existing engine, not a new subsystem.
+
+**Recommendation:** Extend automation engine for Tier 2 DR. Evaluate dedicated orchestration layer for Tier 3+ with falsifiability criteria defined in the research artifact §7. No MVP scope change recommended.
+
+**Feeds:** NexSys Grid product planning, INV-EI-02 (Grid-Interactive by Design), Automation Engine Tier 2+ design.
 
 ---
 
