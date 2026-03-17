@@ -49,7 +49,7 @@ Before Phase 2 interface specification begins:
 3. ~~**Copyright header template**~~ — COMPLETE. Proprietary header with SPDX identifier defined. See `governance/phase-2-transition-guide.md` §4.
 4. ~~**sqlite-jdbc version pin gate**~~ — COMPLETE. xerial sqlite-jdbc 3.51.2.0 pinned. WAL validation spike deferred to first Phase 3 task. See `governance/phase-2-transition-guide.md` §2.
 5. ~~**Licensing model decision**~~ — COMPLETE. Proprietary, all rights reserved. See `governance/phase-2-transition-guide.md` §3.
-6. **9 RECOMMENDED review amendments** — AMD-12, AMD-18, AMD-19, AMD-20, AMD-21, AMD-22, AMD-23, AMD-24. Apply opportunistically during Phase 2 interface work. See `research/Critical_Design_Review_Docs_01_11_v1.md` §3 for full list.
+6. **8 RECOMMENDED review amendments** — AMD-12, AMD-18, AMD-19, AMD-20, AMD-21, AMD-22, AMD-23, AMD-24. Apply opportunistically during Phase 2 interface work. See `research/Critical_Design_Review_Docs_01_11_v1.md` §3 for full list.
 7. **AMD-25 (temporal duration trigger modifier)** — Draft, pending Hivemind review. Must land before Wave 3 Phase 2 (automation module). See `design/amendments/AMD-25_Temporal_Duration_Trigger_Modifier.md`.
 
 ---
@@ -182,7 +182,7 @@ Research evaluating whether HomeSynapse's automation engine can serve as the orc
 
 **14 of 14 documents locked.** Phase 1 complete. The architecture's core — event model, device model, state management, persistence, integration runtime, configuration, automation, protocol adapter, both API surfaces, observability, startup/lifecycle/shutdown, the observability dashboard, and the master architecture synthesis — is fully designed, audited, and post-review hardened.
 
-**Critical Design Review complete.** 24 amendments identified; 22 accepted (4 BLOCKING, 9 REQUIRED, 9 RECOMMENDED), 2 rejected (AMD-01, AMD-06). All 13 BLOCKING + REQUIRED amendments applied across Rounds 10–11. 9 RECOMMENDED amendments deferred for opportunistic application. See `research/Critical_Design_Review_Docs_01_11_v1.md` for full decision record.
+**Critical Design Review complete.** 24 amendments identified; 22 accepted (4 BLOCKING, 10 REQUIRED, 8 RECOMMENDED), 2 rejected (AMD-01, AMD-06). All 14 BLOCKING + REQUIRED amendments applied across Rounds 10–11. 8 RECOMMENDED amendments deferred for opportunistic application. See `research/Critical_Design_Review_Docs_01_11_v1.md` for full decision record.
 
 ### Remaining Work
 
@@ -334,7 +334,7 @@ A governance artifact (`governance/phase-2-transition-guide.md`) mapping each Ph
 ### Round 8–9 (Docs 10–11): Docs 10 and 11 drafted, reviewed, and locked. AMD-09 (reconnection admission control + rate limiting) applied to Doc 10 pre-lock. 6 upstream Dependents field updates (U-01-R8, U-02-R8, U-05-R8, U-01-R9, U-03-R9, U-04-R9) applied to Docs 01–05. HealthContributor upstream notes applied to all Docs 01–10. Docs 10 and 11 locked 2026-03-09.
 ### Round 10 (Critical Design Review — 4 BLOCKING amendments): AMD-02 reconciliation pass applied to Doc 03 (new §3.2.1: REPLAY→LIVE reconciliation that re-derives missing `state_changed` events from in-flight `state_reported`, bounded by replay window, emits `system.reconciliation_completed` event; cross-reference to Doc 01 §8.3 EventPublisher durability semantics). AMD-10 projection versioning applied to Doc 03 (new `projection_version` field in checkpoint schema and `CheckpointRecord`, `CURRENT_PROJECTION_VERSION` compile-time constant, startup mismatch triggers full replay from position 0). AMD-04 cascade depth limiting applied to Doc 07 (new §3.7.1: cascade_depth counter on AutomationRun, max 8 configurable, duplicate suppression per correlation_id, natural termination via Doc 03 §3.2 change detection, health DEGRADED on repeated hits) and Doc 01 (§4.4: cascade_depth as derived field in causal chain projection). AMD-03 snapshot usage pattern applied to Doc 07 §3.8 (condition evaluation captures StateSnapshot via getSnapshot() at trigger time for consistent cross-entity state view).
 ### Round 10–11 Summary — Critical Design Review
-A fresh-perspective adversarial review of all 11 design documents identified 24 amendments (AMD-01 through AMD-24). Nick reclassified: 4 BLOCKING, 9 REQUIRED, 9 RECOMMENDED, 2 rejected (AMD-01 durability contract — already specified; AMD-06 single-writer contention — no real gap). Three systemic themes: (1) boundary contracts at subsystem interfaces, (2) production resilience gaps (failure modes, recovery paths), (3) API stability for client-facing contracts. All 13 BLOCKING + REQUIRED amendments applied in Rounds 10–11 across 8 design documents. 9 RECOMMENDED amendments remain for opportunistic application. Full decision record: `research/Critical_Design_Review_Docs_01_11_v1.md`.
+A fresh-perspective adversarial review of all 11 design documents identified 24 amendments (AMD-01 through AMD-24). Nick reclassified: 4 BLOCKING, 10 REQUIRED, 8 RECOMMENDED, 2 rejected (AMD-01 durability contract — already specified; AMD-06 single-writer contention — no real gap). Three systemic themes: (1) boundary contracts at subsystem interfaces, (2) production resilience gaps (failure modes, recovery paths), (3) API stability for client-facing contracts. All 14 BLOCKING + REQUIRED amendments applied in Rounds 10–11 across 8 design documents. 8 RECOMMENDED amendments remain for opportunistic application. Full decision record: `research/Critical_Design_Review_Docs_01_11_v1.md`.
 
 ### Round 12 (Doc 12) — Complete:
 **Cross-audit results:** 1 critical, 6 significant, 1 minor. Critical: checkpoint field name `globalPosition` should be `view_position` (Doc 03 §3.3 schema). Significant: missing `cell_size_check` PRAGMA (Doc 04 §3.3), schema composition timing conflict with integration schemas (Doc 06 §3.2), REST API section reference §3.1→§3.9, health aggregation model description imprecise vs Doc 11 §3.3 tier model, 10 upstream Dependents updates. Minor: unclean shutdown marker write step not explicit. **All findings addressed. Upstream Dependents applied. Locked 2026-03-09.**
@@ -365,7 +365,7 @@ All pending upstream Dependents (U-01 through U-07 from Round 7, U-01 through U-
 
 ### Deferred — Apply opportunistically
 
-**9 RECOMMENDED review amendments (AMD-12, AMD-18, AMD-19, AMD-20, AMD-21, AMD-22, AMD-23, AMD-24).** See `research/Critical_Design_Review_Docs_01_11_v1.md` §3 for full list. AMD-22 (HealthChangeListener) and AMD-18 (causal chain timeout) are candidates for integration during Doc 12 drafting.
+**8 RECOMMENDED review amendments (AMD-12, AMD-18, AMD-19, AMD-20, AMD-21, AMD-22, AMD-23, AMD-24).** See `research/Critical_Design_Review_Docs_01_11_v1.md` §3 for full list. AMD-22 (HealthChangeListener) and AMD-18 (causal chain timeout) are candidates for integration during Doc 12 drafting.
 
 ### Outside Phase 1 design documents
 
@@ -586,53 +586,66 @@ The Portability Architecture research artifact (Track C) is drafted. It synthesi
 
 ## Repository State
 
-- **homesynapse-core-docs:** Governance artifacts (all status headers current), foundations layer, Docs 01–07 committed with all amendments applied through Round 6 cross-audit. Locked Decisions register corrected (LTD-09 cross-reference). Doc 07 competitive research summary and locked design document committed 2026-03-07. Portability Architecture research artifact (Track C) drafted 2026-03-07, pending commit. Doc 09 REST API competitive research artifact and draft design document generated 2026-03-07, pending commit. Doc 08 Zigbee Adapter competitive research artifact generated 2026-03-07, pending commit. Doc 08 Zigbee Adapter draft design document with 9 pre-audit amendments (A-08-R7-1 through A-08-R7-9) committed and pushed 2026-03-08. **Doc 08 Round 7 cross-audit amendments applied 2026-03-08 (presence_signal removal, event_category forward reference, IntegrationDescriptor values, command_result priority, Tuya DP header). Pending commit.**
-- **homesynapse-core:** Empty. No implementation code during Phase 1.
+- **homesynapse-core-docs:** All 14 design documents + 2 foundation documents locked and committed. All amendments through Round 14 applied. Critical Design Review complete (AMD-01 through AMD-24; 14 applied, 8 deferred, 2 rejected). AMD-25 (temporal duration trigger modifier) drafted in `design/amendments/`. DR research artifact committed to `research/`. Architecture validation review in `reviews/`. All governance artifacts current.
+- **homesynapse-core:** Phase 2 interface specifications in progress. 19-module Gradle scaffold with 21 `build.gradle.kts` files. Production Java code across 5 modules:
+  - **Sprint 1 (Wave 1):** platform-api (12 types), event-model (46 types), event-bus (4 types) — 62 production Java files + module-info + package-info per module. All compile with `-Xlint:all -Werror`.
+  - **Sprint 2 (Wave 2, in progress):** device-model (57 types), state-store (7 types) — 64 production Java files + module-info per module. All compile cleanly.
+  - **Architecture Review Fixes:** 5 exception classes added to event-model (HomeSynapseException + 4 concrete subclasses). EventEnvelope promoted to 14 fields, CausalContext reduced to 2 fields, EventDraft gained actorRef.
+  - **MODULE_CONTEXT.md:** Populated for all 5 modules with interface specs (event-model 245 lines, event-bus 112, platform-api 129, device-model 274, state-store 143).
+  - **Remaining scaffold modules (no interface specs yet):** automation, configuration, persistence, observability, startup, rest-api, websocket-api, web-ui, zigbee-adapter, test-support, test-fixtures.
 
-### Planned repository structure additions
+### Repository structure
 
 ```
 homesynapse-core-docs/
 ├── governance/
-│   ├── {existing files}
-│   └── phase-2-transition-guide.md          ← planned
+│   ├── {existing governance files}
+│   └── phase-2-transition-guide.md          ← complete
 ├── foundations/
-│   └── {existing files}
+│   └── {Glossary v1, Identity and Addressing Model v1}
 ├── design/
-│   ├── {existing Docs 01–07 + Docs 08–14}
+│   ├── {Docs 01–14, all locked}
+│   └── amendments/
+│       └── AMD-25_Temporal_Duration_Trigger_Modifier.md   ← draft
 ├── research/
-│   ├── {existing research summaries}
-│   ├── Zigbee_Adapter_Research_v1.md        ← generated 2026-03-07
-│   ├── WebSocket_API_Research_v1.md         ← planned
-│   ├── Observability_Research_v1.md         ← planned (critical path)
-│   ├── Web_UI_Framework_Research_v1.md      ← planned (parallel)
-│   └── {future research summaries}
-└── reference/                                ← new directory
-    ├── event-type-registry.md
-    ├── subscriber-registry.md
-    ├── configuration-schema-registry.md
-    └── gradle-module-map.md
+│   ├── {11 research artifacts, all complete}
+│   └── Demand_Response_Grid_Interactive_Research_v1.md     ← 2026-03-17
+├── reviews/
+│   └── Block_H_Architecture_Validation_v1.md               ← 2026-03-17
+└── reference/                                ← not yet created
+    ├── event-type-registry.md               ← planned (all source docs locked)
+    ├── subscriber-registry.md               ← planned
+    ├── configuration-schema-registry.md     ← planned
+    └── gradle-module-map.md                 ← planned
 ```
 
 ---
 
 ## Next Steps
 
+### Completed
+
 1. ~~Apply upstream Dependents (U-01 through U-07) + Lock Docs 08 and 09.~~ COMPLETE.
 2. ~~Begin Doc 10 (WebSocket API) research.~~ COMPLETE — Locked 2026-03-09.
 3. ~~Begin Doc 11 (Observability & Debugging) research.~~ COMPLETE — Locked 2026-03-09.
 4. ~~Draft Doc 10.~~ COMPLETE — Locked 2026-03-09.
 5. ~~Draft Doc 11.~~ COMPLETE — Locked 2026-03-09.
-1. **Project scaffold setup** — Initialize `homesynapse-core` repository per `governance/HomeSynapse_Core_Refined_Repo_Architecture_v2.md` §9 (scaffold file list) and `governance/phase-2-transition-guide.md` §8. Refined Repo Architecture v2 supersedes Implementation Plan v1 for repository structure, convention plugins, test infrastructure, and Phase 2/3 sequencing. Research artifact: `research/Repository_Structure_Test_Infrastructure_And_API_Evolution_Research_v1.md`.
-2. **Doc 01 interface specification** — Event Model & Event Bus. First Phase 2 deliverable.
-3. ~~Begin Doc 13 framework investigation.~~ COMPLETE — LTD-18 created.
-4. ~~Cross-audit + Lock Doc 10.~~ COMPLETE — Round 8–9.
-5. ~~Cross-audit + Lock Doc 11.~~ COMPLETE — Round 8–9.
-6. ~~Draft + audit + lock Doc 12.~~ COMPLETE — Round 12. Locked 2026-03-09.
-7. ~~Draft + audit + lock Doc 13.~~ COMPLETE — Round 13. Locked 2026-03-10.
-8. ~~Draft + audit + lock Doc 14.~~ COMPLETE — Round 14. Locked 2026-03-10.
-9. **Reference artifacts** — event-type-registry, subscriber-registry, configuration-schema-registry. Can begin now (all source docs locked).
-10. ~~**Phase 2 Transition Guide**~~ — COMPLETE. Locked 2026-03-10. See `governance/phase-2-transition-guide.md`.
+6. ~~Cross-audit + Lock Doc 10.~~ COMPLETE — Round 8–9.
+7. ~~Cross-audit + Lock Doc 11.~~ COMPLETE — Round 8–9.
+8. ~~Draft + audit + lock Doc 12.~~ COMPLETE — Round 12. Locked 2026-03-09.
+9. ~~Draft + audit + lock Doc 13.~~ COMPLETE — Round 13. Locked 2026-03-10.
+10. ~~Draft + audit + lock Doc 14.~~ COMPLETE — Round 14. Locked 2026-03-10.
+11. ~~Begin Doc 13 framework investigation.~~ COMPLETE — LTD-18 created.
+12. ~~**Phase 2 Transition Guide**~~ — COMPLETE. See `governance/phase-2-transition-guide.md`.
+13. ~~**Project scaffold setup**~~ — COMPLETE. `homesynapse-core` repository initialized per `governance/HomeSynapse_Core_Refined_Repo_Architecture_v2.md` §9 and `governance/phase-2-transition-guide.md` §8. 19-module Gradle scaffold.
+14. ~~**Sprint 1 — Wave 1 interface specs (event-model, event-bus, platform-api)**~~ — COMPLETE. 62 production Java files, all compile cleanly.
+15. ~~**Architecture Review Fixes**~~ — COMPLETE. 10 structural fixes applied 2026-03-16.
+
+### Active
+
+16. **Sprint 2 — Wave 2 interface specs (device-model, state-store, integration-api).** Device-model (57 types) and state-store (7 types) complete. Integration-api pending.
+17. **AMD-25 review** — Temporal duration trigger modifier. Draft complete, pending Hivemind review. Must land before Wave 3 (automation module).
+18. **Reference artifacts** — event-type-registry, subscriber-registry, configuration-schema-registry. Can begin now (all source docs locked).
 
 ---
 

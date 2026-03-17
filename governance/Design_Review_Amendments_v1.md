@@ -3,7 +3,7 @@
 **Document type:** Governance — specification amendments
 **Status:** Approved
 **Approval date:** 2026-03-16
-**Approval note:** All 13 BLOCKING + REQUIRED amendments were applied during Rounds 10-11. 9 RECOMMENDED amendments remain deferred for opportunistic application.
+**Approval note:** All 14 BLOCKING + REQUIRED amendments were applied during Rounds 10-11. 8 RECOMMENDED amendments remain deferred for opportunistic application.
 **Scope:** Amendments to subsystem design documents 01–11 arising from adversarial architecture review
 **Date:** 2026-03-09
 **Review method:** Fresh-perspective critical analysis of all 11 design documents, cross-referenced against Architecture Invariants v1, Locked Decisions Register v1, and Project MVP v1

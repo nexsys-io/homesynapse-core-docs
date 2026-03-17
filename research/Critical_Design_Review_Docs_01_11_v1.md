@@ -74,7 +74,7 @@ After review, Nick reclassified amendments from the original tiers. Two amendmen
 | AMD-16 | Secrets Store Backup | Doc 06 §3.4 | Session 2 (Part 3) |
 | AMD-17 | Device Orphan Lifecycle | Doc 02 §3.15 | Session 2 (Part 3) |
 
-### Accepted: 9 RECOMMENDED (not yet applied — opportunistic)
+### Accepted: 8 RECOMMENDED (not yet applied — opportunistic)
 
 | AMD | Title | Target | Notes |
 |---|---|---|---|
