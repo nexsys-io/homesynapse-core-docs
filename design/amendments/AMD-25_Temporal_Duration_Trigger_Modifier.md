@@ -2,7 +2,8 @@
 
 **Amendment type:** Design amendment to locked document
 **Target document:** `design/07-automation-engine.md` (Locked, 2026-03-07)
-**Status:** Draft — pending Hivemind review
+**Status:** Approved with Conditions — Hivemind review 2026-03-17
+**Review decision:** APPROVED WITH CONDITIONS (see §9 below)
 **Priority:** HIGH — must land before Wave 3 Phase 2 interface specification (automation module)
 **Author:** PM
 **Date:** 2026-03-17
@@ -357,3 +358,63 @@ The `for_duration` trigger modifier and the `wait_for` action both express tempo
 - [x] Amendment is self-consistent with existing Doc 07 §3.4 trigger evaluation procedure and §3.5 deduplication
 - [x] The `wait_for` action relationship documented: when to use which, and why `for_duration` is preferred for "state held" patterns
 - [x] Hot-reload interaction specified (conservative cancellation when trigger definition changes, preservation when unchanged)
+
+---
+
+## 9. Hivemind Review — 2026-03-17
+
+**Decision: APPROVED WITH CONDITIONS**
+
+The amendment is well-designed, thorough, and consistent with the existing architecture. It addresses a genuine user-facing capability gap that would represent a regression vs. Home Assistant's `for:` modifier — one of HA's most-used trigger features. The design is clean: trigger-level modifier, pre-Run timer semantics, no new sealed interface subtypes, virtual thread implementation consistent with LTD-01/LTD-11 patterns.
+
+### Review Against Criteria
+
+**1. Does `for_duration` solve a real problem?** Yes. Without it, users must approximate the "state held for N" pattern using `wait_for` action, which (a) consumes a Run slot for the entire duration, (b) fires the trigger immediately for what may be a transient state producing noisy traces, and (c) is semantically wrong — the duration is part of the trigger predicate, not the action sequence. The four use cases in §0 (HVAC occupancy, garage door, lights, water sensor) are the bread-and-butter patterns of residential automation.
+
+**2. Consistency with Doc 07 §3.4 trigger evaluation model.** Clean. The amendment inserts between step 3 (predicate match) and step 4 (deduplication). When `for_duration` is present, the timer delays entry into step 4 until expiry. The triggering event for deduplication is the original event that started the timer, preserving causal linkage. No existing steps are modified.
+
+**3. REPLAY suppression (§2.2) vs. Doc 07 §3.10 / Doc 01 §3.7.** Consistent. Timers suppressed during REPLAY follows the same pattern as action execution suppression and derived event suppression. DIAGNOSTIC events consumed to rebuild state mirrors how RunManager reconstructs active Run tracking from existing `automation_triggered`/`automation_completed` events. REPLAY→LIVE timer reconstruction with `remaining_duration` calculation is sound.
+
+**4. REPLAY→LIVE timer reconstruction semantics.** Sound. `remaining_duration ≤ 0` fires immediately — correct for timers that should have expired during downtime. Each timer tracked by `(automation_id, trigger_index)` limits to one timer per key, so no "multiple timers" ambiguity at transition. State validation at expiry (§2.1 step 4) catches the edge case where state changed during downtime without producing a cancellation event.
+
+**5. `(automation_id, trigger_index)` tracking key — see Condition 2 below.**
+
+**6. "No restart on subsequent matching events."** Correct and matches HA semantics. The first match starts the timer; subsequent matches do not reset it. This is the expected behavior for "occupancy off for 30 minutes" — each "still off" event should not restart the timer. A future `restart_on_match` option could be added if user demand materializes, but the HA-compatible default is right for MVP.
+
+**7. Concurrent timer limit (1000) and "fire immediately" fallback.** 1000 timers × ~1.2 KB = ~1.2 MB — well within the 50 MB automation engine memory budget. "Fire immediately" is the correct fallback — the user's automation still runs (without temporal guard), and the degradation is observable via DIAGNOSTIC event and WARN log. The alternative ("drop the trigger") would silently break automations.
+
+**8. DIAGNOSTIC events.** Sufficient. The five event types cover the full timer lifecycle plus the defense-in-depth validation check. `trigger_duration_state_validated` is worth the minimal implementation cost (one State Store read at expiry + one conditional event) — its diagnostic value in rare-but-confusing edge cases justifies the complexity.
+
+**9. Hot-reload interaction (§2.10) — see Condition 1 below.**
+
+**10. Cross-subsystem impacts (§7).** Thorough. All six subsystem impacts correctly identified with appropriate action items. No blocking misses.
+
+**11. Performance targets (§2.6).** Realistic. ConcurrentHashMap.get() is O(1), virtual thread spawn ~1 μs, Thread.interrupt() ~1 μs. The 1 ms p99 budget at 200 concurrent timers provides 1000× headroom. Memory targets are well-justified.
+
+**12. `PT` restriction.** Correct for MVP. Calendar durations are ambiguous across DST transitions. `PT24H` covers all reasonable home automation use cases. The restriction can be relaxed in a future amendment if needed.
+
+### Conditions (must be addressed before applying to Doc 07)
+
+**Condition 1: Add explicit handling for "automation deleted during pending timer" to §2.10.**
+
+The current §2.10 text describes what happens when a trigger definition changes (hash mismatch → cancel) or is unchanged (preserve). But it does not explicitly address what happens when the entire automation is deleted from `automations.yaml` during a pending timer. When the trigger index is rebuilt after reload and the automation no longer exists, there is no trigger definition to compare against. The expected behavior — cancel the timer — is likely what would happen (the automation_id lookup returns nothing, which is a "change"), but it should be stated explicitly.
+
+Add to §2.10: "If an automation is removed from `automations.yaml` during a reload, all pending duration timers for that automation are cancelled immediately. The cancellation produces `trigger_duration_cancelled` DIAGNOSTIC events with `reason: "automation_removed"`. If an automation is disabled (via API or `automations.yaml` change) during a pending timer, the timer is not proactively cancelled — if the timer expires, the standard evaluation pipeline checks the automation's enabled state at step 2 (§3.4) and skips execution, producing an `automation_run_skipped` event."
+
+Add `"automation_removed"` to the `reason` field's enumeration in the `trigger_duration_cancelled` event definition (§3, table row 3).
+
+**Condition 2: Document the multi-entity trigger limitation.**
+
+The `(automation_id, trigger_index)` tracking key means at most one duration timer exists per trigger, regardless of how many entities the trigger monitors. For single-entity triggers (the common case), this is correct. For triggers using multi-entity selectors (area, label, type selectors), this creates a semantic limitation: the first matching entity starts the timer, and only that entity's subsequent state changes can cancel it. If entity A starts the timer and entity A's state reverts (timer cancelled), entity B (which also matched) does not automatically start a new timer — it would need to produce a new event.
+
+Add a note to §2.1, after the "Duration timer tracking key" paragraph: "**Multi-entity selector limitation.** When a trigger uses an area, label, or type selector that resolves to multiple entities, the `(automation_id, trigger_index)` tracking key means only one duration timer can be active for that trigger. The first entity whose state matches the trigger predicate starts the timer. Only that entity's subsequent state changes are evaluated for cancellation. If the timer is cancelled and another entity in the selector's scope is already in the matching state, no new timer starts until that entity produces a new `state_changed` event. This is a known limitation acceptable for MVP — group-duration semantics (e.g., 'all entities in area X in state Y for N minutes') would require a per-entity tracking key and are deferred to a future amendment if user demand materializes."
+
+### Non-Blocking Observations
+
+1. **Tier 2 trigger applicability (§2.11).** The deferred decision on `for_duration` for Tier 2 triggers is appropriate. `presence` triggers with `for_duration` ("person in zone for 10 minutes") are the most likely future extension. The Hivemind agrees this should be decided when Tier 2 triggers are specified.
+
+2. **Timing wheel optimization (§5).** The PM's position — virtual thread sleep for MVP, timing wheel deferred to Phase 3 if needed — is correct. At 1000 timers × ~1 KB, the resource cost is negligible on RPi 5.
+
+3. **DIAGNOSTIC event retention.** Duration timer DIAGNOSTIC events follow the 7-day retention window. For timers with `for_duration` up to 24 hours, this provides at minimum 6 days of post-expiry trace retention. Sufficient for debugging.
+
+4. **The `wait_for` relationship table (§4).** Excellent addition. This will prevent user confusion and reduce support burden. The guidance is clear and correct.
