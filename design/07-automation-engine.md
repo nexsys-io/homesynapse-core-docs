@@ -160,6 +160,62 @@ When the subscriber receives a batch of events, each event is evaluated against 
 | `availability` | An entity's availability changes to `online` or `offline`. | `availability_changed` |
 | `numeric_threshold` | An entity's numeric attribute crosses a threshold (above, below). | `state_changed` |
 
+**Temporal duration modifier (`for_duration`) (AMD-25).** The trigger types `state_change`, `state`, `numeric_threshold`, and `availability` support an optional `for_duration` field (ISO 8601 duration string, e.g., `"PT15M"` for 15 minutes, `"PT30S"` for 30 seconds). When `for_duration` is present and non-null, the trigger predicate match does not immediately initiate a Run. Instead, the TriggerEvaluator starts a **duration timer** — a virtual thread that sleeps for the specified duration (per LTD-01 / LTD-11, same mechanism as `delay` action). The trigger fires only if the predicate remains continuously true for the entire duration.
+
+**Duration timer lifecycle:**
+
+1. **Start condition.** When a trigger predicate matches an incoming event and `for_duration` is non-null, the TriggerEvaluator checks whether a duration timer is already active for this `(automation_id, trigger_index)` pair. If not, it starts a new timer. If a timer is already active (the predicate matched a previous event and the duration has not yet expired), the existing timer continues — no restart. The timer start is recorded via a `trigger_duration_started` DIAGNOSTIC event.
+
+2. **Cancel condition.** The duration timer is cancelled if a subsequent event causes the trigger predicate to become **false** for the monitored entity. Specifically:
+   - For `state_change` triggers with `for_duration`: cancellation occurs when a `state_changed` event for the same entity changes the monitored attribute away from the `to` value (or, if `to` is unspecified, any `state_changed` event for the entity). The timer evaluates each incoming event for the monitored entity to determine continued satisfaction.
+   - For `state` triggers with `for_duration`: cancellation occurs when a `state_changed` event for the entity causes the level-triggered predicate to become false.
+   - For `numeric_threshold` triggers with `for_duration`: cancellation occurs when a `state_changed` event for the entity causes the numeric value to cross back below/above the threshold (inverse of the original crossing direction).
+   - For `availability` triggers with `for_duration`: cancellation occurs when an `availability_changed` event for the entity transitions away from the monitored availability state.
+
+   Cancellation interrupts the sleeping virtual thread and produces a `trigger_duration_cancelled` DIAGNOSTIC event.
+
+3. **Expiry.** When the duration elapses without cancellation, the timer expires and the trigger fires. The TriggerEvaluator produces a `trigger_duration_expired` DIAGNOSTIC event, then proceeds with the standard trigger evaluation procedure from step 4 (deduplication, §3.5) onward. The triggering event for deduplication and Run creation purposes is the **original event that started the timer** — this preserves causal linkage to the state change that initiated the temporal pattern.
+
+4. **State validation at expiry.** When a duration timer expires, the TriggerEvaluator performs a final validation read against the State Store to confirm the predicate is still true at the moment of expiry. If the state has changed since the last event but no `state_changed` event was produced (edge case: state was set to the same value, or the State Store was rebuilt), the trigger still fires because the duration timer was not cancelled. The validation read is a defense-in-depth check logged as a DIAGNOSTIC event (`trigger_duration_state_validated`) only when the validation result differs from expectation.
+
+**Duration timer tracking key.** Each duration timer is identified by the tuple `(automation_id, trigger_index)`, where `trigger_index` is the zero-based position of the trigger in the automation's `triggers` array. At most one duration timer can be active per `(automation_id, trigger_index)` pair — if the predicate is already true and a timer is running, subsequent matching events do not restart the timer. This is consistent with Home Assistant's `for:` semantics, where the duration window starts on the first matching event and is not reset by subsequent matching events.
+
+**Multi-entity selector limitation (AMD-25 Condition 2).** When a trigger uses an area, label, or type selector that resolves to multiple entities, the `(automation_id, trigger_index)` tracking key means only one duration timer can be active for that trigger. The first entity whose state matches the trigger predicate starts the timer. Only that entity's subsequent state changes are evaluated for cancellation. If the timer is cancelled and another entity in the selector's scope is already in the matching state, no new timer starts until that entity produces a new `state_changed` event. This is a known limitation acceptable for MVP — group-duration semantics (e.g., 'all entities in area X in state Y for N minutes') would require a per-entity tracking key and are deferred to a future amendment if user demand materializes.
+
+**Interaction with concurrency modes.** Duration timers are **pre-Run**. A pending duration timer does not count as an active Run for concurrency mode enforcement. Specifically:
+- `single` mode with one active Run and a pending duration timer: if the timer expires while the Run is still active, the timer expiry is treated as a new trigger — the concurrency mode evaluates it the same as any other trigger. The trigger may be dropped per `single` mode rules.
+- `restart` mode with a pending duration timer: a new immediate trigger (no `for_duration`) that fires during the duration timer's pending period does not cancel the timer. The timer and immediate triggers are independent — they target different trigger indices.
+- The duration timer does not acquire a Run slot, does not produce Run lifecycle events, and does not participate in `max_total_runs` accounting.
+
+**Interaction with deduplication (§3.5).** The deduplication key `(automation_id, triggering_event_id)` uses the original event that started the timer. If the same event somehow triggers the automation through a non-duration trigger on the same automation, deduplication prevents a second Run.
+
+**`for_duration` constraints:**
+- Minimum: `PT1S` (1 second). Durations below 1 second are rejected at YAML validation time.
+- Maximum: governed by `automation.trigger.max_for_duration_ms` configuration (default: 86400000 ms = 24 hours). Durations exceeding this ceiling are rejected at YAML validation time.
+- Parsing: ISO 8601 duration format. Only `PT` (period-time) components are accepted — `P1D` (calendar days) is rejected because it is ambiguous across DST transitions. Users must specify `PT24H` for 24 hours.
+
+**Example YAML (duration trigger):**
+
+```yaml
+automations:
+  - name: "Turn off HVAC if no occupancy for 30 minutes"
+    triggers:
+      - type: state_change
+        entity: living_room.motion_sensor
+        attribute: occupancy
+        to: "false"
+        for_duration: "PT30M"
+    actions:
+      - type: command
+        target:
+          entity: living_room.hvac
+        command: set_mode
+        parameters:
+          mode: "off"
+```
+
+In this example, the trigger predicate matches when the motion sensor's `occupancy` attribute transitions to `"false"`. The `for_duration: "PT30M"` modifier delays the trigger fire by 30 minutes. If the occupancy transitions back to `"true"` within 30 minutes (a new `state_changed` event with `occupancy: "true"`), the timer is cancelled and no Run is created. If 30 minutes elapse with occupancy remaining `"false"`, the trigger fires and the Run proceeds through condition evaluation and action execution.
+
 **Trigger types (Tier 2, schema defined but not implemented):**
 
 | Type | Matches When | Implementation Deferred Because |
@@ -187,6 +243,8 @@ When multiple triggers on the same automation match the same event, the engine p
 This differs from Home Assistant, which produces separate runs for each matching trigger on the same automation (competitive research Q2). HomeSynapse deduplicates because the event-sourced model demands that a single causal event produce a single causal chain per automation. Multiple Runs from the same event for the same automation would create ambiguous trace histories and violate INV-TO-02 (automation determinism).
 
 The Run trace records which trigger(s) matched, preserving diagnostic information. If trigger T1 and T2 both match event E for automation A, the resulting Run's `automation_triggered` event payload includes both trigger identifiers in its `matched_triggers` array.
+
+**Deduplication with duration-triggered events (AMD-25).** When a trigger with `for_duration` fires after the duration timer expires, the deduplication key uses the **original event that started the timer** (the `starting_event_id` from the `trigger_duration_started` event), not any event at the time of expiry. If the same original event also matches a non-duration trigger on the same automation, deduplication prevents a second Run.
 
 ### 3.6 Concurrency Modes
 
@@ -241,6 +299,10 @@ A Run is a single execution instance of an automation, from trigger evaluation t
 | `automation_completed` | Automation | NORMAL | Run reaches terminal state | `run_id`, `final_status`, `duration_ms`, `action_count`, `command_count` |
 
 All Run events are produced via `EventPublisher.publish()` (§8.3 of Doc 01) with the triggering event's `CausalContext`, maintaining the causal chain. The `correlation_id` is inherited from the triggering event, enabling the Causal Chain Projection (Doc 01 §3.18) to reconstruct the full trace from trigger through command confirmation.
+
+**Interaction with duration timers on hot-reload (AMD-25).** When `automations.yaml` is reloaded, the TriggerEvaluator inspects all pending duration timers. For each timer, it compares the trigger definition hash of the timer's automation at the trigger index where the timer is active. If the trigger definition has changed (hash mismatch), the timer is cancelled — this is the conservative behavior that prevents a timer from firing under a definition that no longer matches the original predicate. If the trigger definition is unchanged, the timer is preserved. This selective cancellation ensures that editing one trigger on an automation does not invalidate duration timers on other, unchanged triggers of the same automation. Timer cancellation due to reload produces a `trigger_duration_cancelled` DIAGNOSTIC event with `reason: "definition_changed"`.
+
+If an automation is removed from `automations.yaml` during a reload, all pending duration timers for that automation are cancelled immediately. The cancellation produces `trigger_duration_cancelled` DIAGNOSTIC events with `reason: "automation_removed"`. If an automation is disabled (via API or `automations.yaml` change) during a pending timer, the timer is not proactively cancelled — if the timer expires, the standard evaluation pipeline checks the automation's enabled state at step 2 (§3.4) and skips execution, producing an `automation_run_skipped` event.
 
 **Definition hash.** The `automation_triggered` event payload includes a `definition_hash` field: a SHA-256 hash of the serialized automation definition active at trigger time. The full definition is retrievable from the Automation Registry by `automation_id`; the hash enables replay verification without payload bloat. If the automation definition has changed since the Run, the trace viewer can indicate that the Run executed under a different definition than the current one.
 
@@ -357,6 +419,7 @@ During REPLAY processing mode (Doc 01 §3.7), the automation engine processes hi
 | Operation | Behavior | Rationale |
 |---|---|---|
 | Trigger evaluation | Proceeds normally against replayed events. | Rebuilds the engine's understanding of which automations were active and matching. |
+| Duration timers (AMD-25) | **Suppressed — no duration timers are started during REPLAY.** If a trigger predicate with `for_duration` matches a replayed event, the timer-start step is skipped. The original LIVE processing already produced the `trigger_duration_started`, `trigger_duration_expired`/`trigger_duration_cancelled` DIAGNOSTIC events, and those events exist in the log. During REPLAY, the TriggerEvaluator consumes these existing duration timer events to rebuild its understanding of which timers were active at the REPLAY→LIVE transition point. **REPLAY→LIVE transition:** If the TriggerEvaluator determines (from consumed events) that a duration timer was active at the point where replay ends, it re-creates the timer with the **remaining duration** calculated from: `original_for_duration - (current_time - timer_start_time)`. If the remaining duration is ≤ 0 (the timer should have expired during the downtime), the trigger fires immediately upon LIVE transition. This ensures timers survive restart without losing temporal progress. | Duration timers involve real wall-clock time. Starting a 30-minute timer during replay of historical events would produce side effects divorced from the original timeline. This follows the same suppression pattern as action execution. |
 | Condition evaluation | Suppressed — conditions are not re-evaluated. | The State Store is itself being rebuilt from the event stream during replay. Evaluating conditions against partially-replayed state would produce inconsistent results. |
 | Action execution | Suppressed — no commands issued, no delays executed, no events emitted. | INV-ES-04 and Doc 01 §3.7 mandate: actuator commands suppressed, derived events not re-produced. |
 | Run Lifecycle | Two distinct behaviors. (1) **Trigger index maintenance:** when the engine encounters `state_changed` or `availability_changed` events during REPLAY, it evaluates trigger predicates to maintain the trigger index and active automation tracking. No new `automation_triggered` events are produced — those already exist in the log from original LIVE processing. (2) **Run history reconstruction:** when the engine encounters existing `automation_triggered`, `automation_completed`, and other Run trace events during REPLAY, it consumes them to rebuild the RunManager's active Run tracking, automation health counters, and concurrency mode state. |
@@ -715,7 +778,7 @@ record PendingCommand(
 |---|---|---|
 | `AutomationDefinition` | Record | Complete parsed automation definition with triggers, conditions, actions, mode, priority. |
 | `AutomationId` | Value (ULID wrapper) | Typed automation identity per LTD-04. |
-| `TriggerDefinition` | Sealed interface | Root of trigger type hierarchy: `StateChangeTrigger`, `StateTrigger`, `EventTrigger`, `AvailabilityTrigger`, `NumericThresholdTrigger`, plus Tier 2 reserved: `TimeTrigger`, `SunTrigger`, `PresenceTrigger`, `WebhookTrigger`. |
+| `TriggerDefinition` | Sealed interface | Root of trigger type hierarchy: `StateChangeTrigger`, `StateTrigger`, `EventTrigger`, `AvailabilityTrigger`, `NumericThresholdTrigger`, plus Tier 2 reserved: `TimeTrigger`, `SunTrigger`, `PresenceTrigger`, `WebhookTrigger`. The subtypes `StateChangeTrigger`, `StateTrigger`, `NumericThresholdTrigger`, and `AvailabilityTrigger` include a nullable `forDuration` field (`Duration`, default `null`) implementing the temporal duration modifier (AMD-25, §3.4). `EventTrigger` does not support `for_duration` — event triggers are inherently instantaneous. |
 | `ConditionDefinition` | Sealed interface | Root of condition type hierarchy: `StateCondition`, `NumericCondition`, `TimeCondition`, `AndCondition`, `OrCondition`, `NotCondition`. |
 | `ActionDefinition` | Sealed interface | Root of action type hierarchy: `CommandAction`, `DelayAction`, `WaitForAction`, `ConditionBranchAction`, `EmitEventAction`, plus Tier 2 reserved: `ActivateSceneAction`, `InvokeIntegrationAction`, `ParallelAction`. |
 | `ConcurrencyMode` | Enum | `SINGLE`, `RESTART`, `QUEUED`, `PARALLEL`. |
@@ -727,6 +790,7 @@ record PendingCommand(
 | `Selector` | Sealed interface | Root of selector type hierarchy: `DirectRefSelector`, `SlugSelector`, `AreaSelector`, `LabelSelector`, `TypeSelector`, `CompoundSelector`. |
 | `UnavailablePolicy` | Enum | `SKIP`, `ERROR`, `WARN`. |
 | `MaxExceededSeverity` | Enum | `SILENT`, `INFO`, `WARNING`. |
+| `DurationTimer` | Record | Tracks an active `for_duration` timer (AMD-25): `automationId` (AutomationId), `triggerIndex` (int), `startingEventId` (EventId — the event that started the timer), `entityRef` (EntityId — the monitored entity), `forDuration` (Duration), `startedAt` (Instant), `expiresAt` (Instant), `virtualThread` (Thread — the sleeping virtual thread). Managed by TriggerEvaluator. Not persisted — rebuilt from events on REPLAY→LIVE transition. |
 
 ---
 
@@ -776,6 +840,20 @@ automation:
 
     # Maximum wait_for timeout. Prevents indefinite Run suspension.
     max_wait_for_timeout_ms: 3600000         # range: 60000-86400000, default: 3600000 (1 hour)
+
+  trigger:
+    # Maximum allowed for_duration value (AMD-25). Durations exceeding this ceiling
+    # are rejected at YAML validation time. Prevents unbounded timer accumulation
+    # from user misconfiguration (e.g., "PT365D" = 1-year timer).
+    max_for_duration_ms: 86400000            # range: 1000-604800000, default: 86400000 (24 hours)
+
+    # Maximum concurrent duration timers across all automations (AMD-25).
+    # Each duration timer is one sleeping virtual thread (~1 KB).
+    # Bounds memory and virtual thread count for the timer subsystem.
+    # When this limit is reached, new duration timer starts are rejected:
+    # the trigger fires immediately (as if for_duration were null) and a
+    # DIAGNOSTIC event (trigger_duration_limit_exceeded) is produced.
+    max_concurrent_duration_timers: 1000     # range: 10-10000, default: 1000
 ```
 
 **Per-automation configuration** is defined in `automations.yaml` per §4.1. The schema is validated by the Configuration System using the JSON Schema registered at startup.
@@ -796,6 +874,8 @@ All targets are Constrained-tier commitments measured against RPi 5 / RPi 4 hard
 | Max concurrent Runs (sustained) | 200 | Virtual threads at ~1 KB each = ~200 KB. With Run context (~500 bytes each), total is ~300 KB. Well within the automation subsystem's share of the 1536 MB heap (LTD-01). | Load test: 200 concurrent Runs with delay actions on RPi 5, monitoring RSS and GC pauses. |
 | Hot-reload latency | < 500 ms for 100 automations | JSON Schema validation dominates. 100 automations × ~5 ms validation each = ~500 ms. Trigger index rebuild is O(total_triggers) — at 2 triggers per automation average, 200 HashMap insertions add < 1 ms and are negligible compared to validation. | Benchmark with 100-automation YAML file on RPi 5. |
 | Automation engine steady-state memory | < 50 MB | Automation Registry (~100 definitions × ~5 KB each = ~500 KB) + trigger index (~50 KB) + active Runs (~300 KB at max concurrent) + Pending Command Ledger (~100 KB at max pending) + subscriber overhead. Total well under 50 MB. | JFR heap snapshot after 24 hours of operation with 100 automations. |
+| Duration timer management overhead (p99) (AMD-25) | < 1 ms per trigger evaluation at 200 concurrent timers | Each trigger evaluation must check whether a duration timer exists for the `(automation_id, trigger_index)` pair — a `ConcurrentHashMap.get()` operation. Timer start is a virtual thread spawn (~1 μs). Timer cancel is a `Thread.interrupt()` call (~1 μs). At 200 concurrent timers, the map lookup is O(1) with negligible contention. The 1 ms budget provides 1000× headroom over expected latency. | JFR event timing on RPi 5 with 200 concurrent duration timers under sustained event load (10 events/sec, 50 automations with `for_duration`). |
+| Duration timer memory overhead (AMD-25) | < 2 KB per active timer | Each `DurationTimer` record is ~200 bytes. Each sleeping virtual thread is ~1 KB. Total ~1.2 KB per timer. At 1000 max concurrent timers, total is ~1.2 MB — well within the 50 MB automation engine memory budget. | Heap profiling with 1000 concurrent duration timers. |
 
 ---
 
@@ -817,6 +897,11 @@ All targets are Constrained-tier commitments measured against RPi 5 / RPi 4 hard
 | `hs_automation_active_runs` | Gauge | — | Currently active Run count. |
 | `hs_automation_pending_commands` | Gauge | — | Currently pending command count. |
 | `hs_automation_subscriber_lag` | Gauge | `subscriber_id` | Events behind log head per subscriber. |
+| `hs_automation_duration_timers_active` | Gauge | — | Currently active duration timer count (AMD-25). |
+| `hs_automation_duration_timers_started_total` | Counter | `trigger_type` | Duration timers started, by trigger type (AMD-25). |
+| `hs_automation_duration_timers_expired_total` | Counter | `trigger_type` | Duration timers that expired (trigger fired), by trigger type (AMD-25). |
+| `hs_automation_duration_timers_cancelled_total` | Counter | `trigger_type` | Duration timers cancelled (predicate became false), by trigger type (AMD-25). |
+| `hs_automation_duration_timer_limit_exceeded_total` | Counter | — | Duration timer starts rejected due to `max_concurrent_duration_timers` limit (AMD-25). |
 
 All metrics are exposed via JFR continuous recording (LTD-15). No Prometheus or OpenTelemetry export in MVP.
 
@@ -836,6 +921,10 @@ Key log events follow the structured JSON format per LTD-15 with correlation IDs
 | `automation.reload` | INFO | `automation_count`, `validation_errors`, `duration_ms` | Definition reload completed. |
 | `automation.conflict` | WARN | `triggering_event_id`, `automation_ids[]`, `entity_ref` | Contradictory commands detected. |
 | `automation.disabled` | WARN | `automation_id`, `reason`, `failure_count` | Auto-disabled due to repeated failures. |
+| `automation.trigger.duration.started` | DEBUG | `automation_id`, `trigger_index`, `entity_ref`, `for_duration`, `expires_at` | Duration timer started for a trigger predicate match (AMD-25). |
+| `automation.trigger.duration.expired` | DEBUG | `automation_id`, `trigger_index`, `entity_ref`, `for_duration`, `started_at` | Duration timer expired — trigger fires (AMD-25). |
+| `automation.trigger.duration.cancelled` | DEBUG | `automation_id`, `trigger_index`, `entity_ref`, `for_duration`, `started_at`, `cancelling_event_id` | Duration timer cancelled by state change (AMD-25). |
+| `automation.trigger.duration.limit_exceeded` | WARN | `automation_id`, `trigger_index`, `concurrent_timers`, `max_concurrent_duration_timers` | Duration timer start rejected — concurrent timer limit reached. Trigger fires immediately (AMD-25). |
 
 ### 11.3 Health Indicator
 
@@ -844,7 +933,7 @@ The Automation Engine reports a composite health indicator combining the engine 
 | State | Condition |
 |---|---|
 | `HEALTHY` | All three subscribers are within acceptable lag. No automations auto-disabled. Pending command timeout rate below threshold. |
-| `DEGRADED` | One or more automations auto-disabled, or any subscriber lag exceeds 100 events, or pending command timeout rate exceeds 20% over 5-minute window. |
+| `DEGRADED` | One or more automations auto-disabled, or any subscriber lag exceeds 100 events, or pending command timeout rate exceeds 20% over 5-minute window, or duration timer limit exceeded more than 3 times within 60 seconds (AMD-25). |
 | `UNHEALTHY` | Any subscriber checkpoint expired, or automation engine subscriber cannot process events (exception in main loop). |
 
 This subsystem implements the `HealthContributor` interface (Doc 11 §8.1, §8.2) to report the composite automation health to the HealthAggregator. The Automation Engine is classified as CORE_SERVICES tier (Doc 11 §7.1) with a 15-second startup grace period. Health state changes are reported via `HealthContributor.reportHealth(status, reason)` when any of the three subscriber health states (automation_engine, command_dispatch_service, pending_command_ledger) transition, recomputing the composite before reporting.
@@ -875,6 +964,12 @@ This subsystem has no direct external interface — all access is through the Ev
 - **Selector resolution:** For each selector type, test resolution against a mock Entity Registry. Include zero-target, single-target, and multi-target cases. Test deduplication for compound selectors with overlapping results.
 - **Deduplication:** Test that multiple triggers on the same automation matching the same event produce one Run.
 - **Conflict detection:** Test detection of contradictory commands from different automations targeting the same entity.
+- **Duration trigger — timer fires after state held (AMD-25):** Configure a `state_change` trigger with `for_duration: "PT5S"`. Inject the triggering `state_changed` event. Verify no Run is created immediately. Advance time by 5 seconds (or allow the virtual thread to sleep in test). Verify the trigger fires, producing `trigger_duration_started` and `trigger_duration_expired` events, followed by the normal Run lifecycle (`automation_triggered`, etc.).
+- **Duration trigger — timer cancels on state change before expiry (AMD-25):** Configure a `state_change` trigger with `for_duration: "PT10S"` and `to: "true"`. Inject `state_changed(to: "true")`. Verify timer starts. After 3 seconds, inject `state_changed(to: "false")`. Verify `trigger_duration_cancelled` event. Verify no Run is created.
+- **Duration trigger — concurrent timer bound enforcement (AMD-25):** Configure `max_concurrent_duration_timers: 5`. Start 5 duration timers. Attempt to start a 6th. Verify `trigger_duration_limit_exceeded` event. Verify the 6th trigger fires immediately (fallback behavior).
+- **Duration trigger — REPLAY suppression (AMD-25):** During REPLAY, inject events that would start duration timers. Verify no timers are started. Verify existing `trigger_duration_started`/`trigger_duration_expired` events are consumed to rebuild timer state.
+- **Duration trigger — interaction with `single` concurrency mode (AMD-25):** Start a Run on an automation in `single` mode. While the Run is active, start a duration timer on a different trigger of the same automation. When the timer expires, verify the trigger is evaluated against the concurrency mode (dropped per `single` mode, since a Run is active). Verify `automation_run_skipped` event.
+- **Duration trigger — no restart on subsequent matching events (AMD-25):** Start a duration timer with `for_duration: "PT10S"`. After 5 seconds, inject another matching event. Verify the timer is not restarted (original timer continues with 5 seconds remaining, not reset to 10 seconds).
 
 ### 13.2 Integration Tests
 
@@ -882,6 +977,10 @@ This subsystem has no direct external interface — all access is through the Ev
 - **Replay:** Execute a Run in LIVE mode, checkpoint, restart the subscriber in REPLAY mode, and verify that no new events are produced but internal state is correctly rebuilt.
 - **Hot reload:** Start a Run with a delay action, reload automations, verify the Run completes on the original definition while new triggers use the updated definition.
 - **Crash recovery:** Execute Runs with pending commands, simulate crash (kill subscriber), restart, verify pending command idempotency handling (re-issue IDEMPOTENT, expire NOT_IDEMPOTENT).
+- **Duration trigger end-to-end (AMD-25):** Trigger → duration timer → expiry → condition → action → command. Verify complete event chain including `trigger_duration_started`, `trigger_duration_expired`, and all Run trace events with correct causal references.
+- **Duration trigger across restart (AMD-25):** Start a duration timer, simulate crash. On restart (REPLAY→LIVE), verify the timer is reconstructed with the remaining duration. If the timer should have expired during downtime, verify the trigger fires immediately upon LIVE transition.
+- **Hot reload with active duration timer — conservative cancellation (AMD-25):** Start a duration timer. Reload `automations.yaml` with a changed trigger definition for that automation. Verify the pending timer is cancelled (conservative behavior). Verify `trigger_duration_cancelled` event with reason `definition_changed`.
+- **Hot reload with active duration timer — preservation (AMD-25):** Start a duration timer. Reload `automations.yaml` with no change to the trigger definition for that automation (e.g., only action changes). Verify the pending timer is preserved (sophisticated behavior — trigger definition unchanged, timer continues).
 
 ### 13.3 Performance Tests
 
@@ -901,6 +1000,8 @@ This subsystem has no direct external interface — all access is through the Ev
 ---
 
 ## 14. Future Considerations
+
+**`for_duration` on Tier 2 trigger types (deferred, AMD-25).** The `for_duration` modifier is specified for Tier 1 trigger types only: `state_change`, `state`, `numeric_threshold`, and `availability`. Whether `for_duration` applies to Tier 2 trigger types (`time`, `sun`, `presence`, `webhook`) is deferred — the semantics differ for non-state triggers. Duration on a `time` trigger ("fire 5 minutes after 10 PM") is arguably a schedule offset, not a state-held pattern. Duration on a `presence` trigger ("fire when person is in zone for 10 minutes") is semantically valid and likely. This decision is escalated to the Hivemind for resolution when Tier 2 trigger types are specified.
 
 **Time-based triggers (Tier 2).** The trigger type taxonomy includes `time` and `sun` types with defined schemas. Implementation requires a scheduler that produces synthetic trigger events at scheduled times. The scheduler will be a component within the automation engine, not a standalone subsystem — consistent with the scheduler absorption documented in PROJECT_STATUS.md. The schema is defined now so that `automations.yaml` files can include time triggers that are syntax-valid but produce a clear "not yet implemented" diagnostic.
 
@@ -956,5 +1057,14 @@ This subsystem has no direct external interface — all access is through the Ev
 | D15 | Three separate subscribers | automation_engine, command_dispatch_service, pending_command_ledger on independent virtual threads | Decouples trigger evaluation from command routing and confirmation tracking. Each can checkpoint independently. | §3.2, §3.11 |
 
 ---
+
+---
+
+## Revision History
+
+| Date | Change | Amendment |
+|---|---|---|
+| 2026-03-07 | Initial locked version | — |
+| 2026-03-18 | Integrated AMD-25: Temporal duration modifier (`for_duration`) for Tier 1 triggers. Added §3.4 duration timer lifecycle, §3.5 deduplication note, §3.7 hot-reload interaction, §3.10 REPLAY suppression, §8.2 DurationTimer type + TriggerDefinition update, §9 trigger configuration keys, §10 timer performance targets, §11.1 timer metrics, §11.2 timer log events, §11.3 DEGRADED condition update, §13 test scenarios, §14 Tier 2 deferred note. AMD-25 conditions applied: (1) automation-removed timer handling in §3.7, (2) multi-entity selector limitation in §3.4. | AMD-25 |
 
 *This document is part of the HomeSynapse Core Phase 1 design documentation. It is governed by the Design Document Template and will be reviewed during architecture review.*

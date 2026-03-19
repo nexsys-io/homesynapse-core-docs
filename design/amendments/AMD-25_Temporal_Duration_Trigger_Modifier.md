@@ -2,7 +2,7 @@
 
 **Amendment type:** Design amendment to locked document
 **Target document:** `design/07-automation-engine.md` (Locked, 2026-03-07)
-**Status:** Approved with Conditions — Hivemind review 2026-03-17
+**Status:** Approved — conditions applied, ready for integration
 **Review decision:** APPROVED WITH CONDITIONS (see §9 below)
 **Priority:** HIGH — must land before Wave 3 Phase 2 interface specification (automation module)
 **Author:** PM
@@ -78,6 +78,8 @@ Three implementation options were evaluated:
 > 4. **State validation at expiry.** When a duration timer expires, the TriggerEvaluator performs a final validation read against the State Store to confirm the predicate is still true at the moment of expiry. If the state has changed since the last event but no `state_changed` event was produced (edge case: state was set to the same value, or the State Store was rebuilt), the trigger still fires because the duration timer was not cancelled. The validation read is a defense-in-depth check logged as a DIAGNOSTIC event (`trigger_duration_state_validated`) only when the validation result differs from expectation.
 >
 > **Duration timer tracking key.** Each duration timer is identified by the tuple `(automation_id, trigger_index)`, where `trigger_index` is the zero-based position of the trigger in the automation's `triggers` array. At most one duration timer can be active per `(automation_id, trigger_index)` pair — if the predicate is already true and a timer is running, subsequent matching events do not restart the timer. This is consistent with Home Assistant's `for:` semantics, where the duration window starts on the first matching event and is not reset by subsequent matching events.
+>
+> **Multi-entity selector limitation.** When a trigger uses an area, label, or type selector that resolves to multiple entities, the `(automation_id, trigger_index)` tracking key means only one duration timer can be active for that trigger. The first entity whose state matches the trigger predicate starts the timer. Only that entity's subsequent state changes are evaluated for cancellation. If the timer is cancelled and another entity in the selector's scope is already in the matching state, no new timer starts until that entity produces a new `state_changed` event. This is a known limitation acceptable for MVP — group-duration semantics (e.g., 'all entities in area X in state Y for N minutes') would require a per-entity tracking key and are deferred to a future amendment if user demand materializes.
 >
 > **Interaction with concurrency modes.** Duration timers are **pre-Run**. A pending duration timer does not count as an active Run for concurrency mode enforcement. Specifically:
 > - `single` mode with one active Run and a pending duration timer: if the timer expires while the Run is still active, the timer expiry is treated as a new trigger — the concurrency mode evaluates it the same as any other trigger. The trigger may be dropped per `single` mode rules.
@@ -256,6 +258,8 @@ Three implementation options were evaluated:
 
 > **Interaction with duration timers on hot-reload (AMD-25).** When `automations.yaml` is reloaded, the TriggerEvaluator inspects all pending duration timers. For each timer, it compares the trigger definition hash of the timer's automation at the trigger index where the timer is active. If the trigger definition has changed (hash mismatch), the timer is cancelled — this is the conservative behavior that prevents a timer from firing under a definition that no longer matches the original predicate. If the trigger definition is unchanged, the timer is preserved. This selective cancellation ensures that editing one trigger on an automation does not invalidate duration timers on other, unchanged triggers of the same automation. Timer cancellation due to reload produces a `trigger_duration_cancelled` DIAGNOSTIC event with `reason: "definition_changed"`.
 >
+> If an automation is removed from `automations.yaml` during a reload, all pending duration timers for that automation are cancelled immediately. The cancellation produces `trigger_duration_cancelled` DIAGNOSTIC events with `reason: "automation_removed"`. If an automation is disabled (via API or `automations.yaml` change) during a pending timer, the timer is not proactively cancelled — if the timer expires, the standard evaluation pipeline checks the automation's enabled state at step 2 (§3.4) and skips execution, producing an `automation_run_skipped` event.
+>
 
 ### 2.11 §14 Future Considerations — Note on Tier 2 trigger applicability
 
@@ -278,7 +282,7 @@ The following DIAGNOSTIC events are added to the automation engine's event produ
 |---|---|---|
 | `trigger_duration_started` | Duration timer starts after a trigger predicate matches with `for_duration` set | `automation_id`, `trigger_index`, `starting_event_id`, `entity_ref`, `for_duration_ms`, `expires_at`, `trigger_type` |
 | `trigger_duration_expired` | Duration timer expires — predicate held for the full duration; trigger fires | `automation_id`, `trigger_index`, `starting_event_id`, `entity_ref`, `for_duration_ms`, `started_at`, `trigger_type` |
-| `trigger_duration_cancelled` | Duration timer cancelled because predicate became false, or automation definition reloaded with changed trigger | `automation_id`, `trigger_index`, `starting_event_id`, `entity_ref`, `for_duration_ms`, `started_at`, `cancelling_event_id` (nullable — null for reload cancellation), `reason` (`state_changed` or `definition_changed`), `trigger_type` |
+| `trigger_duration_cancelled` | Duration timer cancelled because predicate became false, automation definition reloaded with changed trigger, or automation removed | `automation_id`, `trigger_index`, `starting_event_id`, `entity_ref`, `for_duration_ms`, `started_at`, `cancelling_event_id` (nullable — null for reload or removal cancellation), `reason` (`state_changed`, `definition_changed`, or `automation_removed`), `trigger_type` |
 | `trigger_duration_limit_exceeded` | Duration timer start rejected because `max_concurrent_duration_timers` is reached | `automation_id`, `trigger_index`, `entity_ref`, `concurrent_timer_count`, `max_concurrent_duration_timers`, `trigger_type` |
 | `trigger_duration_state_validated` | State validation at timer expiry found a discrepancy (defense-in-depth check) | `automation_id`, `trigger_index`, `entity_ref`, `expected_value`, `actual_value`, `trigger_type` |
 
