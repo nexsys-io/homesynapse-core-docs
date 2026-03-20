@@ -179,20 +179,20 @@ Every finding from every step, deduplicated. Each finding appears ONCE with all 
 
 | ID | Source Step(s) | Original ID(s) | Category | Module(s) | Finding Summary | Action |
 |----|--------------|----------------|----------|-----------|----------------|--------|
-| F-01 | Step 2 #1, Step 3B D-04, Step 4 S4-CF2 | B-1 | **FIX-NOW** | integration-api | IntegrationFactory Javadoc line 9 cites `(LTD-17)` for ServiceLoader. LTD-17 prohibits ServiceLoader. Correct reference is LTD-16. | Change `(LTD-17)` to `(LTD-16)` in IntegrationFactory.java Javadoc |
+| F-01 | Step 2 #1, Step 3B D-04, Step 4 S4-CF2 | B-1 | **RESOLVED** | integration-api | IntegrationFactory Javadoc cited ServiceLoader + `(LTD-17)`. LTD-17 prohibits ServiceLoader. | **DECIDE-04 RESOLVED (2026-03-20): Option A — direct construction, no ServiceLoader.** IntegrationFactory Javadoc fully rewritten. All ServiceLoader references removed. Discovery is via explicit construction in app wiring code per LTD-17. Supersedes original F-01 fix. |
 | F-02 | Step 2 #2 | B-2 | **FIX-NOW** | libs.versions.toml, configuration | Missing `networknt:json-schema-validator` from version catalog. LTD-09 specifies this library. SchemaRegistry/ConfigValidator interfaces exist but backing library undeclared. | Add to libs.versions.toml: `json-schema-validator = "1.5.6"` + library alias |
 | F-03 | Step 2 #3 | B-3 | **FIX-NOW** | libs.versions.toml, homesynapse-app | Missing `logstash-logback-encoder` from version catalog. LTD-15 specifies structured JSON log output via this library. | Add to libs.versions.toml: `logstash-logback = "8.0"` + library alias. Add `runtimeOnly` in app module. |
 | F-04 | Step 3B D-03 | B-4 | **FIX-NOW** | persistence | Persistence interfaces missing VT executor contract in Javadoc. sqlite-jdbc JNI calls double-pin carrier threads. Phase 3 implementers may use wrong executor. | Add VT executor contract to MaintenanceService and PersistenceLifecycle Javadoc |
 | F-05 | Step 4 S4-03 | S4-03 | **FIX-NOW** | state-store | Gradle `api(event-model)` but JPMS non-transitive `requires event`. Contradictory signals to consumers. | Change to `implementation(project(":core:event-model"))` in state-store build.gradle.kts |
 | F-06 | Step 4 S4-04 | S4-04 | **FIX-NOW** | persistence | Two Gradle/JPMS mismatches: `api(event-model)` and `api(state-store)` both non-transitive in JPMS. | Change both to `implementation()`. Add explicit `api(project(":platform:platform-api"))` for EntityId. |
 | F-07 | Step 4 S4-05 | S4-05 | **FIX-NOW** | automation | Gradle `api(configuration)` with NO JPMS `requires` and NO source imports. Premature dependency. | Remove `api(project(":config:configuration"))` from automation build.gradle.kts. Re-add in Phase 3. |
-| F-08 | Step 4 S4-01 | S4-01 | **DECIDE** | event-model | SLF4J `api()` scope in Gradle but no `requires org.slf4j` in module-info. Gradle exposes SLF4J to consumers; JPMS does not. | DECIDE: Option A (per-module SLF4J) or Option B (event-model as SLF4J distributor) |
+| F-08 | Step 4 S4-01 | S4-01 | **RESOLVED** | event-model | SLF4J `api()` scope in Gradle but no `requires org.slf4j` in module-info. Gradle exposes SLF4J to consumers; JPMS does not. | **DECIDE-01 RESOLVED (2026-03-20): Option A — per-module SLF4J.** Changed event-model `api(libs.slf4j.api)` → `implementation(libs.slf4j.api)`. Each module declares its own SLF4J dependency. |
 | F-09 | Step 4 S4-06 | S4-06 | **FIX-NOW** | device-model | `requires transitive com.homesynapse.event` unjustified — only Javadoc `@see` refs, no event types in public API. | Downgrade to `requires com.homesynapse.event;` in device-model module-info.java |
 | F-10 | Step 4 S4-08 | S4-08 | **FIX-NOW** | integration-runtime | `implementation(event-model)` redundant — already provided via `api(integration-api)`. | Remove `implementation(project(":core:event-model"))` from integration-runtime build.gradle.kts |
-| F-11 | Step 2 #4, Step 3A | I-1 | **DECIDE** | platform-api, LTD-04 | Hand-rolled UlidFactory vs LTD-04's specified `ulid-creator` library. Implementation is functionally superior (ReentrantLock for VT safety). LTD text needs reconciliation. | DECIDE: Amend LTD-04 to bless hand-rolled implementation, or adopt library + wrap |
+| F-11 | Step 2 #4, Step 3A | I-1 | **RESOLVED** | platform-api, LTD-04 | Hand-rolled UlidFactory vs LTD-04's specified `ulid-creator` library. Implementation is functionally superior (ReentrantLock for VT safety). LTD text needs reconciliation. | **DECIDE-02 RESOLVED (2026-03-20): Option A — amend LTD-04.** LTD-04 updated to bless hand-rolled UlidFactory. `ulid-creator` removed from dependency list. Rationale: VT-safe by construction. |
 | F-12 | Step 2 #5, Step 4 S4-07/S4-CF1 | I-2 | **DOCUMENT** | integration-api | `requires transitive java.net.http` justified by ManagedHttpClient API. Creates "transitive gateway" effect (S4-07). | Document trade-off in integration-api module-info.java comment and MODULE_CONTEXT |
 | F-13 | Step 3B D-05, Step 6 MC-09 | I-3 | **FIX-NOW** | integration-api | MODULE_CONTEXT.md empty despite 21 Java types. Highest-traffic cross-module boundary. | Populate full MODULE_CONTEXT from Step 3B inventory + Step 4 JPMS analysis |
-| F-14 | Step 5 S5-01 | S5-01 | **DECIDE** | automation, state-store | AMD-03 naming divergence: code uses `ConsistentSnapshot`/`getStatesAtPosition` vs amendment's `StateSnapshot`. Behavioral contract fully satisfied. | DECIDE: Accept current naming or align to amendment spec |
+| F-14 | Step 5 S5-01 | S5-01 | **RESOLVED** | automation, state-store | AMD-03 naming divergence: code uses `ConsistentSnapshot`/`getStatesAtPosition` vs amendment's `StateSnapshot`. Behavioral contract fully satisfied. | **DECIDE-03 RESOLVED (2026-03-20): Option A — accept current naming.** `ConsistentSnapshot` is canonical. `StateSnapshot` name collides with existing state-store type. Traceability note added to AMD-03. |
 | F-15 | Step 5 S5-CF1 | S5-CF1 | **PHASE-3-WATCH** | automation | Snapshot freshness during duration timer expiry. When timer expires, condition evaluation MUST use fresh StateSnapshot, not snapshot from timer start. | Embed in Phase 3 automation coding instructions |
 | F-16 | Step 5 S5-CF2 | S5-CF2 | **PHASE-3-WATCH** | state-store, device-model | Staleness scan (30s interval) vs orphan transition timing. Orphan transition (AMD-17) must set stale immediately, not wait for scan cycle. | Embed in Phase 3 state-store and device-model coding instructions |
 | F-17 | Step 1 GAP-01/02/03 | HO-GAP | **DOCUMENT** | Doc 07, Doc 13 | Household Operability invariants (HO-01/02/03) 60% GAP. No design doc claims for physical control supremacy, operable under degradation, no debugging for daily ops. | Add INV-HO-01 claim to Doc 07 §5. Add INV-HO-02/03 claims to Doc 13 §5. |
@@ -283,11 +283,13 @@ Then add `runtimeOnly(libs.logstash.logback.encoder)` to `app/homesynapse-app/bu
 
 ---
 
-## Section 6: DECIDE Items
+## Section 6: DECIDE Items — ALL RESOLVED (2026-03-20)
 
-These require Nick's decision before Phase 3.
+All four DECIDE items were resolved by Nick on 2026-03-20. Changes applied to source files and governance documents. See individual resolutions below.
 
-### DECIDE-01: SLF4J Distribution Strategy (F-08)
+### DECIDE-01: SLF4J Distribution Strategy (F-08) — ✅ RESOLVED
+
+**Resolution: Option A — per-module SLF4J.** Changed `api(libs.slf4j.api)` → `implementation(libs.slf4j.api)` in event-model. Each module that uses logging adds its own dependency. JPMS-pure, explicit, no hidden transitivity.
 
 **Context:** event-model's build.gradle.kts declares `api(libs.slf4j.api)` making SLF4J visible to all consuming modules via Gradle. But event-model's module-info.java has no `requires org.slf4j`, so JPMS does not grant readability. This sends contradictory signals.
 
@@ -311,7 +313,9 @@ C. **Convention plugin injection** — Move SLF4J to the `homesynapse.java-conve
 
 ---
 
-### DECIDE-02: UlidFactory vs ulid-creator Library (F-11)
+### DECIDE-02: UlidFactory vs ulid-creator Library (F-11) — ✅ RESOLVED
+
+**Resolution: Option A — amend LTD-04 to bless hand-rolled implementation.** LTD-04 specification updated to reference `UlidFactory` in platform-api. `ulid-creator` removed from dependency list. Rationale: VT-safe by construction (ReentrantLock), eliminates a third-party dependency.
 
 **Context:** LTD-04 specifies `com.github.f4b6a3:ulid-creator` with `UlidCreator.getMonotonicUlid()`. The codebase has a hand-rolled `UlidFactory` in platform-api that is functionally superior — uses `ReentrantLock` (VT-safe) instead of `synchronized` (which the library uses internally, causing carrier thread pinning).
 
@@ -331,7 +335,9 @@ B. **Adopt ulid-creator library + VT wrapper** — Add ulid-creator to version c
 
 ---
 
-### DECIDE-03: AMD-03 Naming — ConsistentSnapshot vs StateSnapshot (F-14)
+### DECIDE-03: AMD-03 Naming — ConsistentSnapshot vs StateSnapshot (F-14) — ✅ RESOLVED
+
+**Resolution: Option A — accept current naming.** `ConsistentSnapshot` is canonical. The name better describes the consistency guarantee (AMD-03's core purpose). `StateSnapshot` collides with an existing type in state-store. Traceability note added to AMD-03 in Design_Review_Amendments_v1.md.
 
 **Context:** AMD-03 specifies `StateSnapshot` terminology. The code uses `ConsistentSnapshot` and `getStatesAtPosition`. The behavioral contract is fully satisfied — automation conditions evaluate against a point-in-time snapshot. The naming divergence is cosmetic.
 
@@ -351,7 +357,9 @@ B. **Align to amendment naming** — Rename `ConsistentSnapshot` to match AMD-03
 
 ---
 
-### DECIDE-04: ServiceLoader Discovery Mechanism (extends F-01)
+### DECIDE-04: ServiceLoader Discovery Mechanism (extends F-01) — ✅ RESOLVED
+
+**Resolution: Option A — direct construction, no ServiceLoader.** IntegrationFactory.java Javadoc fully rewritten. All ServiceLoader references removed. App module constructs factories directly (`new ZigbeeIntegrationFactory()`). Matches LTD-17 literally. If post-MVP community integrations need dynamic discovery, amend LTD-17 at that time. Supersedes original F-01 Javadoc fix.
 
 **Context:** F-01 fixes the Javadoc LTD reference (LTD-17 → LTD-16). But the deeper question is: should ServiceLoader be the integration discovery mechanism at all? LTD-17 says "no reflection-based loading, no ServiceLoader, no Class.forName." The IntegrationFactory Javadoc says "discovered via ServiceLoader." The fix for the LTD reference doesn't resolve the architectural question.
 

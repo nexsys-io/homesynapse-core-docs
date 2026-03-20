@@ -144,7 +144,7 @@ Performance baseline on Pi 5 with NVMe: 10,000–50,000 inserts/sec — orders o
 
 **Specification:**
 
-Library: `com.github.f4b6a3:ulid-creator` — `UlidCreator.getMonotonicUlid()` for event IDs (preserves ordering within millisecond), `UlidCreator.getUlid()` for entity IDs where monotonicity is unnecessary.
+Library: Hand-rolled `UlidFactory` in `platform-api` — `UlidFactory.monotonic()` for event IDs (preserves ordering within millisecond), `UlidFactory.generate()` for entity IDs where monotonicity is unnecessary. The implementation uses `ReentrantLock` (not `synchronized`) for virtual thread safety per LTD-01/LTD-11. **Amendment (2026-03-20, DECIDE-02):** Originally specified `com.github.f4b6a3:ulid-creator`. Replaced with hand-rolled implementation because `ulid-creator` uses `synchronized` internally, which pins carrier threads under Java 21 virtual thread scheduling. The hand-rolled `UlidFactory` is functionally equivalent (monotonic generation, `SecureRandom`-backed randomness) and VT-safe by construction.
 
 Storage: BLOB(16) in SQLite. Convert to 26-character Crockford Base32 string representation only at API boundaries and in log output. SQLite indexes on BLOB(16) use the same byte-comparison as textual ULID ordering, preserving sort efficiency.
 
@@ -152,7 +152,7 @@ Java representation: a shared `Ulid` value type wraps the 128-bit value and hand
 
 UUIDv7 (RFC 9562, ratified May 2024) is documented as an equally valid alternative. The binary representations are the same size (128 bits). If the team encounters friction from ULID's non-IETF status or needs native UUID ecosystem compatibility (e.g., PostgreSQL migration), UUIDv7 migration is straightforward — both are time-ordered 128-bit identifiers stored as BLOB(16).
 
-**Rationale:** Compact 26-character encoding aids debugging and log readability (vs UUID's 36 characters). ULID's 80 random bits provide marginally better collision resistance than UUIDv7's 74. The ULID spec defines an explicit monotonic mode essential for event sourcing; RFC 9562 makes monotonicity optional and implementation-dependent. The `ulid-creator` library delivers ~4.7 million ops/sec.
+**Rationale:** Compact 26-character encoding aids debugging and log readability (vs UUID's 36 characters). ULID's 80 random bits provide marginally better collision resistance than UUIDv7's 74. The ULID spec defines an explicit monotonic mode essential for event sourcing; RFC 9562 makes monotonicity optional and implementation-dependent. The hand-rolled `UlidFactory` eliminates a third-party dependency and provides virtual-thread-safe generation by design.
 
 **Invariant alignment:** INV-CS-02 (entity identifiers are stable — ULIDs are generated once and never change), INV-ES-03 (per-entity ordering — monotonic ULIDs within entity streams maintain sort order).
 
@@ -813,7 +813,7 @@ Three systemic risks span multiple decisions and require active monitoring:
 
 **SD card storage.** Despite LTD-02 requiring NVMe, some users will attempt SD card deployment. The system must detect and warn about SD card storage at startup. Event store write patterns (~200 MB/day at 100 events/minute) will degrade consumer SD cards within months. This is documented but not prevented — preventing it would violate INV-CE-02 (zero-configuration first run).
 
-**Dependency supply chain.** Every decision adds at least one library dependency. The total dependency footprint must be monitored: each dependency is a liability on constrained hardware (memory, startup time, security surface). The current required dependencies are: Jackson (+ Blackbird, JavaTimeModule), SnakeYAML Engine, sqlite-jdbc, ulid-creator, SLF4J, Logback, logstash-logback-encoder, json-schema-validator. This is ~15–20 MB of JARs. If this total exceeds 50 MB, conduct a dependency audit.
+**Dependency supply chain.** Every decision adds at least one library dependency. The total dependency footprint must be monitored: each dependency is a liability on constrained hardware (memory, startup time, security surface). The current required dependencies are: Jackson (+ Blackbird, JavaTimeModule), SnakeYAML Engine, sqlite-jdbc, SLF4J, Logback, logstash-logback-encoder, json-schema-validator. (Note: `ulid-creator` removed — replaced by hand-rolled `UlidFactory` per DECIDE-02 amendment, 2026-03-20.) This is ~15–20 MB of JARs. If this total exceeds 50 MB, conduct a dependency audit.
 
 ---
 

@@ -158,6 +158,7 @@ interrupted state derivation.
 **Affected docs:** Doc 03 (State Store), Doc 07 (Automation Engine)
 **Section(s):** Doc 03 §8.1 (StateQueryService API), Doc 07 §3.x (condition evaluation)
 **Classification:** BLOCKING
+**Traceability note (DECIDE-03, 2026-03-20):** Code uses `ConsistentSnapshot` and `getStatesAtPosition` (as specified in the code block below). The name `ConsistentSnapshot` is accepted as canonical — it more precisely describes the consistency guarantee that is this amendment's purpose. `StateSnapshot` is NOT used because that name collides with an existing type in state-store with a different purpose.
 
 **Problem:**
 
