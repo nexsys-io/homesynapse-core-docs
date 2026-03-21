@@ -136,6 +136,10 @@ A Slug is a human-readable, URL-safe, mutable string derived from a Display Name
 
 **Rename behavior.** When a user changes an object's Display Name, the Slug is regenerated from the new name. If the user has previously set a manual slug override, the rename does not affect the slug unless the user explicitly requests re-derivation.
 
+<!-- Added 2026-03-21: Architecture benchmark assessment finding M-4 -->
+
+**Integration-initiated Display Name changes.** When an integration adapter updates a device or entity's Display Name via a `device_metadata_changed` event (e.g., a manufacturer renamed a model in firmware), the slug is NOT regenerated. Slug regeneration occurs only on explicit user action: a rename via the REST API or UI. This prevents manufacturer firmware updates from cascading into automation breakage through slug changes. The Display Name is updated (it is a presentation-layer property with no stability guarantee), but the slug remains stable until the user explicitly changes it. If the user has never set a manual slug override, the slug retains its original auto-derived value from the initial adoption Display Name.
+
 **Manual override.** The API allows setting a slug explicitly via a `PATCH` or `PUT` operation. The requested slug must pass format validation and uniqueness checks. If the requested slug is taken, the API returns a `409 Conflict` response identifying the current owner.
 
 **Slug retention and tombstones.** When an object is renamed or soft-deleted, its previous slug enters a tombstone table:
@@ -451,6 +455,18 @@ The resolved set is ordered deterministically. The default ordering is by Refere
 - Users debugging an automation see the same entity order every time.
 
 The Automation Engine (doc 07) may define additional ordering strategies (e.g., "alphabetical by Display Name for UI display"), but the default ordering for execution is always by Reference.
+
+### 7.5 Tombstone Resolution in Address Selectors
+
+<!-- Added 2026-03-21: Architecture benchmark assessment finding M-2 -->
+
+When a `SlugSelector` references a slug that exists in the tombstone table (§2.2), the `SelectorResolver` MUST follow the tombstone chain to the object's current slug and resolve against the current slug. This ensures that automations referencing a pre-rename slug continue to resolve correctly for the tombstone retention period (90 days for renames).
+
+Each time a tombstoned slug is followed during selector resolution, the system produces an `automation_slug_redirect` DIAGNOSTIC event containing: the original slug, the resolved current slug, the automation ID, and the object reference. This event surfaces in the dashboard as a persistent notification prompting the user to update their automation YAML.
+
+After the tombstone expires (90 days), the slug no longer resolves. The automation's trigger, condition, or action enters the zero-target resolution path (Doc 07 §3.12) — producing a DIAGNOSTIC warning for triggers, `no_targets` outcome for actions, or `false` evaluation for conditions. The automation's health is set to `degraded`.
+
+**Scope.** Tombstone-following applies to all in-process selector resolution, not only to REST API requests. The `SelectorResolver` interface performs the same tombstone lookup that the API performs — the difference is that the API returns a `301` redirect to the client, while the `SelectorResolver` transparently follows the chain and resolves to the target entity. Both paths use the same tombstone table query.
 
 ### 7.5 Eligibility Failures (resolution-time)
 

@@ -160,6 +160,10 @@ When the subscriber receives a batch of events, each event is evaluated against 
 | `availability` | An entity's availability changes to `online` or `offline`. | `availability_changed` |
 | `numeric_threshold` | An entity's numeric attribute crosses a threshold (above, below). | `state_changed` |
 
+<!-- Added 2026-03-21: Architecture benchmark assessment finding M-1 -->
+
+**Planned restart suppression for availability triggers.** When evaluating an `availability_changed` event, the TriggerEvaluator checks whether the source entity's owning integration has `plannedRestart = true` (Doc 05 §3.14) on its `IntegrationHealthRecord`. If so, the trigger evaluation is deferred for the duration of the restart window. If the integration reaches RUNNING within the window, the deferred evaluation is discarded — the availability did not actually change, and no automation should fire. If the restart fails (integration transitions to FAILED, `plannedRestart` flag cleared), any deferred `availability_changed` evaluations proceed normally. This prevents the OpenHAB-style cascade where a planned configuration reload triggers every availability-based automation.
+
 **Temporal duration modifier (`for_duration`) (AMD-25).** The trigger types `state_change`, `state`, `numeric_threshold`, and `availability` support an optional `for_duration` field (ISO 8601 duration string, e.g., `"PT15M"` for 15 minutes, `"PT30S"` for 30 seconds). When `for_duration` is present and non-null, the trigger predicate match does not immediately initiate a Run. Instead, the TriggerEvaluator starts a **duration timer** — a virtual thread that sleeps for the specified duration (per LTD-01 / LTD-11, same mechanism as `delay` action). The trigger fires only if the predicate remains continuously true for the entire duration.
 
 **Duration timer lifecycle:**
@@ -426,6 +430,10 @@ During REPLAY processing mode (Doc 01 §3.7), the automation engine processes hi
 | Command Pipeline | Suppressed. The Pending Command Ledger consumes existing `command_issued`, `command_result`, and `state_confirmed` events to rebuild its pending command map. No new commands are dispatched. | Doc 01 §3.7 explicitly specifies: "The Pending Command Ledger does not re-emit `state_confirmed` events during replay." |
 
 **REPLAY to LIVE transition.** The engine transitions from REPLAY to LIVE when the subscriber's checkpoint reaches within the configurable threshold of the log head (default: 10 events, per Doc 01 §3.7). Events processed after the transition are in LIVE mode — triggers fire, conditions evaluate, and actions execute normally.
+
+<!-- Added 2026-03-21: Architecture benchmark assessment finding M-3 -->
+
+**Zombie Run finalization.** On REPLAY→LIVE transition, the RunManager inspects all Runs reconstructed as active during replay. Any Run whose most recent trace event (by `ingest_time`) predates the system crash timestamp (derived from the `system_started` event's timestamp minus a small tolerance, default 1 second) is a **zombie Run** — it was in progress when the process died and will never complete normally. Zombie Runs are finalized immediately upon LIVE transition: the engine produces `automation_completed` with `final_status: interrupted_by_crash` and `duration_ms` calculated from the `automation_triggered` timestamp to the crash timestamp. This restores Contract C1 compliance (every `automation_triggered` has a corresponding `automation_completed`). The Pending Command Ledger's per-idempotency-class handling (§3.11.2) proceeds independently for any commands the zombie Run had issued — command recovery is not blocked by Run finalization.
 
 **Determinism guarantee under replay.** INV-TO-02 requires that identical event streams produce identical outcomes. During replay, the engine does not produce new events — it consumes existing ones. The determinism guarantee is satisfied because: (a) the original LIVE execution produced deterministic events given the event stream and configuration, and (b) replay consumes those same events without modification. If the automation definition has changed since the original execution, the engine detects this via the `definition_hash` in the `automation_triggered` event payload (§3.7) and logs a diagnostic warning.
 
@@ -977,6 +985,7 @@ This subsystem has no direct external interface — all access is through the Ev
 - **Replay:** Execute a Run in LIVE mode, checkpoint, restart the subscriber in REPLAY mode, and verify that no new events are produced but internal state is correctly rebuilt.
 - **Hot reload:** Start a Run with a delay action, reload automations, verify the Run completes on the original definition while new triggers use the updated definition.
 - **Crash recovery:** Execute Runs with pending commands, simulate crash (kill subscriber), restart, verify pending command idempotency handling (re-issue IDEMPOTENT, expire NOT_IDEMPOTENT).
+- **Zombie Run finalization:** Execute a Run with a delay action (mid-Run). Kill the process. Restart. Verify that on REPLAY→LIVE transition, an `automation_completed` event with `final_status: interrupted_by_crash` is produced for the interrupted Run. Verify Contract C1 holds (every `automation_triggered` has a corresponding `automation_completed`). Verify the `duration_ms` reflects the time from `automation_triggered` to crash, not to finalization.
 - **Duration trigger end-to-end (AMD-25):** Trigger → duration timer → expiry → condition → action → command. Verify complete event chain including `trigger_duration_started`, `trigger_duration_expired`, and all Run trace events with correct causal references.
 - **Duration trigger across restart (AMD-25):** Start a duration timer, simulate crash. On restart (REPLAY→LIVE), verify the timer is reconstructed with the remaining duration. If the timer should have expired during downtime, verify the trigger fires immediately upon LIVE transition.
 - **Hot reload with active duration timer — conservative cancellation (AMD-25):** Start a duration timer. Reload `automations.yaml` with a changed trigger definition for that automation. Verify the pending timer is cancelled (conservative behavior). Verify `trigger_duration_cancelled` event with reason `definition_changed`.
@@ -1014,6 +1023,10 @@ This subsystem has no direct external interface — all access is through the Ev
 **Configurable retry policies (Tier 2).** Per-capability retry policies (retry with backoff for lights, alert without retry for locks) can be implemented by extending the `CommandDefinition` schema in Doc 02. The Pending Command Ledger's timeout event provides the trigger; the retry logic would be a new action type or an extension of the command action.
 
 **DRY_RUN mode (Tier 2).** The processing mode taxonomy includes `DRY_RUN` for automation testing. Implementation requires routing Run trace events to a separate audit log per Doc 01 §3.7. The automation YAML schema can include a `test` mode flag.
+
+<!-- Added 2026-03-21: Architecture benchmark assessment finding R-4 -->
+
+**Load-time slug→ULID resolution (design consideration).** The current design resolves `SlugSelector` references at trigger evaluation time (per Identity Model §7.2). An alternative approach resolves slugs to ULIDs at `automations.yaml` load time, storing resolved ULIDs in the runtime automation definition and using slugs only as human-readable annotations. This would make running automations immune to slug changes between loads. Evaluate this approach for its interaction with dynamic entity creation — a device adopted after automation load should still be matchable by label/area/type selectors, but a slug-based selector resolved at load time would miss it. The tombstone-following mechanism (Identity Model §7.5) provides the current mitigation for slug changes.
 
 ---
 

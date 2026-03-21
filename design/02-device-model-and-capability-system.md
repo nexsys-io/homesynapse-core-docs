@@ -351,7 +351,7 @@ CommandDefinition {
     required_features:  int                 -- feature_map bits required
     expected_outcomes:  ExpectedOutcome[]   -- what should change
     default_timeout:    Duration            -- confirmation deadline
-    idempotency_class:  IdempotencyClass    -- IDEMPOTENT, NOT_IDEMPOTENT, TOGGLE
+    idempotency_class:  IdempotencyClass    -- IDEMPOTENT, NOT_IDEMPOTENT, CONDITIONAL
 }
 ```
 

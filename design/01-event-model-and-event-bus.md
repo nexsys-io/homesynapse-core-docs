@@ -958,6 +958,10 @@ All targets are specified for the primary deployment target: Raspberry Pi 5, 4 G
 | Memory overhead per subscriber | < 5 MB | Virtual threads have minimal stack overhead (~1 KB default). The per-subscriber cost is dominated by the poll batch buffer (100 events at ~500 bytes = ~50 KB) plus filter state. 5 MB ceiling provides margin for subscriber-specific caches. | Profile: measure RSS contribution of each registered subscriber under load. |
 | Domain event store size (1 year, 50 devices) | < 2 GB | With retention defaults (DIAGNOSTIC 7d, NORMAL 90d, CRITICAL 365d) and a typical 50-device home generating ~4,000 domain events/day. | Calculation: validate against actual event size measurements during integration testing. |
 
+<!-- Added 2026-03-21: Architecture benchmark assessment finding S-3 -->
+
+**Burst latency note.** The performance targets above apply to single-event steady-state: one triggering event processed through the full pipeline (event persist → subscriber notification → trigger evaluation → condition check → command issue) under normal load (< 50 events/sec). Under burst conditions (e.g., 50 sensors reporting simultaneously), aggregate pipeline latency for the Nth event is governed by the single-writer serialization cascade through the State Projection's derived events. The burst-latency budget is: the 50th event's automation trigger-to-action latency should not exceed 500ms on NVMe storage. This is a performance investigation trigger, not a hard invariant — if measured burst latency exceeds 500ms during Phase 3 benchmarking, investigate batched WAL commits (grouping multiple events per transaction) as a mitigation.
+
 ---
 
 ## 11. Observability

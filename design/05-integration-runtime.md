@@ -205,6 +205,10 @@ The sliding window of 20 calls provides stability against individual outliers wh
 
 **Scope of the health model.** The four-state health model operates at the integration level — the entire adapter is HEALTHY, DEGRADED, SUSPENDED, or FAILED. Device-level health (individual device availability) is modeled by `availability_changed` events and tracked by the Device Model (Doc 02). Capability-level health (e.g., a Zigbee adapter can discover but not command) is not modeled by this subsystem. If Doc 08 (Zigbee Adapter) identifies the need for per-capability health signals, the `HealthReporter` interface can be extended with a `reportCapabilityDegraded(String capabilityId, String reason)` method. This is tracked as a dependency for OQ-4.
 
+<!-- Added 2026-03-21: Architecture benchmark assessment finding S-1 -->
+
+**Evaluation interval.** The supervisor evaluates each integration's health score at a configurable interval (default: 15 seconds, configurable via `integration.health.evaluation_interval_seconds`, range 5–60). During DEGRADED state, the evaluation frequency doubles to `evaluation_interval / 2`. This interval determines the responsiveness of the "3 consecutive evaluations" transition guard: at the 15-second default, HEALTHY→DEGRADED requires 45 seconds of sustained degradation. At the 5-second minimum, it requires 15 seconds.
+
 **State transitions:**
 
 | From | To | Guard | Action |
@@ -402,6 +406,29 @@ Integrations may declare dependencies on other integrations via the `dependsOn` 
 **Validation at load time.** The supervisor validates `dependsOn` references at discovery time. If an integration declares a dependency on an integration type that is not present in the discovered set, the supervisor logs a WARNING and proceeds — the dependency is treated as optional. The integration will start normally but should handle the absence of its dependency gracefully (e.g., by checking for the dependency's devices at runtime). This is not an error because integrations may be installed independently, and a declared dependency on a not-yet-installed integration should not block the declaring integration entirely.
 
 **Invariant citation.** Dependency ordering enforces INV-RF-01 (integration isolation) by ensuring that adapter startup does not depend on shared mutable state or implicit ordering assumptions. Dependencies are explicit, declared in the descriptor, and validated by the supervisor. No adapter accesses another adapter's internal state — the dependency is on the integration's *availability* (RUNNING state), not on its data.
+
+### 3.14 Planned Restart Behavior
+
+<!-- Added 2026-03-21: Architecture benchmark assessment finding M-1 -->
+
+When `IntegrationSupervisor.restartIntegration(IntegrationId)` is called (e.g., by the REST API during configuration hot-reload), the restart is a **planned operation** — distinct from a crash-triggered recovery. The supervisor applies the following protocol:
+
+1. **Set `plannedRestart` flag.** Before calling `adapter.close()`, the supervisor sets `plannedRestart = true` on the integration's `IntegrationHealthRecord`. This flag is visible to downstream consumers via the health query interface.
+
+2. **Suppress device orphaning.** While `plannedRestart` is true, the Device Model does NOT trigger the orphan lifecycle (AMD-17) for that integration's devices. The supervisor does NOT produce `availability_changed` events for entities of the restarting integration during the restart window.
+
+3. **Preserve entity state.** Entity state remains at last-known values. The State Projection does not receive availability transitions because none are produced. From the perspective of the rest of the system, the entities are still at their pre-restart state.
+
+4. **Queue commands during the restart window.** Commands targeting entities owned by the restarting integration are queued in a bounded queue (default capacity: 10 commands, configurable via `integration.restart.command_queue_size`). When the adapter reaches RUNNING, queued commands are dispatched in FIFO order. If the queue overflows, the oldest command is dropped and a `command_queue_overflow` event is produced at NORMAL priority.
+
+5. **Clear the flag on completion.** The `plannedRestart` flag is cleared when one of the following occurs:
+   - The adapter reaches RUNNING state (successful restart). Queued commands are dispatched.
+   - The restart exceeds a configurable timeout (default: 60 seconds, configurable via `integration.restart.timeout_seconds`). The flag is cleared and normal failure handling proceeds — the integration transitions to FAILED, device orphaning (AMD-17) applies, and queued commands are rejected with `reason: restart_timeout`.
+   - The adapter throws a `PermanentIntegrationException` during restart initialization. The flag is cleared, FAILED transition proceeds, and orphaning applies.
+
+**Difference from unplanned crash behavior.** When a `PermanentIntegrationException` or OOM causes an unplanned adapter failure, the supervisor does NOT set the `plannedRestart` flag. The standard failure path applies immediately: health state transitions to FAILED, device orphaning (AMD-17) fires, `availability_changed` events are produced for all managed entities, and automations see genuine availability transitions. The `ExceptionClassification.SHUTDOWN_SIGNAL` classification (§3.7) prevents shutdown-caused exceptions from triggering the crash path during a planned restart.
+
+**Invariant citation.** Planned restart behavior preserves INV-RF-01 (integration crash isolation) by ensuring that a planned restart — unlike a crash — does not cascade spurious availability events through the automation and state projection pipelines.
 
 ---
 
@@ -765,6 +792,16 @@ All targets are specified for the primary deployment target: Raspberry Pi 5, 4 G
 | Carrier thread utilization at steady state (50 devices, 3 integrations) | < 50% | Must leave carrier thread capacity for core services (event bus, state projection, persistence). Measured as average carrier thread busy time over a 5-minute window. | JFR: monitor `jdk.VirtualThreadPinned` duration and carrier thread scheduling metrics. |
 | Memory per integration (typical) | < 20 MB | Includes HttpClient (~5 MB), adapter state, thread stack, buffers. 20 integrations at 20 MB each = 400 MB, within the 1.5 GB heap budget. | JFR allocation profiling: attribute heap consumption by integration thread group. |
 
+<!-- Added 2026-03-21: Architecture benchmark assessment finding S-4 -->
+
+### 10.1 Known Limitation: Per-Integration Heap Retention Accounting
+
+Per-integration heap retention is not measurable at the in-process isolation tier. JFR allocation profiling (`jdk.ObjectAllocationInNewTLAB` events attributed by thread group) tracks allocation volume, not retained heap. A slow memory leak (objects allocated by an integration that are never collected) is invisible to allocation rate monitoring. Per-integration retained heap measurement requires classloader isolation (each integration in its own classloader) or process isolation (each integration in its own JVM) — neither is implemented at the MVP in-process isolation tier.
+
+**Consequence:** Slow memory leaks from an integration will manifest as JVM-wide heap pressure (rising post-GC live heap observed via JFR `GCHeapSummary` events) and ultimately process-wide OOM. Recovery is via process restart (INV-RF-04, LTD-13). The event-sourced architecture ensures clean recovery (checkpoint replay), but the leak itself cannot be attributed to a specific integration without heap dump analysis.
+
+**Guidance for Phase 3 implementors:** Do not attempt to build per-integration heap accounting within the in-process model. Fast allocation anomalies (detectable via JFR thread group attribution) and the process restart recovery path are the correct mechanisms at this tier. INV-RF-02's test ("Deploy an integration that attempts to allocate unbounded memory") validates the fast-allocation case only. The slow-leak case is an accepted limitation of in-process isolation, mitigated by process-level restart and event-sourced recovery.
+
 ---
 
 ## 11. Observability
@@ -844,6 +881,10 @@ The Integration Runtime is a trust boundary. Integration code runs within the sa
 **Health score calculation.** Verify the weighted formula against known inputs. Test edge cases: all-zero rates (score = 1.0), all-failure rates (score = 0.0), mixed rates at transition boundaries (0.80 and 0.40 thresholds). Verify that `dataFreshnessScore` decays linearly from 1.0 to 0.0 as heartbeat age increases from threshold to 3× threshold.
 
 **Health state machine transitions.** Verify every transition in the state machine (§3.4): HEALTHY→DEGRADED, DEGRADED→HEALTHY, DEGRADED→SUSPENDED, SUSPENDED→DEGRADED (probe success), SUSPENDED→FAILED (probe exhaustion), FAILED→LOADING (manual restart). Verify that HEALTHY→SUSPENDED and HEALTHY→FAILED transitions are impossible (must pass through DEGRADED). Verify flapping dampening: rapid DEGRADED↔HEALTHY cycling does not produce excessive events.
+
+<!-- Added 2026-03-21: Architecture benchmark assessment finding R-3 -->
+
+**Health score boundary oscillation.** Configure an adapter whose health score oscillates between 0.78 and 0.82 across consecutive evaluations (never sustaining 3 consecutive sub-0.80 readings). Verify the adapter remains HEALTHY (the 3-consecutive-evaluation guard prevents false degradation). Verify that if the oscillation shifts to 0.75–0.82 (3+ consecutive sub-0.80 readings become possible), degradation eventually triggers. This validates the hysteresis design under boundary conditions.
 
 **Exception classification.** Verify that each exception type in the classification table (§3.7) is correctly categorized as transient or permanent. Verify that `PermanentIntegrationException` is classified as permanent. Verify that unknown `RuntimeException` subclasses default to transient.
 

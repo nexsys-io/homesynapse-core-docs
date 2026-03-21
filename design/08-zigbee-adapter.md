@@ -724,6 +724,10 @@ Events produced by the adapter follow the Event Model's envelope schema (Doc 01 
 | `ManufacturerCodec` | Sealed interface for manufacturer-specific codecs. Implementations: `TuyaDpCodec`, `XiaomiTlvCodec`. Methods: `decode(ZclFrame)` → `List<AttributeReport>`, `encode(commandType, parameters)` → `ZclFrame`. |
 | `AvailabilityTracker` | Per-device availability state machine with power-source-aware timeout logic. |
 
+<!-- Added 2026-03-21: Architecture benchmark assessment finding M-1 -->
+
+**AvailabilityTracker restart initialization.** On adapter restart (planned or unplanned), the `AvailabilityTracker` is reconstructed. For known devices (devices present in the device registry from a previous adapter session), the tracker initializes each device's availability to its **pre-restart availability state**. The pre-restart availability is persisted as a device-level property (`last_known_availability`) in the device registry — it is NOT held only in-memory. Devices whose pre-restart state was AVAILABLE remain AVAILABLE until the silence timeout elapses or a frame is received. Devices whose pre-restart state was UNAVAILABLE remain UNAVAILABLE until a frame is received. For newly discovered devices (not in the registry), availability starts at UNKNOWN and transitions to AVAILABLE on first frame receipt. This ensures that a planned restart (Doc 05 §3.14) does not produce a false UNAVAILABLE→AVAILABLE cascade for every device as the adapter reconnects.
+
 ### 8.2 Key Types
 
 | Type | Kind | Responsibility |
