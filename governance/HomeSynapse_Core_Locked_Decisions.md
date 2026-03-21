@@ -68,7 +68,7 @@ Thread stack size reduction from ARM64's 2 MB default to 512 KB is mandatory. JI
 
 **Invariant alignment:** INV-PR-01 (constrained hardware as primary target), INV-PR-02 (quantitative performance targets — G1GC pauses within latency budgets), INV-PR-03 (bounded and predictable resource usage via -Xmx).
 
-**Reversal criteria:** If steady-state RSS consistently exceeds 2.5 GB (leaving <1.5 GB for OS + peripherals), or if GC pauses exceed 500 ms under normal load. If virtual thread pinning on `synchronized` blocks in third-party libraries proves unresolvable without migrating to Java 25+.
+**Reversal criteria:** If steady-state RSS consistently exceeds 2.5 GB (leaving <1.5 GB for OS + peripherals), or if GC pauses exceed 500 ms under normal load. If steady-state carrier thread utilization exceeds 75% due to JNI pinning from third-party libraries (primarily sqlite-jdbc) despite the platform thread executor mitigation pattern, indicating that the virtual thread model provides insufficient benefit to justify its complexity. Note: JEP 491 (Java 25 LTS) eliminates `synchronized`-monitor pinning but does NOT eliminate JNI pinning. sqlite-jdbc's `synchronized native` methods cause carrier pinning via both mechanisms on Java 21, and via JNI alone on Java 25+. The platform thread executor pattern (see LTD-03, LTD-11) is required on ALL Java versions.
 
 **Confidence:** High.
 
@@ -125,6 +125,12 @@ PRAGMA busy_timeout = 5000;
 WAL mode enables single-writer + unlimited-reader concurrency — architecturally ideal for event sourcing. `synchronous=NORMAL` in WAL mode avoids fsync per commit while maintaining crash safety (data loss window limited to the last WAL page, not the entire transaction).
 
 The JDBC driver is `org.xerial:sqlite-jdbc` (bundles native libraries for ARM64 and x86_64).
+
+**Virtual thread constraint.** Every method in xerial sqlite-jdbc's `NativeDB.java` is declared `synchronized native`. This is a worst-case double-pinning pattern for Java 21 virtual threads: the virtual thread is pinned by both the monitor entry and the JNI native call. With 4 carrier threads on RPi 5, as few as 4 concurrent sqlite-jdbc operations can exhaust the carrier pool. JEP 491 (Java 25) eliminates the `synchronized` pinning but JNI pinning persists across all Java versions — it is inherent to how native methods interact with the virtual thread scheduler.
+
+**Mandatory mitigation.** All sqlite-jdbc operations — reads and writes — must be submitted to a bounded platform thread executor (`Executors.newFixedThreadPool(N)`), not executed directly on virtual threads. Virtual threads submit database work via `CompletableFuture.supplyAsync(dbCall, dbExecutor)` and await the result. This confines all carrier pinning to dedicated platform threads, keeping the virtual thread carrier pool free. Executor sizing: 1 thread for the write connection (single-writer model), 2–3 threads for read connections (matching WAL concurrent reader capacity under load). The executor is owned by the Persistence Layer and exposed to other subsystems through the `EventStore` and `StateStore` interfaces — callers never interact with sqlite-jdbc directly.
+
+This pattern mirrors the platform thread isolation already designed for jSerialComm in Integration Runtime §3.2. The principle is the same: JNI native calls pin carrier threads; dedicated platform threads prevent starvation.
 
 Performance baseline on Pi 5 with NVMe: 10,000–50,000 inserts/sec — orders of magnitude beyond HomeSynapse's requirements (~100 events/sec sustained).
 
@@ -375,7 +381,7 @@ Builds run on development machines, not on Pi hardware. Gradle's daemon requires
 
 The event bus is a thin dispatch layer: a `ConcurrentHashMap` of subscriber lists, dispatched via virtual thread executors. This is ~50 lines of code with zero external dependencies.
 
-Each subscriber runs in its own virtual thread. A slow subscriber (e.g., a database-writing projection) does not block the event store or other subscribers. If a subscriber falls behind, it catches up by reading directly from the event store (the Axon `EmbeddedEventStore` pattern).
+Each subscriber runs in its own virtual thread. Subscribers that perform SQLite operations (EventStore reads, EventPublisher writes, checkpoint writes) route those operations through the Persistence Layer's platform thread executor (LTD-03). The subscriber's virtual thread parks while the platform thread executes the JNI call, then resumes when the result is available. This prevents database-writing subscribers from pinning carrier threads. A slow subscriber does not block the event store or other subscribers because: (a) the platform thread executor serializes database access without consuming carrier threads, and (b) each subscriber pulls events independently from its own checkpoint. If a subscriber falls behind, it catches up by reading directly from the event store (the Axon `EmbeddedEventStore` pattern).
 
 The `EventPublisher` interface in the domain layer abstracts the dispatch mechanism. The MVP implements `InProcessEventPublisher`. When multi-process scaling is needed (post-MVP), implement `NatsEventPublisher` or equivalent behind the same interface, keeping in-process dispatch for same-JVM projections.
 
