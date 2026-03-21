@@ -430,6 +430,15 @@ When `IntegrationSupervisor.restartIntegration(IntegrationId)` is called (e.g., 
 
 **Invariant citation.** Planned restart behavior preserves INV-RF-01 (integration crash isolation) by ensuring that a planned restart — unlike a crash — does not cascade spurious availability events through the automation and state projection pipelines.
 
+**Cross-subsystem communication.** The `plannedRestart` flag on `IntegrationHealthRecord` is readable by modules in the integration layer (REST API, observability). Core-layer modules — specifically the Automation Engine (Doc 07) and Device Model (Doc 02) — cannot import `IntegrationHealthRecord` because JPMS dependency direction prohibits core modules from depending on integration-runtime. These modules learn about planned restarts via event subscription:
+
+1. When `restartIntegration()` initiates a restart, the supervisor publishes an `IntegrationStopped` event with `reason: "planned_restart"` (using the existing `IntegrationLifecycleEvent` hierarchy in integration-api).
+2. When the restart completes (adapter reaches RUNNING) or fails (timeout or FAILED transition), the supervisor publishes an `IntegrationRestarted` or `IntegrationStopped` event respectively.
+3. The Automation Engine subscribes to these event types and maintains an in-memory `Set<IntegrationId>` of integrations currently in planned restart. It checks this set before evaluating availability-triggered automations (Doc 07 §3.2).
+4. The Device Model checks the same events to suppress orphan lifecycle processing (AMD-17) during the restart window.
+
+This event-based pattern is the canonical mechanism for cross-layer information flow in HomeSynapse. No core-layer module should ever add a `requires` dependency on `com.homesynapse.integration.runtime`.
+
 ---
 
 ## 4. Data Model
