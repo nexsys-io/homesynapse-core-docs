@@ -64,6 +64,8 @@ sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite-jdbc" }
 4. Page cache memory usage (`PRAGMA cache_size`) behaves as expected under the 128 MB allocation (LTD-03).
 5. The native library extracts correctly from the jlink image (no `java.io.tmpdir` conflicts with systemd `PrivateTmp=true` per LTD-13).
 
+**Virtual thread carrier pinning validation (added per VT Risk Audit S-03).** The WAL validation spike scope has been expanded to include virtual thread interaction testing. See `research/sqlite-wal-validation-spike-plan.md` for the full test plan, which includes: confirming JFR VirtualThreadPinned events on every sqlite-jdbc operation, measuring carrier thread utilization under concurrent load, and validating the platform thread executor pattern (LTD-03).
+
 This spike is the first Phase 3 task. Results are recorded in `research/sqlite-wal-validation-spike.md`. If the spike reveals problems, the sqlite-jdbc version is revised before any further Phase 3 work proceeds.
 
 **Update policy:** Track xerial releases quarterly. Prefer staying on the latest SQLite minor version for security patches. Major SQLite version upgrades (e.g., 3.51 → 3.52) require re-running the WAL validation spike.
