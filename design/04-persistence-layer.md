@@ -24,7 +24,7 @@ The Persistence Layer does not define what data means. The Event Model owns the 
 
 **Storage commitments are bounded at design time.** Every persistent data structure in the system has a calculable maximum size. The domain event store is bounded by retention policy. The telemetry ring store is bounded by its fixed-size ring buffer. Checkpoint storage is bounded by the number of materialized views (small and enumerable). No data path is permitted to grow without limit. This principle exists because unbounded growth is the root cause of every major persistence failure observed in competitive platforms (INV-RF-05, INV-PR-03).
 
-**Maintenance never blocks recording for extended or unbounded periods.** Retention execution, space reclamation, integrity checks, and backup operations run on separate virtual threads with separate database connections. They yield to the write path by operating in small batches with explicit pauses. The single-writer model (LTD-03, LTD-11) means maintenance and recording compete for the write lock, but maintenance acquires it in short bursts rather than holding it for extended operations. Two operations create bounded blocking windows: weekly WAL TRUNCATE checkpoint (milliseconds to low seconds) and opt-in full VACUUM (administrator-triggered, with pre-verified disk space and duration estimates). Both are scheduled during low-activity windows and are bounded — they cannot run indefinitely. Home Assistant's critical failure — purge and recording sharing a single thread, causing silent event loss when the queue overflows — is the specific failure mode this principle prevents.
+**Maintenance never blocks recording for extended or unbounded periods.** Retention execution, space reclamation, integrity checks, and backup operations are coordinated by virtual threads but execute all SQLite operations through the Persistence Layer's platform thread executor (LTD-03). The executor confines JNI carrier-thread pinning to dedicated platform threads, preventing database operations from starving the virtual thread carrier pool. Maintenance tasks yield to the write path by operating in small batches with explicit pauses between executor submissions. The single-writer model (LTD-03, LTD-11) means maintenance and recording compete for the write lock via the executor's scheduling, but maintenance acquires it in short bursts rather than holding it for extended operations. Two operations create bounded blocking windows: weekly WAL TRUNCATE checkpoint (milliseconds to low seconds) and opt-in full VACUUM (administrator-triggered, with pre-verified disk space and duration estimates). Both are scheduled during low-activity windows and are bounded — they cannot run indefinitely. Home Assistant's critical failure — purge and recording sharing a single thread, causing silent event loss when the queue overflows — is the specific failure mode this principle prevents.
 
 **The write path is the durability boundary.** An event is durable when SQLite confirms the INSERT. A checkpoint is durable when the same SQLite transaction commits both the checkpoint data and the subscriber position update. A telemetry sample is written with weaker guarantees — its loss means losing raw granularity, not losing facts. Each store's durability contract is explicit and distinct. This principle operationalizes INV-ES-04 (write-ahead persistence) and INV-PD-06 (offline integrity).
 
@@ -193,7 +193,7 @@ Retention removes events that have exceeded their priority-tier lifetime. The pr
 
 Per-event-type overrides (e.g., `command_result: 180`, `state_reported: 3`) take precedence over the priority-tier default for matching event types. The Persistence Layer loads these overrides from `event_model.retention.overrides` at startup and applies them during retention execution.
 
-Retention runs on a dedicated virtual thread during a configurable low-activity window (default: 04:12 local time, selected as a typical lowest-activity period for residential households). The time is configurable via `persistence.retention.schedule_time`.
+Retention is coordinated by a virtual thread during a configurable low-activity window. All SQLite DELETE operations are submitted to the Persistence Layer's platform thread write executor. The coordinating virtual thread parks while each batch executes on the platform thread, then resumes for the inter-batch yield (50 ms sleep). The default schedule is 04:12 local time, selected as a typical lowest-activity period for residential households. The time is configurable via `persistence.retention.schedule_time`.
 
 **Retention uses event time, not ingest time.** Per INV-ES-08, retention policies operate on `event_time` to prevent delayed events from being retained longer than intended because they arrived late. Since `event_time` is nullable in the event schema (Doc 01 §4.2), the retention query uses `COALESCE(event_time, ingest_time)` as the timestamp for retention eligibility. Events whose source cannot provide `event_time` have it set equal to `ingest_time` with an `estimated` flag per INV-ES-08, so in practice the COALESCE is a safety net for schema correctness, not a common path. An index on `event_time` (`idx_events_event_time`) is required as an initial schema migration to support efficient retention queries.
 
@@ -327,7 +327,7 @@ The telemetry database uses a smaller page cache and no mmap because the file is
 
 The aggregation engine reads raw samples from the telemetry ring store and produces domain events that represent meaningful summaries. It is the only path from telemetry data to the domain event store (**Event Model & Event Bus** §3.5).
 
-**Execution model:** A dedicated virtual thread wakes on a configurable interval (default: 5 minutes, configurable via `persistence.aggregation.interval_minutes`, range: 1–60). On each cycle:
+**Execution model:** The aggregation engine is coordinated by a virtual thread that submits all SQLite operations (SELECT queries and EventPublisher.publish() INSERT calls) to the platform thread executor. The coordinating virtual thread wakes on a configurable interval (default: 5 minutes, configurable via `persistence.aggregation.interval_minutes`, range: 1–60). On each cycle:
 
 1. Read the `aggregation_cursors` table to determine the last-processed `seq` value for each registered telemetry entity.
 2. For each entity with a cursor, query `SELECT * FROM telemetry_samples WHERE entity_ref = ? AND seq > ? ORDER BY seq` to find unprocessed samples.
@@ -541,6 +541,8 @@ try {
 ```
 
 Both the `subscriber_checkpoints` and `view_checkpoints` tables are in the same SQLite file. The single-transaction guarantee means: if the process crashes after the checkpoint data is computed but before the transaction commits, neither the checkpoint nor the subscriber position is updated. On restart, the view replays from its previous position and recomputes the checkpoint. No state can advance beyond its durable checkpoint.
+
+The multi-statement checkpoint transaction must execute entirely within a single platform thread executor submission. The calling virtual thread submits the full transaction as one unit and parks until the platform thread commits. This prevents carrier pinning across multiple sequential JNI calls within the transaction.
 
 **Checkpoint size expectations.** The State Store's checkpoint for 150 entities (a large home) is approximately 75 KB of JSON (**State Store & State Projection** §3.3). At the maximum checkpoint frequency (every 30 seconds), this produces ~216 MB/day of checkpoint writes — negligible on NVMe, manageable on USB SSD. The `data BLOB` column stores the serialized byte array directly; no compression is applied at the persistence layer because the checkpoint write budget (< 2 seconds, INV-PR-02) must not be consumed by compression overhead.
 
@@ -960,6 +962,8 @@ All targets are specified for the primary deployment target: Raspberry Pi 5, 4 G
 | Storage monitor check | < 100 ms | `df` equivalent + per-file stat | Must not introduce observable latency. |
 | Domain event store size (1 year, 50 devices) | < 2 GB | Default retention: DIAG 7d, NORMAL 90d, CRITICAL 365d | Per Event Model §10. Retention keeps the steady-state size bounded. |
 
+All latency targets include the platform thread executor scheduling overhead (estimated 0.1–0.5 ms per submission on RPi 5). Targets were validated assuming this overhead. If measured overhead exceeds 1 ms, investigate executor thread pool sizing and scheduling policy.
+
 ---
 
 ## 11. Observability
@@ -1113,6 +1117,15 @@ The Persistence Layer handles the most sensitive data in the system: the complet
    Needed: Performance profiling of historical state queries on a 1-year event log. Assessment of whether the existing indexes (`idx_events_subject`, `idx_events_ingest_time`) are sufficient or whether a purpose-built index is needed.
    Status: **[NON-BLOCKING]** — the existing indexes support the query pattern. Optimization can be added transparently behind the existing interface if profiling shows it is needed.
 
+### Platform Thread Executor (Internal)
+
+The platform thread executor is an internal implementation detail of the Persistence Layer module, NOT a public interface. It does not appear in §8 (Key Interfaces). Other subsystems access SQLite exclusively through the `EventStore` and `StateStore` interfaces — they never interact with the executor directly. This is deliberate: the executor strategy is a consequence of the sqlite-jdbc driver's JNI characteristics (LTD-03). If the driver is replaced with a pure-Java implementation (or one that uses `ReentrantLock` around its native calls), the executor requirement changes. Hiding the executor behind `EventStore`/`StateStore` preserves the freedom to change the concurrency strategy without breaking downstream modules. The expected internal shape:
+
+    // INTERNAL to persistence module — not a public API surface.
+    // 1 write thread (single-writer model), 2-3 read threads (WAL concurrent readers).
+    // Virtual threads submit work via CompletableFuture.supplyAsync(task, executor)
+    // and park until the result is available.
+
 ---
 
 ## 16. Summary of Key Decisions
@@ -1123,7 +1136,7 @@ The Persistence Layer handles the most sensitive data in the system: the complet
 | Durability contract | Full write-ahead for domain events; best-effort for telemetry with explicit loss semantics | Domain events satisfy INV-ES-04 via SQLite WAL + synchronous=NORMAL. Telemetry loss means losing raw granularity, not facts. Each store's contract is explicit. | §3.2 |
 | Space reclamation | Incremental vacuum (routine) + full VACUUM (quarterly, opt-in) | Incremental vacuum is low-impact and runs after every retention pass. Full VACUUM requires 2× disk space and creates a bounded blocking window — unsuitable as routine maintenance on constrained hardware. HA's VACUUM-as-routine-maintenance is the specific failure mode avoided. | §3.3 |
 | Retention timestamp | `COALESCE(event_time, ingest_time)` per INV-ES-08 | INV-ES-08 requires retention to operate on event time to prevent delayed events from being retained longer than intended. COALESCE handles nullable event_time defensively. Requires `idx_events_event_time` index. | §3.4 |
-| Retention mechanics | Per-type overrides first, then per-tier batch deletes on a dedicated virtual thread with yield intervals and subscriber checkpoint safety checks | Per-type overrides (from `event_model.retention.overrides`) take precedence. Separate thread prevents retention from blocking event recording (HA's critical failure). Subscriber safety check with grace-period escape hatch balances bounded storage against at-least-once delivery. | §3.4 |
+| Retention mechanics | Per-type overrides first, then per-tier batch deletes on a dedicated virtual thread with yield intervals and subscriber checkpoint safety checks | Per-type overrides (from `event_model.retention.overrides`) take precedence. Platform thread executor prevents retention SQLite operations from pinning carrier threads. Virtual thread coordination provides scheduling flexibility while platform threads handle JNI isolation (HA's shared-thread failure mode avoided). Subscriber safety check with grace-period escape hatch balances bounded storage against at-least-once delivery. | §3.4 |
 | Storage pressure | MB-based emergency threshold (from Event Model §9) with percentage-based warning | Consistent with Event Model §6.5. CRITICAL events are never automatically purged — the system enters degraded state rather than overwriting committed events (INV-ES-01). Aligned with Doc 01 §6.5. CRITICAL events are never automatically purged — the system enters degraded state rather than overwriting committed events (INV-ES-01). | §3.5 |
 | Telemetry ring store | Modular-rowid ring buffer (INSERT OR REPLACE with slot = seq % max_rows), single table with composite indexes including (entity_ref, seq) | Zero DELETE operations, fixed file size, stable B-tree. The (entity_ref, seq) index supports the aggregation engine's dominant query pattern. Per-entity tables rejected due to SQLite schema parsing overhead above ~500 tables. | §3.6 |
 | Aggregation engine | Batch aggregation on timer (5-minute default), not trigger-based | Trigger-based adds 20–50% overhead per insert at high write rates. Batch concentrates I/O in scheduled windows. High-water mark per entity detects ring overwrite gaps. | §3.7 |
