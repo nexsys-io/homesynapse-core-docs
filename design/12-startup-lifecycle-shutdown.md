@@ -149,6 +149,8 @@ Data Infrastructure establishes the persistence and event distribution foundatio
 7. Initialize the WriteCoordinator (AMD-06) — the single-threaded priority executor that serializes all SQLite write operations.
 8. Start the retention scheduler, aggregation engine, and backup scheduler as background virtual threads. These do not execute immediately — they wait for their first scheduled interval.
 
+**Step 2.1b: Platform thread executor initialization.** The Persistence Layer's platform thread executor (LTD-03) must be started before any subscriber threads begin processing. Executor sizing: 1 write thread (single-writer model), 2–3 read threads (WAL concurrent readers). The executor is stopped during shutdown after all subscriber threads have drained.
+
 **Step 2.2: Event Bus initialization.** The Event Bus (Doc 01 §3) initializes:
 
 1. Connect to the domain event store via the Persistence Layer's write and read interfaces.
@@ -186,6 +188,8 @@ Core Domain initializes the subsystems that give HomeSynapse its semantic model:
 5. Initialize the RunManager — the component that tracks active automation runs, enforces concurrency modes, and manages cascade governance (AMD-04).
 6. Recover the PendingCommandLedger — load in-flight commands from persisted state and reconcile against events that arrived while the system was down.
 7. Register the cascade rate limiter.
+
+**Step 3.5: Jackson ObjectMapper warm-up.** Before event processing begins, warm up the singleton ObjectMapper (LTD-08) by pre-serializing and pre-deserializing every registered event type and API response type. This populates Jackson's SerializerCache and DeserializerCache, ensuring the `synchronized` cache-miss code path is never entered under concurrent virtual thread load. Warm-up must complete before any virtual thread processes events or API requests.
 
 **Phase 3 failure semantics:** Device Model, State Store, or Automation Engine initialization failure is fatal. These are core domain subsystems — a system without state projection or automation evaluation cannot serve its primary purpose. Exit with a diagnostic. If the reconciliation pass reveals widespread data inconsistency (>50% of entities have missing derived events), log an ERROR recommending database restore from backup but proceed — the reconciliation pass repairs the inconsistencies.
 

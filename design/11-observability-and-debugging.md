@@ -146,6 +146,8 @@ ORDER BY timestamp DESC LIMIT 1
 
 This returns the correlation_id for the most recent state-affecting event. The full chain is then assembled using the standard correlation_id lookup. The covering index on `(entity_id, event_type, timestamp DESC)` makes this query an index-only scan.
 
+**Threading constraint.** TraceQueryService SQL queries route through the Persistence Layer's platform thread read executor (LTD-03, Doc 04). The query handler's virtual thread parks during each read. This prevents carrier pinning from sqlite-jdbc during trace lookups.
+
 **Five Query Patterns.** Ordered by expected frequency:
 
 1. **By correlation_id** — direct lookup when a user clicks a specific event. Single index scan.
@@ -610,8 +612,8 @@ All targets are specified for the Pi 5 primary deployment target (LTD-02) with P
 
 | Metric | Pi 5 Target | Pi 4 Floor | Rationale |
 |---|---|---|---|
-| Trace query by correlation_id (p99) | < 2 ms | < 5 ms | Must feel instant when clicking an event in the UI. At ~7 events per chain and NVMe index scan, this is achievable. |
-| Trace reverse lookup (p99) | < 3 ms | < 8 ms | The "why did this happen?" query is the primary diagnostic operation. Covering index on `(entity_id, event_type, timestamp DESC)` makes this an index-only scan plus one chain assembly. |
+| Trace query by correlation_id (p99) | < 2 ms | < 5 ms | Must feel instant when clicking an event in the UI. At ~7 events per chain and NVMe index scan, this is achievable. † |
+| Trace reverse lookup (p99) | < 3 ms | < 8 ms | The "why did this happen?" query is the primary diagnostic operation. Covering index on `(entity_id, event_type, timestamp DESC)` makes this an index-only scan plus one chain assembly. † |
 | Health aggregation evaluation | < 1 ms | < 2 ms | O(10) composition with no I/O. Must not add perceptible latency to health endpoint responses. |
 | JFR continuous recording CPU overhead | < 3% one core | < 5% one core | Per JFR analysis, 600 events/sec with ~22 bytes/event produces ~13 KB/sec disk write. JFR's lock-free thread-local buffer design keeps CPU overhead minimal. |
 | MetricsStreamBridge latency (JFR commit to WebSocket frame) | < 2 s | < 3 s | RecordingStream reads from disk repo with ~1 second JFR flush latency plus bridge processing. Real-time dashboard updates within 2 seconds are acceptable for monitoring. |
@@ -619,6 +621,8 @@ All targets are specified for the Pi 5 primary deployment target (LTD-02) with P
 | JFR native memory overhead | ≤ 25 MB | ≤ 25 MB | Global buffers + metadata + active chunk. Outside the 1536 MB heap (LTD-01). |
 | Health state transition logging | < 0.5 ms | < 1 ms | Single structured log write plus JFR event commit. Must not delay the health state update. |
 | Dynamic log level change | < 5 ms | < 10 ms | Logback LoggerContext update is synchronous but fast. Must be near-instant from the user's perspective. |
+
+† Trace query latency targets include platform thread executor scheduling overhead (estimated 0.1–0.5 ms per submission on RPi 5). If measured latency exceeds targets, investigate read executor thread pool sizing.
 
 ---
 

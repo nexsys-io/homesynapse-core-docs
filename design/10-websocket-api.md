@@ -283,6 +283,8 @@ The Event Relay is the internal component that bridges the Event Bus and connect
 
 **Replay handling.** When a client subscribes with `from_global_position` behind the relay's current checkpoint, the relay reads historical events directly from the EventStore (not from the bus subscription) and delivers them as replay. The replay runs on the client's virtual thread, concurrent with live delivery to other clients. When the replay cursor reaches the relay's current position, the client transitions to receiving events from the relay's live distribution path.
 
+**Threading constraint.** The Event Relay's EventStore reads and client replay reads (catch-up on reconnection) route through the Persistence Layer's platform thread read executor (LTD-03, Doc 04). The WebSocket handler's virtual thread parks during each read and resumes when the platform thread completes the JNI call. This prevents carrier thread pinning during client catch-up, which can involve sequential reads of hundreds of events.
+
 ### 3.7 Backpressure and Delivery Modes
 
 The server manages per-client backpressure using a three-stage model. Per INV-ES-04, events are delivered only after durable persistence — the WebSocket API never delivers an event before the EventStore has confirmed the write. Backpressure management applies to the client-facing delivery buffer, not to event persistence.

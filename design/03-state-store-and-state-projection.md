@@ -333,6 +333,8 @@ This is an O(N) copy, but `getSnapshot()` is called infrequently (initial page l
 
 **Checkpoint serialization.** The checkpoint writer calls `getSnapshot()` to obtain a consistent copy, then serializes it. This ensures the checkpoint represents a coherent point-in-time view even though the projection subscriber continues processing events during serialization.
 
+**Platform thread executor for database writes.** The projection subscriber's `EventPublisher.publish()` calls for `state_changed` events are submitted to the Persistence Layer's platform thread write executor (LTD-03, Doc 04). The subscriber's virtual thread parks during each write and resumes when the WAL commit completes. This prevents the State Projection from pinning carrier threads during high-throughput event processing. The in-memory ConcurrentHashMap updates remain on the virtual thread (no JNI, no pinning).
+
 **Alternative considered: full-map immutable snapshot per event.** Creating a new `Map<EntityRef, EntityState>` for every state-altering event guarantees perfect point-in-time consistency for all reads, but the O(N) copy per event creates unsustainable GC pressure at scale (3,000 entities × 500 events/sec = ~48 MB/sec of young-gen allocation). The ConcurrentHashMap approach trades cross-entity atomicity on `getState()`/`getStates()` reads for dramatically lower allocation pressure, while still providing full consistency for `getSnapshot()` callers that explicitly need it.
 
 ### 3.6 Startup Sequence

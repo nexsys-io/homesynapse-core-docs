@@ -301,6 +301,8 @@ public static final ObjectMapper MAPPER = JsonMapper.builder()
     .build();
 ```
 
+**Startup warm-up (mandatory).** Before virtual threads begin processing events, warm up the ObjectMapper by pre-serializing and pre-deserializing every registered event type and API response type. This populates the SerializerCache and DeserializerCache, ensuring the `synchronized` cache-miss write path is never entered under concurrent virtual thread load. The warm-up step is part of the startup sequence (Doc 12, Phase 3 — Core Services Init or Phase 4 — Event Processing Init). After warm-up, Jackson's hot read path uses unsynchronized snapshots and is fully virtual-thread-safe.
+
 The `SNAKE_CASE` naming strategy bridges Java naming conventions to the wire format globally. Java domain types use standard `camelCase` field names (`entityRef`, `homeId`, `globalPosition`); Jackson maps them to the `snake_case` API tokens defined in the Glossary (`entity_ref`, `home_id`, `global_position`) without per-field annotation. Explicit `@JsonProperty` annotations are reserved for edge cases where automatic mapping is insufficient. This same `camelCase`-in-Java, `snake_case`-on-wire convention applies to YAML configuration deserialization: when SnakeYAML Engine maps are converted to domain objects, the mapping code uses `camelCase` Java field names regardless of the `snake_case` YAML keys.
 
 Pre-build `ObjectReader`/`ObjectWriter` for hot-path types (event envelopes, device state). Use `byte[]` or stream-based I/O, not `String` — Jackson is optimized for byte-level processing.

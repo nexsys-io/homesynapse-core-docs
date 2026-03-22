@@ -125,6 +125,8 @@ The `NORMAL` minimum priority filter prevents the engine from being woken for DI
 
 The engine runs on a dedicated virtual thread (per LTD-01 / LTD-11) and uses the standard pull-based subscription model defined in **Event Model & Event Bus** §3.4: notification via `LockSupport.unpark()`, batch polling via `eventStore.readFrom()`, and checkpoint persistence after processing.
 
+**Threading constraint.** The three subscriber threads (`automation_engine`, `command_dispatch_service`, `pending_command_ledger`) route all EventStore reads and EventPublisher writes through the Persistence Layer's platform thread executor (LTD-03, Doc 04). Each subscriber's virtual thread parks during database operations and resumes when the platform thread completes the JNI call. This prevents carrier thread pinning from sqlite-jdbc's `synchronized native` methods. In-memory operations (state snapshot reads from ConcurrentHashMap, trigger evaluation, condition matching) remain on the virtual thread.
+
 ### 3.3 Automation Registry
 
 The Automation Registry is an in-memory data structure that holds all loaded automation definitions. It is populated from `automations.yaml` at startup and updated on hot-reload.
