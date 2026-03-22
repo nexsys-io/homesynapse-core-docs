@@ -145,7 +145,7 @@ The competitive vision described in §2 is the target. The implementation is pha
 - Observability-focused web UI (event trace, health dashboard, basic device control)
 
 **Acceptance test:**
-- 50 Zigbee devices, stable for 72+ hours on Raspberry Pi 4
+- 50 Zigbee devices, stable for 72+ hours on Raspberry Pi 5 (Pi 4 as validation floor)
 - Kill -9 recovery with zero event loss
 - Integration crash isolation demonstrated
 - Event trace answers "why did this happen?" for any device state change
@@ -328,13 +328,13 @@ Multi-user presence and household-aware automations require:
 ### OpenHAB
 **Learn from:** Java-based (validates the language choice), OSGi plugin architecture, mature codebase.
 **Reject:** Steep learning curve, enterprise-heavy architecture, smaller community, dated UI.
-**How HomeSynapse exploits this:** Modern Java (21 vs. OpenHAB's older targets), event sourcing (OpenHAB has no formal event model), observability UI designed for approachability, documentation as a first-class product.
+**How HomeSynapse exploits this:** Event sourcing (OpenHAB has no formal event model despite sharing Java 21), per-integration process isolation via JPMS (vs. OpenHAB's OSGi ClassLoader model), observability UI designed for approachability, documentation as a first-class product.
 
 ---
 
 ## 8. Performance Targets (Tier 1)
 
-These targets define "works well" on the primary deployment target: Raspberry Pi 4 Model B, 4 GB RAM, USB SSD storage.
+These targets define "works well" on the primary deployment target: Raspberry Pi 5, 4 GB RAM, NVMe storage (Raspberry Pi 4 as validation floor per LTD-02)
 
 ### 8.1 Hard Invariants
 
