@@ -132,7 +132,7 @@ The JDBC driver is `org.xerial:sqlite-jdbc` (bundles native libraries for ARM64 
 
 This pattern mirrors the platform thread isolation already designed for jSerialComm in Integration Runtime §3.2. The principle is the same: JNI native calls pin carrier threads; dedicated platform threads prevent starvation.
 
-Performance baseline on Pi 5 with NVMe: 10,000–50,000 inserts/sec — orders of magnitude beyond HomeSynapse's requirements (~100 events/sec sustained).
+Performance baseline on Pi 5 with NVMe: 50,964 inserts/sec direct (C1 spike), 24,473 inserts/sec through the platform thread executor (V3 spike) — 244× to 509× beyond HomeSynapse's design sustained rate (~100 events/sec). Executor per-submission overhead: p50=0.029 ms, p95=0.068 ms, p99=0.105 ms (validated 2026-04-02).
 
 **Rationale:** Zero-configuration, single-file database. ~1 MB library footprint. Widely deployed on embedded systems. The single-writer model is not a limitation for a single-process event-sourced system — it is a simplification. The `EventStore` interface abstraction allows H2 or PostgreSQL for advanced users or future Enhanced-tier deployments without changing application code.
 

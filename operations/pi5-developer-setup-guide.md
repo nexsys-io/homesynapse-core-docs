@@ -26,7 +26,7 @@ Before starting this guide, you should have the following hardware assembled, po
 - **MicroSD card** (16 GB+) for OS boot only
 - **Monitor + keyboard** connected for initial setup (not needed after this guide)
 
-**OS:** Flash **Raspberry Pi OS** (Bookworm or later) via Raspberry Pi Imager with these settings: hostname `hs-dev-N` (your dev number), username `homesynapse`, WiFi pre-configured, SSH enabled with password auth, your timezone set. Boot the Pi, log in, and run:
+**OS:** Flash **Raspberry Pi OS Lite (64-bit)** (Bookworm or later) via Raspberry Pi Imager. Use Lite — the desktop environment is unnecessary on a headless dev target and wastes RAM. Configure these settings in the Imager: hostname `hs-dev-N` (your dev number), username `homesynapse`, WiFi pre-configured, SSH enabled with password auth, your timezone set. Boot the Pi, log in, and run:
 
 ```bash
 sudo apt update && sudo apt upgrade -y
@@ -119,7 +119,7 @@ HomeSynapse follows the Filesystem Hierarchy Standard (LTD-13, Doc 12 §8.3). SQ
 
 ```bash
 # Create the directory structure on NVMe
-sudo mkdir -p /mnt/nvme/homesynapse/{data,backups,tmp}
+sudo mkdir -p /mnt/nvme/homesynapse/{data,data/tmp,backups,tmp}
 
 # Create directories on the SD card (low-write paths)
 sudo mkdir -p /var/log/homesynapse
@@ -145,7 +145,8 @@ sudo chmod 750 /opt/homesynapse
 |---|---|---|---|
 | `/var/lib/homesynapse/` | NVMe (symlink) | SQLite databases, JFR recordings | homesynapse |
 | `/mnt/nvme/homesynapse/backups/` | NVMe | Pre-upgrade snapshots | homesynapse |
-| `/mnt/nvme/homesynapse/tmp/` | NVMe | Temp files (cleaned on startup) | homesynapse |
+| `/var/lib/homesynapse/tmp/` | NVMe (via symlink) | `java.io.tmpdir` for sqlite-jdbc native extraction | homesynapse |
+| `/mnt/nvme/homesynapse/tmp/` | NVMe | General temp files (cleaned on startup) | homesynapse |
 | `/var/log/homesynapse/` | SD card | Log files (low-write) | homesynapse |
 | `/etc/homesynapse/` | SD card | YAML configuration | homesynapse |
 | `/opt/homesynapse/` | SD card | Read-only jlink binary image | root:homesynapse |
@@ -212,6 +213,15 @@ mkdir -p ~/.ssh && chmod 700 ~/.ssh
 ---
 
 ## 7. WiFi for Headless Use
+
+**Check first:** Confirm your WiFi is working before proceeding. Many setup issues stem from WiFi not connecting after the initial OS flash. Run:
+
+```bash
+nmcli device status
+ping -c 3 google.com
+```
+
+If WiFi shows `disconnected`, try reconnecting: `sudo nmcli device wifi connect "YOUR_SSID" password "YOUR_PASSWORD"`. If that fails, check that the SSID and password were entered correctly in the Imager, and that your router isn't filtering by MAC address. You can always fall back to USB tethering (see below) to continue setup.
 
 Your home WiFi was configured during OS installation. To add additional known networks (e.g., a phone hotspot for travel):
 
@@ -303,6 +313,8 @@ openjdk version "21.0.10" 2026-01-20 LTS
 
 No password prompt. If this works, the headless dev loop is complete.
 
+> **Windows/Git Bash quoting note:** All SSH examples in this guide use `ssh pi "remote command"` double-quote wrapping, which works identically in bash, zsh, PowerShell, and Git Bash on Windows. Avoid single-quoting the outer command on PowerShell (`ssh pi 'command'`) — PowerShell treats single quotes as literal strings and won't interpolate variables. If you need to pass arguments containing spaces or special characters to the remote side, nest single quotes inside doubles: `ssh pi "echo 'hello world'"`. For commands requiring both quote types, use `bash -lc` on the remote side: `ssh pi "bash -lc 'java -Dfoo=\"bar\" -cp classes MainClass'"`.
+
 ---
 
 ## 10. Deploying Code to the Pi
@@ -347,6 +359,8 @@ cd ~/homesynapse-core
 # Subsequent builds are fast
 ./gradlew :spike:wal-validation:assemble
 ```
+
+> **Non-interactive SSH caveat:** Commands run via `ssh pi "command"` (non-interactive, no TTY) do **not** source `~/.bashrc` on Debian. This means `JAVA_HOME` and custom `PATH` entries set only in `.bashrc` will be missing. That's why §3.2 puts them in `~/.profile` instead. If you need environment variables in a non-interactive SSH command, use a login shell: `ssh pi "bash -lc 'command'"`. Symptoms of this problem: `java: command not found` or `jfr: command not found` when running commands via `ssh pi "..."`, but everything works after `ssh pi` and running interactively.
 
 ### 10.3 Running Tests on Target Hardware
 

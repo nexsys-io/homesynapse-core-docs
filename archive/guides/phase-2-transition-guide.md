@@ -36,7 +36,7 @@ JVM configuration is specified in LTD-01 and is not duplicated here. The canonic
 
 **Update policy:** Pin to the latest Corretto 21 LTS patch at the start of each development quarter. Security patches that address CVEs rated HIGH or CRITICAL are applied within one week of release. Version changes are recorded in this document and in the version catalog commit message.
 
-**Phase 3 validation:** Confirm that the jlink image built with this Corretto version starts correctly on Raspberry Pi 5 (Debian Bookworm, aarch64) and Raspberry Pi 4 (validation floor per LTD-02). This is part of the first Phase 3 integration test, not a separate gate.
+**Phase 3 validation:** Confirm that the jlink image built with this Corretto version starts correctly on Raspberry Pi 5 (Debian Bookworm or later, aarch64) and Raspberry Pi 4 (validation floor per LTD-02). This is part of the first Phase 3 integration test, not a separate gate.
 
 ---
 

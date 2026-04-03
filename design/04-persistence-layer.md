@@ -962,7 +962,7 @@ All targets are specified for the primary deployment target: Raspberry Pi 5, 4 G
 | Storage monitor check | < 100 ms | `df` equivalent + per-file stat | Must not introduce observable latency. |
 | Domain event store size (1 year, 50 devices) | < 2 GB | Default retention: DIAG 7d, NORMAL 90d, CRITICAL 365d | Per Event Model §10. Retention keeps the steady-state size bounded. |
 
-All latency targets include the platform thread executor scheduling overhead (estimated 0.1–0.5 ms per submission on RPi 5). Targets were validated assuming this overhead. If measured overhead exceeds 1 ms, investigate executor thread pool sizing and scheduling policy.
+All latency targets include the platform thread executor scheduling overhead (estimated 0.1–0.5 ms per submission on RPi 5). **Empirical validation (V3 spike, 2026-04-02):** measured overhead is p50=0.029 ms, p95=0.068 ms, p99=0.105 ms on Pi 5 NVMe — below the low end of the estimate and well under the 1 ms investigation threshold. Executor pattern validated with 24,473 events/sec burst throughput (244× design sustained rate).
 
 ---
 

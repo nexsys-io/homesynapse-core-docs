@@ -20,7 +20,7 @@ Doc 04 assumed that running maintenance operations on "separate virtual threads"
 2. **§3.4** — Retention threading: VT coordinates, platform thread executes DELETEs
 3. **§3.7** — Aggregation engine: same VT→executor pattern
 4. **§3.12** — View checkpoint: full transaction submitted as single executor unit
-5. **§10** — Performance target note: 0.1–0.5ms executor overhead included
+5. **§10** — Performance target note: 0.1–0.5ms executor overhead included. **V3 spike (2026-04-02) measured: p50=0.029 ms, p95=0.068 ms, p99=0.105 ms — below estimate at all percentiles.** Burst throughput through executor: 24,473 events/sec (244× design sustained rate)
 6. **§14** — Decision table: retention isolation rationale corrected
 7. **§15** — New rationale entry: executor is internal, hidden behind EventStore/StateStore interfaces
 
