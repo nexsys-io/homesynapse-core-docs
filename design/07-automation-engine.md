@@ -402,6 +402,14 @@ Actions execute sequentially within a Run's virtual thread. Each action step pro
 
 **Command action target resolution.** When an action targets entities via selectors (area, label, type), the resolved set from trigger time (§3.7) is used. Each entity in the resolved set receives the command. The action produces one `command_issued` event per target entity, each with its own `event_id` but sharing the Run's `correlation_id`.
 
+**Execution order guarantees (AMD-31).** The command execution pipeline provides three determinism invariants:
+
+1. **Within a Run, actions execute sequentially.** The `command_issued` event for action N is appended to the event log and durably committed (Doc 01 §8.3, INV-ES-04) before action N+1 begins execution. Because `EventPublisher.publish()` is synchronous and durable-before-return, the command is persisted in the log before the Run advances.
+
+2. **Within a multi-target action, targets are processed in ULID ascending order.** When a selector resolves to multiple entities, `command_issued` events are produced in entity ULID ascending order (Crockford Base32 lexicographic, corresponding to chronological registration order). This provides a stable, repeatable ordering for safety-critical command sequences — e.g., ensuring an exhaust fan command precedes a gas valve command if the fan was registered first.
+
+3. **The Command Dispatch Service (§3.11.1) processes commands in event log order** (global_position ascending). Since `command_issued` events from a Run are appended in action-then-target order, and the dispatch subscriber consumes in log order, commands are dispatched in the order they were issued. Across different Runs executing concurrently, commands interleave by log position — no Run-level batching or reordering occurs.
+
 **Unavailable target handling.** When a command action targets an entity whose availability is `offline` (per State Store), the behavior depends on a per-action configuration field `on_unavailable`:
 
 | Value | Behavior | Rationale |
@@ -455,6 +463,8 @@ The Command Dispatch Service is a thin routing resolver within the automation su
 6. On successful handoff to the adapter, produces a `command_dispatched` event (DIAGNOSTIC priority) carrying the `integration_id`, `protocol_metadata`, and a causal reference to the `command_issued` event.
 
 The dispatch service runs as a separate subscriber (`command_dispatch_service`) with its own virtual thread. It subscribes to `command_issued` events and processes them independently of the automation engine's main subscriber. This decouples command routing from trigger evaluation — the automation engine's subscriber can continue processing events while commands are being dispatched.
+
+**Dispatch ordering guarantee (AMD-31).** The dispatch service processes `command_issued` events in event log order (global_position ascending). Multiple commands from the same Run are routed sequentially, preserving the issue-order established in §3.9. Commands from different Runs interleave by log position — no batching or priority reordering is applied at the dispatch layer. This ensures that if a Run issues commands in a safety-critical order (e.g., exhaust fan before gas valve), that order is preserved through dispatch.
 
 **Subscription filter:**
 
@@ -1081,5 +1091,6 @@ This subsystem has no direct external interface — all access is through the Ev
 |---|---|---|
 | 2026-03-07 | Initial locked version | — |
 | 2026-03-18 | Integrated AMD-25: Temporal duration modifier (`for_duration`) for Tier 1 triggers. Added §3.4 duration timer lifecycle, §3.5 deduplication note, §3.7 hot-reload interaction, §3.10 REPLAY suppression, §8.2 DurationTimer type + TriggerDefinition update, §9 trigger configuration keys, §10 timer performance targets, §11.1 timer metrics, §11.2 timer log events, §11.3 DEGRADED condition update, §13 test scenarios, §14 Tier 2 deferred note. AMD-25 conditions applied: (1) automation-removed timer handling in §3.7, (2) multi-entity selector limitation in §3.4. | AMD-25 |
+| 2026-04-04 | Integrated AMD-31: Command Execution Order Guarantees. Added §3.9 execution order guarantees (sequential within Run, ULID ascending for multi-target, log-order dispatch) and §3.11.1 dispatch ordering guarantee. | AMD-31 |
 
 *This document is part of the HomeSynapse Core Phase 1 design documentation. It is governed by the Design Document Template and will be reviewed during architecture review.*
