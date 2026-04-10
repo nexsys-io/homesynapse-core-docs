@@ -767,7 +767,7 @@ Before interface specification begins, produce three reference artifacts in `hom
 | Module | Design Doc | Deliverables | Convention Plugin |
 |---|---|---|---|
 | `platform-api` | Doc 12 §8 | `HealthReporter`, `PlatformPaths` interfaces | test-fixtures-conventions |
-| `event-model` | Doc 01 | All event types, `EventAppender`, `EventReader`, `EventQuerier`, `EventBus` interface, `CausalContext`, `DomainEvent` sealed hierarchy, upcaster infrastructure. **Plus testFixtures:** `InMemoryEventStore`, `TestEventFactory`, `TestCausalContext` | test-fixtures-conventions |
+| `event-model` | Doc 01 | All event types, `EventAppender`, `EventReader`, `EventQuerier`, `EventBus` interface, `CausalContext`, `DomainEvent` event hierarchy (non-sealed, AMD-33), upcaster infrastructure. **Plus testFixtures:** `InMemoryEventStore`, `TestEventFactory`, `TestCausalContext` | test-fixtures-conventions |
 
 **Per-module workflow (applies to all waves):**
 1. Read the Locked design document cover to cover.

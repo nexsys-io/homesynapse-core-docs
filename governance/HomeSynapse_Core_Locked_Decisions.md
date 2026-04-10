@@ -745,9 +745,51 @@ Each integration runs in its own virtual thread group with:
 
 ---
 
+## 15. Persistence Layer Serialization
+
+### LTD-19: Event Payload Serialization via EventTypeRegistry and PersistenceJacksonModule
+
+**Choice:** Registry-based type resolution using a custom `@EventType` annotation with explicit module-level registration, combined with a persistence-owned Jackson module for nested sealed interface handling. No `@JsonTypeInfo` on any domain type. Pre-warming mandatory before virtual thread access.
+
+**Specification:**
+
+**Type resolution (DECIDE-M2-01, DECIDE-M2-02).** Every `DomainEvent` record carries a custom `@EventType("snake_case_name")` annotation (runtime-retained, type-level). At startup, `EventTypeRegistry` receives explicit class lists from each module that defines `DomainEvent` subtypes (event-model provides core event classes, integration-api provides lifecycle event classes). The registry reads each class's `@EventType` annotation and builds an immutable bidirectional map (`eventType string ↔ Class<? extends DomainEvent>`). The registry fails fast if any registered class is missing the `@EventType` annotation, if duplicate event type strings exist, or if the total count mismatches an expected total. `DomainEvent` is permanently non-sealed (AMD-33) — `getPermittedSubclasses()` cannot be used because `IntegrationLifecycleEvent` extends `DomainEvent` from a different JPMS module (`com.homesynapse.integration`), and JEP 409 requires all permitted subtypes to be in the same module as the sealed type.
+
+Jackson never deserializes against `DomainEvent.class` directly. The persistence layer resolves the concrete `Class<? extends DomainEvent>` from the registry using the `event_type` column stored in SQLite, then passes the concrete class to a pre-built `ObjectReader.readValue(byte[])`. This keeps type resolution outside Jackson entirely — Jackson sees only concrete record classes, never the sealed interface.
+
+**Nested sealed interface handling (DECIDE-M2-03).** `AttributeValue` (sealed interface with 5 record implementations in `com.homesynapse.device`) is deserialized via a custom `JsonDeserializer<AttributeValue>` that discriminates by JSON token type: `isBoolean()` → `BooleanValue`, `isIntegralNumber()` → `IntValue`, `isFloatingPointNumber()` → `FloatValue`, `isTextual()` → `StringValue`, `isObject() && has("allowedValues")` → `EnumValue`. A paired `JsonSerializer<AttributeValue>` uses Java 21 pattern matching (`switch` on sealed subtypes) for compile-time exhaustiveness — adding a new `AttributeValue` variant produces a compile error. Both are registered via `PersistenceJacksonModule`, which extends `SimpleModule`. Module-registered deserializers bypass `DeserializerCache` contention.
+
+**ObjectMapper configuration (DECIDE-M2-04).** A single `ObjectMapper` instance is created via `PersistenceObjectMapper.create()` with: `ParameterNamesModule` (record component name access), `Jdk8Module` (Optional support), `JavaTimeModule` (Instant serialization as ISO 8601), `PersistenceJacksonModule` (AttributeValue serde + future nested sealed interfaces), `JsonInclude.Include.NON_NULL` (omit null fields — reduces storage on Pi), `DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES = false` (forward compatibility), `JsonRecyclerPools.sharedBucketPool()` (avoids ThreadLocal waste under virtual threads).
+
+**Pre-warming (DECIDE-M2-05).** Before any virtual thread accesses the `ObjectMapper`, `JacksonWarmup` creates `ObjectReader` and `ObjectWriter` instances for every registered event type (via `objectMapper.readerFor(type)` / `writerFor(type)`), then performs dummy serialize/deserialize round-trips for event types containing nested sealed interfaces (e.g., `StateChangedEvent` with `AttributeValue` fields). Pre-built readers/writers are stored in unmodifiable maps and used for all subsequent serialization. Memory overhead: ~200–300 KB for ~30 types — negligible on 4 GB Pi.
+
+**Note on `SerializerCache` pinning:** Jackson's `SerializerCache` still uses `synchronized` blocks in 2.18.x. `DeserializerCache` was migrated to `ReentrantLock` in 2.17.1. Pre-warming ensures the `synchronized` cache-miss write path is never entered under concurrent virtual thread load. JDK 24 (JEP 491) will eliminate `synchronized`-based pinning entirely; until then, pre-warming is a correctness requirement on JDK 21–23.
+
+**Storage format (DECIDE-M2-06).** Event payloads are stored as `objectWriter.writeValueAsBytes(payload)` → SQLite BLOB column. Deserialization uses `objectReader.readValue(byte[])`. No intermediate String conversion.
+
+**DegradedEvent fallback (DECIDE-M2-07).** Two-stage fallback:
+1. Unknown `eventType` (registry miss) → immediate `DegradedEvent(eventType, schemaVersion, rawBytes, "Unknown event type: " + eventType)`.
+2. Known type + deserialization failure → `DegradedEvent(eventType, schemaVersion, rawBytes, exceptionClassName + ": " + originalMessage)`.
+
+The `rawBytes` field preserves the exact bytes from SQLite — byte-for-byte fidelity, no re-serialization. `DegradedEvent` participates in the event stream as a first-class citizen, allowing downstream processors to log, alert, or queue degraded events for manual review.
+
+**Jackson version floor (DECIDE-M2-08).** Jackson pinned to ≥ 2.18.2 (currently 2.18.6 in `libs.versions.toml`). Versions 2.18.0 and 2.18.1 had record introspection regressions (databind#4515). Jackson 3.0 is not adopted until it reaches GA and receives LTS designation.
+
+**Rationale:** This architecture satisfies three competing constraints: (1) no `@JsonTypeInfo` on domain types (ArchUnit-enforced `NO_JSON_TYPE_INFO_IN_EVENTS`), (2) no `synchronized` contention under virtual threads (LTD-11, AMD-26), and (3) graceful degradation for unknown or corrupted event types (`DegradedEvent` per Doc 01 §3.10). The registry-based approach is explicit, refactor-safe, and auto-discoverable — superior to convention-based class name storage (Axon default), which blocks refactoring, and superior to `@JsonTypeInfo` mixins, which add storage overhead and bypass the ArchUnit enforcement intent.
+
+**Invariant alignment:** INV-ES-07 (event schema evolution — `FAIL_ON_UNKNOWN_PROPERTIES=false` enables forward-compatible deserialization), INV-TO-01 (observable — human-readable JSON format), INV-PR-01 (constrained hardware — `NON_NULL` reduces storage, `sharedBucketPool()` avoids ThreadLocal waste).
+
+**Reversal criteria:** If `IntValue`/`FloatValue` round-trip fidelity fails (JSON integer/float ambiguity), replace the token-type discriminator in `AttributeValueDeserializer` with a wrapper envelope approach (`{"type":"int","value":42}`).
+
+**Confidence:** High. Core patterns validated by Jackson 2.18.x documentation, Axon Framework precedent (registry-based type resolution), and HomeSynapse V3 spike results (executor + Jackson round-trip validated on Pi 5).
+
+**Supersedes:** Extends LTD-08 with persistence-specific implementation details. LTD-08 remains the governing decision for Jackson as the serialization library; LTD-19 specifies how the persistence layer applies it.
+
+---
+
 ## 10. Decision Dependency Graph
 
-These 18 decisions form an interdependent system. The dependency graph shows which decisions constrain which others:
+These 19 decisions form an interdependent system. The dependency graph shows which decisions constrain which others:
 
 ```
 LTD-01 (Java 21) ──────────────────────────────────────────────────────┐
@@ -779,11 +821,15 @@ LTD-03 (SQLite) ─────────────────────�
 LTD-02 (Pi 5/Pi 4) ── hardware constraints apply to all decisions ─────┘
 
 LTD-08 (Jackson) ── serialization for LTD-06, LTD-15, LTD-16
+                 └── LTD-19 (Persistence Serialization) ── implements LTD-08 for the persistence layer
 LTD-09 (YAML) ── user-facing config; validated by JSON Schema
+LTD-11 (No Broker) ── virtual threads ─── LTD-19 (pre-warming addresses synchronized contention)
 LTD-12 (Zigbee) ── exercises LTD-17 (Integration Runtime)
 LTD-16 (API) ── governs LTD-17 (Integration API versioning)
 LTD-18 (Web UI) ── consumes LTD-13 (jlink distribution for static files)
                  ── serves via LTD-11 (Javalin HTTP server, no external broker)
+LTD-19 (Persistence Serialization) ── depends on LTD-08 (Jackson), LTD-11 (virtual threads),
+                                      LTD-04 (BLOB(16) ULID storage in event rows)
 ```
 
 ---
@@ -810,6 +856,7 @@ LTD-18 (Web UI) ── consumes LTD-13 (jlink distribution for static files)
 | **LTD-16** | API Compatibility | Semver; URL-versioned REST; additive-only within major | High | 1 major version minimum deprecation window |
 | **LTD-17** | Integration Model | In-process compiled modules; API boundary enforced at build | High | No dynamic loading; mechanism is swappable |
 | **LTD-18** | Web UI Technology | Preact SPA for observability; HTMX reserved for Tier 2+ config | High/Medium | SPA architecture High; charting library Medium |
+| **LTD-19** | Event Payload Serialization | `EventTypeRegistry` + `PersistenceJacksonModule`; pre-warming mandatory; no `@JsonTypeInfo` | High | Depends on LTD-08/LTD-11/LTD-04; reversal on `IntValue`/`FloatValue` round-trip failure (AMD-33: `getPermittedSubclasses()` replaced by explicit registration) |
 
 ---
 
@@ -837,7 +884,7 @@ Every architectural invariant must be served by at least one locked decision. Th
 | INV-ES-04 (Write-ahead persistence) | LTD-06 (events durable before delivery) |
 | INV-ES-05 (At-least-once delivery) | LTD-06 (subscriber idempotency) |
 | INV-ES-06 (Explainable state changes) | LTD-05 (correlation/causation IDs), LTD-15 (structured logs) |
-| INV-ES-07 (Schema evolution) | LTD-08 (Jackson FAIL_ON_UNKNOWN=false), LTD-16 (independent event schema version) |
+| INV-ES-07 (Schema evolution) | LTD-08 (Jackson FAIL_ON_UNKNOWN=false), LTD-16 (independent event schema version), LTD-19 (DegradedEvent two-stage fallback + FAIL_ON_UNKNOWN_PROPERTIES=false in persistence mapper) |
 | INV-RF-01 (Integration isolation) | LTD-17 (API boundary + virtual thread groups) |
 | INV-RF-04 (Crash safety) | LTD-03 (WAL), LTD-06 (checkpoint replay), LTD-13 (systemd restart), LTD-14 (snapshot) |
 | INV-RF-05 (Bounded storage) | LTD-15 (log rotation), LTD-07 (migration, not unbounded schema drift) |
@@ -849,10 +896,10 @@ Every architectural invariant must be served by at least one locked decision. Th
 | INV-CE-02 (Zero-config first run) | LTD-03 (no DB server), LTD-11 (no broker), LTD-13 (self-contained) |
 | INV-CE-04 (Protocol agnosticism) | LTD-12 (protocol-agnostic device model from day one) |
 | INV-CE-06 (Migration tooling) | LTD-07 (forward-only SQL migrations) |
-| INV-PR-01 (Constrained hardware) | LTD-01 (JVM tuning), LTD-02 (Pi 4 floor), LTD-03 (SQLite), LTD-13 (jlink) |
+| INV-PR-01 (Constrained hardware) | LTD-01 (JVM tuning), LTD-02 (Pi 4 floor), LTD-03 (SQLite), LTD-13 (jlink), LTD-19 (`NON_NULL` storage reduction + `sharedBucketPool()` thread-local avoidance) |
 | INV-PR-02 (Performance targets) | LTD-01 (G1GC within latency budgets), LTD-03 (SQLite IOPS) |
 | INV-PR-03 (Bounded resources) | LTD-01 (-Xmx), LTD-13 (systemd MemoryMax), LTD-15 (log rotation) |
-| INV-TO-01 (Observable) | LTD-15 (JFR + structured logs) |
+| INV-TO-01 (Observable) | LTD-15 (JFR + structured logs), LTD-19 (human-readable JSON event payloads) |
 | INV-TO-04 (Structured logs) | LTD-15 (JSON with correlation, entity, integration IDs) |
 | INV-PD-01 (Zero telemetry) | LTD-14 (no auto-update phoning home), LTD-15 (no remote log shipping) |
 | INV-PD-08 (Tamper-evident) | LTD-13 (read-only runtime), LTD-14 (package signature verification) |
