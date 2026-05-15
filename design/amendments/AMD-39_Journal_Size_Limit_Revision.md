@@ -2,11 +2,17 @@
 
 **Amendment ID:** AMD-39
 **Tier:** CONTRACT-LEVEL (M2→M3 bridge — pre-M3 hardening)
-**Status:** DRAFT (pending WAL pathology spike validation on hs-dev-1)
+**Status:** WITHDRAWN
 **Date drafted:** 2026-05-15
+**Date withdrawn:** 2026-05-15
 **Target document:** LTD-03 (SQLite Technology Selection — PRAGMA specification)
 **Target sections:** Connection PRAGMAs — `journal_size_limit`
-**Source:** WAL Spike (2026-04-02); M2→M3 Storage Efficiency Research; Home Assistant `recorder` issues #117263, #121909, #123348
+**Source:** WAL Spike (2026-04-02); M2→M3 Storage Efficiency Research; Home Assistant `recorder` issues #117263, #121909, #123348; D1 WAL Pathology Validation Spike (2026-05-15)
+
+> **This amendment was WITHDRAWN on 2026-05-15.** D1 validation showed the existing
+> 6 MB journal_size_limit is sufficient when the bounded-window reader pattern
+> (AMD-38) is applied. The proposed 64 MB raise is unnecessary. See Validation Gate
+> section for full results.
 
 ## Problem
 
@@ -63,12 +69,21 @@ The STUDIO profile uses 32 MB and the PERFORMANCE profile uses 256 MB. The STUDI
 - **STUDIO profile (32 MB):** Set in `DeploymentProfile` this work unit. Not affected by this amendment, but the smaller value is the operative one for SD-card hardware.
 - **PERFORMANCE profile (256 MB):** Set in `DeploymentProfile` this work unit. Not affected by this amendment.
 
-## Validation Gate
+## Validation Gate — RESOLVED (WITHDRAWN)
 
-This amendment moves from DRAFT to APPLIED when D1 (WAL Pathology Validation Spike on hs-dev-1) produces one of the following outcomes:
+D1 WAL Pathology Validation Spike (2026-05-15) Run 3 demonstrated that the bounded-
+window reader pattern keeps the WAL at 3.97 MB peak — well under the existing 6 MB
+journal_size_limit — without raising the limit or adding an active checkpoint thread.
 
-1. **WAL grows past 6 MB under a slow continuous-reader workload** → 64 MB justified, status → APPLIED
-2. **WAL stays bounded under 6 MB with bounded-window reader (close/reopen every 500 rows)** → bounded-window reader is the load-bearing safety mechanism, this amendment may be withdrawn
-3. **WAL grows past 6 MB even with bounded-window reader** → 64 MB justified AND reader bounds are also load-bearing, status → APPLIED with prose noting the dual mechanism
+The journal_size_limit raise from 6 MB to 64 MB is unnecessary. The bounded-window
+reader contract (specified by ProjectionAdvancer and enforced by AMD-38's checkpoint
+policy) is the load-bearing mitigation for WAL checkpoint starvation. The existing
+LTD-03 value of 6,144,000 bytes (6 MB) remains correct and validated.
 
-Nick is the gate authority for the DRAFT → APPLIED transition based on D1 results.
+**Gate outcome:** Amendment withdrawn. LTD-03 journal_size_limit is unchanged.
+
+**Caveat:** D1 tested nominal sustained load (5 events/s). Burst scenarios (automation
+cascades at 50-100 events/s) were not tested. The 50x write amplification factor
+(~34 KB WAL per ~600 B event) means a 100-event burst produces ~3.4 MB of WAL —
+still under the 6 MB ceiling. A dedicated burst spike can be queued post-M3 if
+additional confidence is desired.

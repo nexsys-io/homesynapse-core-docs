@@ -2,11 +2,12 @@
 
 **Amendment ID:** AMD-38
 **Tier:** CONTRACT-LEVEL (M2→M3 bridge — pre-M3 hardening)
-**Status:** DRAFT (pending WAL pathology spike validation on hs-dev-1)
+**Status:** APPLIED
 **Date drafted:** 2026-05-15
+**Date applied:** 2026-05-15
 **Target document:** Doc 03 (State Store & State Projection)
 **Target sections:** §9 (Runtime Configuration — checkpoint settings)
-**Source:** M2→M3 Storage Efficiency Research; Home Assistant recorder issues #117263, #121909, #123348 (WAL checkpoint starvation pathology)
+**Source:** M2→M3 Storage Efficiency Research; Home Assistant recorder issues #117263, #121909, #123348 (WAL checkpoint starvation pathology); D1 WAL Pathology Validation Spike (2026-05-15)
 
 ## Problem
 
@@ -55,18 +56,17 @@ The key change is the renamed knob (`interval_minutes` → `max_interval_seconds
 
 ## Rationale
 
-The new values are **provisional** pending empirical validation by the WAL pathology spike (D1, pre-M3 gate). D1 will reproduce the checkpoint starvation pathology on hs-dev-1 by running a slow simulated projection reader against a high-rate writer and observing WAL growth.
+The new values are **empirically validated** by the WAL pathology spike (D1, 2026-05-15). D1 reproduced the checkpoint starvation pathology on the V001 25-column production schema at 5 events/s sustained: Run 1 (continuous reader holding an open read transaction) drove the WAL to 20.6 MB over 121 seconds with `wal_autocheckpoint` firing repeatedly but making zero progress, because the reader's held snapshot anchored the read-mark. The 2 s `max_interval_seconds` ceiling is therefore the load-bearing safety mechanism: it forces the projection's read transaction to close on a known cadence, releasing the WAL anchor and allowing checkpoints to advance.
 
-If D1 demonstrates that the pathology does not reproduce at HomeSynapse event rates (0.5–5 events/s sustained), these values may be relaxed. The DRAFT status is the operational signal that these values are not yet locked — they cannot be cited as canonical Doc 03 §9 until D1 results promote this amendment to APPLIED.
+D1 also showed that under the bounded-window reader pattern (close/reopen read transaction every 500 rows), `wal_autocheckpoint` alone is sufficient to keep the WAL bounded near the default 1000-frame threshold (~4 MB). The active 30 s checkpoint cycle did fire (4 times across the run) but was effectively redundant under nominal load. It is retained as **defense in depth** against degraded projections (long GC pauses, scheduler stalls, downstream I/O blocks) where the bounded-window cadence might slip.
 
-The values are designed for the HOME deployment profile (Pi 5 NVMe). STUDIO and PERFORMANCE profiles will get profile-scaled defaults in a future amendment if D1 results require it.
+The values are designed for the HOME deployment profile (Pi 5 NVMe). STUDIO and PERFORMANCE profiles inherit the same checkpoint policy; only PRAGMA values tied to RAM availability (`cache_size`, `mmap_size`) vary by profile.
 
 ## Implementation Impact
 
-- `CheckpointPolicy` interface in state-store (this work unit) carries these values as the `FixedCheckpointPolicy.HOME_DEFAULT` constants. The Javadoc on `HOME_DEFAULT` explicitly states the values are AMD-38 provisional.
-- `DatabaseExecutor` is **not** directly affected — checkpoint policy is consumed by the State Projection subscriber, not by the executor. The executor's own PRAGMA settings are governed by LTD-03 (and AMD-39 for `journal_size_limit`).
+- `CheckpointPolicy` interface in state-store (this work unit) carries these values as the `FixedCheckpointPolicy.HOME_DEFAULT` constants. Now that AMD-38 is APPLIED, the Javadoc on `HOME_DEFAULT` should reference AMD-38 directly without the "provisional" qualifier.
+- `DatabaseExecutor` is **not** directly affected — checkpoint policy is consumed by the State Projection subscriber, not by the executor. The executor's own PRAGMA settings are governed by LTD-03. (`journal_size_limit` stays at LTD-03's 6,144,000 — see AMD-39, which was WITHDRAWN on 2026-05-15.)
 - No Phase 3 code exists yet for the State Projection that consumes this policy. M3 work will read these defaults via configuration and pass a `FixedCheckpointPolicy` instance to the projection loop.
-- If D1 invalidates these values, this amendment is withdrawn and a new amendment with the empirically-validated values is issued. The `HOME_DEFAULT` constant is updated accordingly.
 
 ## Invariant Alignment
 
@@ -79,12 +79,23 @@ The values are designed for the HOME deployment profile (Pi 5 NVMe). STUDIO and 
 - **Configuration system:** Doc 06 already supports operator overrides of `state_store.*` keys. The renamed key (`interval_minutes` → `max_interval_seconds`) is breaking for any operator config that has explicitly set the old key — but no production deployments exist yet, so no migration path is required.
 - **AdaptiveCheckpointPolicy (post-MVP):** The adaptive policy will eventually override `FixedCheckpointPolicy.HOME_DEFAULT` under pressure mode. The DRAFT values here are the normal-mode baseline for adaptive scaling.
 
-## Validation Gate
+## Validation Gate — RESOLVED
 
-This amendment moves from DRAFT to APPLIED when D1 (WAL Pathology Validation Spike on hs-dev-1) produces one of the following outcomes:
+D1 WAL Pathology Validation Spike (2026-05-15) produced the following results:
 
-1. **Pathology reproduces at these values or worse** → values stand, status → APPLIED
-2. **Pathology does not reproduce** → revisit, potentially relax values, issue replacement amendment
-3. **Pathology reproduces only when reader holds transactions longer than 2 s** → values stand, status → APPLIED (the 2 s `max_interval_seconds` is the load-bearing safety mechanism)
+- **Run 1 (continuous reader):** WAL grew to 20.60 MB — pathology confirmed at 5 events/s
+  sustained with the V001 25-column schema. wal_autocheckpoint fired repeatedly with
+  zero effect because the reader's held snapshot anchored the WAL read-mark.
+- **Run 2 (bounded reader + 64 MB + active checkpoint):** WAL peaked at 3.96 MB.
+  The bounded-window reader pattern (close/reopen transaction every 500 rows) allowed
+  wal_autocheckpoint to make progress between chunks. Active checkpoint was redundant
+  under nominal load (4 checkpoints fired, all no-ops).
+- **Run 3 (bounded reader + 6 MB limit, no active checkpoint):** WAL peaked at 3.97 MB.
+  Functionally identical to Run 2 — bounded reader alone is the load-bearing mitigation.
 
-Nick is the gate authority for the DRAFT → APPLIED transition based on D1 results.
+**Gate outcome:** Pathology reproduces (Run 1) and bounded-window reader prevents it
+(Runs 2 and 3). Amendment status promoted to APPLIED.
+
+The active checkpoint cycle (30 s PASSIVE) is retained as defense-in-depth against
+degraded projections (GC pauses, scheduler stalls) but is not load-bearing under
+nominal conditions.
