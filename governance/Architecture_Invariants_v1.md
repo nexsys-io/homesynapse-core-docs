@@ -27,6 +27,32 @@ This document is not a roadmap, a feature list, or a product requirements docume
 
 Every invariant has a stable identifier in the format `INV-{CATEGORY}-{NUMBER}`. These identifiers are permanent. If an invariant is retired, its identifier is reserved and never reused. Design documents, PR reviews, and architecture discussions reference invariants by these identifiers.
 
+The complete set of category prefixes currently in use is:
+
+| Prefix | Category | Section |
+|---|---|---|
+| `LF` | Local-First Operation | §1 |
+| `ES` | Event Sourcing Guarantees | §2 |
+| `RF` | Reliability and Fault Tolerance | §3 |
+| `CS` | Compatibility and Stability Contracts | §4 |
+| `HO` | Household Operability | §5 |
+| `PD` | Privacy and Data Sovereignty | §6 |
+| `TO` | Transparency and Observability | §7 |
+| `CE` | Configuration and Extensibility | §8 |
+| `PR` | Performance and Resource Discipline | §9 |
+| `SE` | Security | §10 |
+| `AI` | AI and Intelligence | §11 |
+| `EI` | Energy Intelligence | §12 |
+| `MU` | Multi-User Identity and Presence | §13 |
+| `MN` | Mesh and Network Intelligence | §14 |
+| `GA` | Governance and Amendment | §15 |
+| `BUS` | Event Bus and Distribution | §19 |
+| `PROJ` | State Projection | §19 |
+| `WRITER` | Single-Writer Discipline | §19 |
+| `SUB-ISO` | Subscriber Isolation | §19 |
+
+The §17 Invariant Index provides the canonical per-identifier lookup; the §18 Traceability Matrix maps each category to failure modes and opportunities. The BUS / PROJ / WRITER / SUB-ISO categories were added by Phase 3 governance work (AMD-41, AMD-42, AMD-43, applied 2026-05-16); their canonical definitions live in §19.
+
 ### 0.4 Relationship to Other Artifacts
 
 | Artifact | Relationship |
@@ -924,8 +950,21 @@ Complete index of all invariants for reference from subsystem design documents.
 | **INV-GA-01** | Invariant Stability | §15 |
 | **INV-GA-02** | Invariant Identifiers Are Permanent | §15 |
 | **INV-GA-03** | Compliance Is Verified in Review | §15 |
+| **INV-BUS-01** | Exactly-Once Delivery Per Subscriber | §19 |
+| **INV-BUS-02** | Publish Is Non-Blocking on Backpressure | §19 |
+| **INV-BUS-03** | Subscriber Isolation | §19 |
+| **INV-PROJ-01** | Projection Determinism | §19 |
+| **INV-PROJ-04** | Checkpoint-Position Monotonicity | §19 |
+| **INV-PROJ-NEW-01** | Self-Produced Event Isolation | §19 |
+| **INV-WRITER-01** | Single-Writer Discipline | §19 |
+| **INV-SUB-ISO-01** | One Virtual Thread Per Subscriber | §19 |
+| **INV-SUB-ISO-02** | One Dedicated SQLite Read Connection Per Subscriber | §19 |
+| **INV-SUB-ISO-03** | One DLQ Instance Per Subscriber | §19 |
+| **INV-SUB-ISO-04** | One Mode AtomicReference Per Subscriber | §19 |
+| **INV-SUB-ISO-05** | One ReplayWindowQueue Per Subscriber | §19 |
+| **INV-SUB-ISO-06** | One SelfProducedFilter Per Derivation-Producing Subscriber | §19 |
 
-**Total: 81 invariants across 15 categories.**
+**Total: 94 invariants across 19 categories.**
 
 ---
 
@@ -949,6 +988,83 @@ This section maps each invariant category to the competitive failure modes and s
 | §12 Energy | Mixed-protocol 14% savings waste, cloud-dependent optimization failing during grid emergencies, vendor-locked energy hardware | Largest revenue opportunity (ranked #1, score 8.1/10). HEMS market $3.8–5.8B growing 13.8–20.6% CAGR. Self-funding subscription model | LADWP 1,200-home pilot (42% bill reduction), FERC DR capacity data, OpenADR 3.0 certification, V2G studies |
 | §13 Multi-User | Primary-user-centric design across all platforms, household power imbalances, satisfaction declining at 5+ years | Widest competitive gap (ranked #3, score 8.2/10). No platform offers identity-aware presence + preference arbitration. Potential killer feature | Nielsen Norman Group Nov 2025, ACM CHI 2019, IDC 2023, UWB/BLE hardware specs, ACRA/MeCRA research |
 | §14 Mesh/Network | Zero consumer 802.15.4 diagnostic tools, fragmented beta-quality HA visualization, battery life impact from network instability | Strongest first-mover advantage (ranked #6, score 7.6/10). Floor-plan RF heatmapping has zero competition in 802.15.4 space | Wi-Fi tool gap analysis, OpenThread diagnostic API, Thread 1.4 Enhanced Network Diagnostics, Aqara battery life data |
+| §19 Event Distribution, Projection & Subscriber Lifecycle | Read-during-write deadlock between projection reads and derived-event writes, reentrant self-derivation loops where a projection re-derives from its own output, version-upgrade lossage when projection code drifts past its persisted checkpoint, silent re-delivery loops from unsupervised subscriber crashes, cross-subscriber transaction-isolation collapse from shared SQLite read connections, cold-start event loss during REPLAY catch-up, non-deterministic `onCaughtUp` firing across restarts, writer-queue saturation pathology under bursty derived-write storms, missing observability surface preventing operator detection of saturation before user-facing latency spikes, per-subscriber derived-write runaway exhausting the single writer | Two-phase READ/PUBLISH/CHECKPOINT discipline (AMD-41 §3.2.1) eliminates publish-path races constitutionally. Per-subscriber resource isolation catalog INV-SUB-ISO-01..06 (AMD-42 §3.4.4) makes cross-subscriber failure propagation structurally impossible. `SelfProducedFilter` with `stateVersion` defence-in-depth (AMD-41 §3.2.2, INV-PROJ-NEW-01) eliminates reentrant derivation without a bus-level filter mechanism. Five-state subscriber FSM (`COLD`/`REPLAY`/`TRANSITION`/`LIVE`/`SUSPENDED`) with `ReplayWindowQueue`-based catch-up (AMD-42 §3.4.1–§3.4.3) enables zero-loss cold-start. Non-blocking publish (INV-BUS-02, enforced by the M3.3 `EVENT_PUBLISHER_HAS_NO_DEPTH_GATED_LOCK` ArchUnit rule) preserves writer latency under saturation. Seven canonical bus metrics + `QueueSaturationHealthCheck` (AMD-43 §3.6.2–§3.6.3) make backpressure operationally observable. Per-subscriber `DerivedWriteRateLimit` token bucket (AMD-43 §3.6.4) bounds derived-write contribution to writer saturation. Registration of these invariants closes the citation chain for M3.1 `InProcessEventBus` contract tests and grounds AMD-41/42/43's normative invariant references on disk | AMD-41 / AMD-42 / AMD-43 (applied 2026-05-16); DEC-M3-01..DEC-M3-13 (PLAN-M3-CONSOLIDATED-02 §1.2 / §8.2 / §12); D1 WAL Pathology Validation Spike (2026-05-15); AMD-26 / AMD-27 (single-writer / bounded-read predecessors, 2026-03-21); AMD-36 (subscriber DLQ, 2026-05-02); AMD-38 (checkpoint policy revision, 2026-05-15) |
+
+---
+
+## 19. Event Distribution, Projection, and Subscriber Lifecycle
+
+§19 registers invariant categories added during Phase 3 governance work (AMD-41, AMD-42, and AMD-43, applied 2026-05-16). These categories appear after the §17 Invariant Index and §18 Traceability Matrix because the categories themselves were authored after those structural sections. Both the Invariant Index and the Traceability Matrix are updated in the same commit to maintain completeness; readers may continue to use §17 as the canonical per-identifier lookup and §18 as the per-category traceability source. Future Phase-N governance additions follow the same pattern: append a new top-level section and update §17 and §18 in the same commit.
+
+The invariants in this section govern the event bus, the state projection's execution discipline, the single-writer pipeline, and per-subscriber resource isolation. They register identifiers that AMD-41 (State Projection Execution Model), AMD-42 (Subscriber Lifecycle and Isolation), and AMD-43 (Backpressure and Observability) cite normatively. The amendments remain the implementing-policy source-of-truth; this section provides the canonical invariant definitions the amendments refine or introduce. Within §19 the invariants are organized into four inline sub-groupings — BUS (event bus and distribution), PROJ (state projection), WRITER (single-writer discipline), and SUB-ISO (subscriber isolation) — each introduced by a short prose paragraph that follows immediately below.
+
+### Event Bus and Distribution (BUS)
+
+The BUS category codifies properties of HomeSynapse's pull-based in-process event bus (LTD-11, Doc 01 §3.4) — what subscribers can rely on from the bus, what the publisher promises about non-blocking semantics, and how failure containment works across subscribers. The three identifiers `INV-BUS-01` through `INV-BUS-03` are refined by AMD-42 (delivery and isolation) and AMD-43 (non-blocking publish).
+
+### INV-BUS-01: Exactly-Once Delivery Per Subscriber
+
+Every event persisted to the WAL is delivered to each registered subscriber exactly once during normal operation. Duplicate delivery during crash recovery is bounded by the subscriber's last persisted checkpoint position (`CheckpointStore`) and is reconciled by subscriber idempotency (INV-ES-05). The event bus MUST use the per-subscriber checkpoint as the resume gate after a process restart, and the REPLAY → TRANSITION → LIVE transition MUST track `lastReplayedPosition` so that events delivered during catch-up are not re-delivered during drain (AMD-42 §3.4.2).
+
+### INV-BUS-02: Publish Is Non-Blocking on Backpressure
+
+`EventPublisher.publish()` MUST NOT block on writer queue depth, semaphore acquisition, or any other depth-gated mechanism. Natural backpressure arises from the single-thread write executor (INV-WRITER-01, AMD-26): callers park on their handoff future, which completes only when the writer drains to their slot. Saturation manifests as elevated per-call latency, never as `publish()` hanging. The ArchUnit rule `EVENT_PUBLISHER_HAS_NO_DEPTH_GATED_LOCK` (introduced in M3.3 per AMD-43) enforces this structurally: no class in `core/persistence` or `core/event-bus` may import `java.util.concurrent.Semaphore`, `java.util.concurrent.locks.Lock`, or call `Object.wait()` in a code path reachable from `EventPublisher.publish()`.
+
+### INV-BUS-03: Subscriber Isolation
+
+A failure in subscriber A — including thrown exceptions, DLQ overflow, circuit-breaker trip into SUSPENDED, dedicated-connection corruption, or unbounded backlog — MUST NOT affect subscriber B's mode, queue, connection, DLQ, or delivery cadence. Cross-subscriber state mutation through any shared mutable resource is forbidden. The concrete catalog of per-subscriber resources that implements this invariant is INV-SUB-ISO-01..06 (AMD-42 §3.4.4). The bus implementation MUST be tested with a contract test method per INV-SUB-ISO-01..06 demonstrating no cross-contamination.
+
+### State Projection (PROJ)
+
+The PROJ category governs the State Projection's execution discipline — its determinism guarantees, its checkpoint monotonicity, and its self-produced event isolation. The identifiers `INV-PROJ-01`, `INV-PROJ-04`, and `INV-PROJ-NEW-01` are refined or introduced by AMD-41. The numbering reserves `INV-PROJ-02` and `INV-PROJ-03` for future projection invariants without disturbing the existing identifiers.
+
+### INV-PROJ-01: Projection Determinism
+
+A state projection produces the same materialized state given the same event log replayed in `globalPosition` order, regardless of timing, thread scheduling, process-restart count, or wall-clock progression. Determinism is a constitutional requirement for crash recovery (INV-RF-04 Crash Safety and Automatic Recovery) and for the explainability invariant (INV-ES-06 Every State Change Is Explainable). Projection implementations MUST NOT depend on wall-clock time, random number generators, or external service state for derivation logic. Clock-based logic, where present, routes through an injected `java.time.Clock` and is enforced by the `NO_DIRECT_TIME_ACCESS` ArchUnit rule (DEC-M3-09). AMD-41 §3.2.1's two-phase READ/PUBLISH/CHECKPOINT discipline strengthens this invariant by eliminating read-write interleaving as a source of non-determinism.
+
+### INV-PROJ-04: Checkpoint-Position Monotonicity
+
+A subscriber's persisted checkpoint position is strictly non-decreasing during normal operation. A checkpoint write at `globalPosition = P` implies that all events with `globalPosition ≤ P` have been observed and processed (subject to subscriber idempotency per INV-ES-05). Checkpoint rewinding occurs only during operator-initiated reconciliation passes (e.g., AMD-41 §3.2.4 `projectionVersion` mismatch resets the checkpoint to `position = 0`) and is logged and observable. The two-phase discipline (AMD-41 §3.2.1) preserves monotonicity by writing the checkpoint only after all derived publishes return successfully — partial-publish-then-checkpoint cannot occur.
+
+### INV-PROJ-NEW-01: Self-Produced Event Isolation
+
+A derivation-producing subscriber (e.g., `StateProjection`) MUST NOT re-derive from its own published events during LIVE mode. The implementing mechanism is the `SelfProducedFilter` (AMD-41 §3.2.2): an in-memory set keyed by `EventEnvelope.eventId` with a 60-second TTL and lazy eviction. Every successful `EventPublisher.publish()` from the projection inserts the resulting envelope's `eventId` into the filter; every inbound delivery checks the filter and short-circuits matches without re-derivation. The filter is bypassed during REPLAY and TRANSITION modes (AMD-42 §3.4.1), where the projection re-derives deterministically from the log and the in-memory filter from the previous process cannot be trusted. Defense-in-depth: if the filter misses (e.g., on process restart), the projection's derivation logic compares the candidate derived event's `stateVersion` to the current materialized state and discards equal-or-lower versions (INV-PROJ-04).
+
+### Single-Writer Discipline (WRITER)
+
+The WRITER category elevates the single-writer constraint from implementing-policy status (AMD-26) to constitutional status. `INV-WRITER-01` is the only identifier in this category at present; it is the invariant that INV-BUS-02 (non-blocking publish) and the contiguous `globalPosition` guarantee both depend on.
+
+### INV-WRITER-01: Single-Writer Discipline
+
+All SQLite write operations route through a single bounded platform-thread executor (`WriteCoordinator`, AMD-26). At any given instant, at most one thread holds the writer position. No second writer pool exists. No derived-write thread bypasses the `WriteCoordinator`. The single-writer discipline is the foundation of contiguous `globalPosition` assignment via `BEGIN IMMEDIATE`, the WAL checkpoint progression guarantees validated by the D1 WAL Pathology Spike (2026-05-15), and the natural backpressure mechanism that INV-BUS-02 relies on. AMD-26 is the implementing-policy citation; this invariant elevates the constraint to constitutional status.
+
+### Subscriber Isolation (SUB-ISO)
+
+The SUB-ISO category enumerates the per-subscriber resources that AMD-42 §3.4.4 mandates. Each `INV-SUB-ISO-NN` identifier corresponds to exactly one per-subscriber resource. Together they implement INV-BUS-03 (Subscriber Isolation) concretely: a failure that crosses any one of these resources would constitute a violation of INV-BUS-03. Identifiers `INV-SUB-ISO-01` through `INV-SUB-ISO-06` are introduced by AMD-42 (catalog form).
+
+### INV-SUB-ISO-01: One Virtual Thread Per Subscriber
+
+Each registered subscriber owns exactly one virtual thread, named `hs-sub-<subscriberId>`. The thread is created on `EventBus.subscribe(subscriberInfo)` and terminated on `EventBus.unsubscribe(subscriberId)` or on a SUSPENDED → resume cycle (AMD-42 §3.4.5). No two subscribers share a virtual thread. The subscriber's virtual thread is the only thread that invokes `subscriber.onEvent(envelope)`; the per-subscriber `SubscriberSupervisor` wraps these invocations.
+
+### INV-SUB-ISO-02: One Dedicated SQLite Read Connection Per Subscriber
+
+Each subscriber holds one SQLite read connection for the lifetime of its subscription. The connection is allocated from the persistence layer's read executor pool (AMD-27) at `subscribe()` time and is released at `unsubscribe()` or on a SUSPENDED → resume cycle. No two subscribers share a read connection at any instant. The connection's thread-confinement (a sqlite-jdbc invariant) is satisfied by the AMD-26/27 platform-thread handoff: the subscriber's virtual thread submits reads to a platform thread that owns the connection. The mechanism for binding "one connection per subscriber" against a read-pool size that may be smaller than the subscriber count is an M3.1 design decision (open question 20.2 of the top-down analysis).
+
+### INV-SUB-ISO-03: One DLQ Instance Per Subscriber
+
+Each subscriber owns one `SubscriberDlq` instance backed by per-subscriber rows in the `subscriber_dead_letters` table (V002, AMD-36). DLQ entries are uniquely keyed by `(subscriberId, event_position)`. Cross-subscriber DLQ contamination is forbidden: subscriber A's DLQ overflow does not affect subscriber B's DLQ capacity, retry cadence, or persistence. The in-memory DLQ ring cap (1024 entries, AMD-42 §3.4.5) is per-subscriber.
+
+### INV-SUB-ISO-04: One Mode AtomicReference Per Subscriber
+
+Each subscriber's mode (`COLD` / `REPLAY` / `TRANSITION` / `LIVE` / `SUSPENDED`, AMD-42 §3.4.1) is held in a per-subscriber `AtomicReference<SubscriberMode>`. Transitions are atomic (CAS-based). No two subscribers share a mode reference. The mode is observable to operators through the bus's introspection API (the exact API shape is an M3.1 design decision — open question 20.1 of the top-down analysis).
+
+### INV-SUB-ISO-05: One ReplayWindowQueue Per Subscriber
+
+During REPLAY mode, events newly published while the subscriber is catching up are captured in a per-subscriber `ReplayWindowQueue` bounded at 10000 entries (AMD-42 §3.4.2). The queue is created on REPLAY entry, drained in TRANSITION (with gap detection against `lastReplayedPosition`), and garbage-collected after the LIVE transition. No two subscribers share a `ReplayWindowQueue`.
+
+### INV-SUB-ISO-06: One SelfProducedFilter Per Derivation-Producing Subscriber
+
+Derivation-producing subscribers (currently only `StateProjection`) each own one `SelfProducedFilter` instance with the 60-second TTL and lazy-eviction semantics defined by INV-PROJ-NEW-01. The filter is per-subscriber; cross-subscriber filter sharing is forbidden. Non-derivation-producing subscribers (e.g., observability subscribers, websocket relays) do not instantiate a `SelfProducedFilter`.
 
 ---
 
