@@ -717,16 +717,16 @@ Added to the existing 18-method contract test (which already covers subscribe/un
 - `writerQueueDepthGaugeSamplesOnEnqueueAndDequeue()`
 - `subscriberLagGaugePopulatedAfterDelivery()`
 
-### 4.5 ArchUnit rules introduced in M3.1
+### 4.5 Module isolation constraints introduced in M3.1
 
-- `EVENT_BUS_DOES_NOT_IMPORT_SQLITE_DRIVER` — no class in `core/event-bus` imports `org.sqlite.*` or `java.sql.Connection` directly. The bus is wire-and-glue; SQLite access goes through the `core/persistence` adapter types.
-- `NO_DIRECT_TIME_ACCESS` (preserved from AMD-39): no class in `core/event-bus` calls `System.currentTimeMillis`, `Instant.now()`, etc. without going through an injected `Clock`.
+- **JPMS-enforced (not ArchUnit):** event-bus `module-info.java` does not `requires java.sql`, preventing any import of `org.sqlite.*` or `java.sql.Connection` at compile time. This is stronger than ArchUnit enforcement (compile-time guarantee vs test-time detection). The bus is wire-and-glue; SQLite access goes through the `core/persistence` adapter types.
+- `NO_DIRECT_TIME_ACCESS` (preserved — not "introduced" by M3.1): this ArchUnit rule was already defined in `HomeSynapseArchRules.java` prior to M3.1. M3.1 verified it still passes for all new event-bus types. No new ArchUnit rules are introduced in M3.1.
 
 ### 4.6 Acceptance criteria
 
 - All M3.1-active test methods (§4.4) GREEN.
 - M3.2 and M3.3 placeholder methods present but `@Disabled` with the milestone reason.
-- ArchUnit rules introduced in M3.1 GREEN.
+- Module isolation constraints (§4.5) verified — JPMS compile-time checks pass, existing ArchUnit rules GREEN.
 - `core/event-bus/MODULE_CONTEXT.md` updated to reflect new types (`Subscriber`, `SubscriberMode`, `SubscriberSnapshot`, `SubscriberSupervisor` (pkg-private), `SubscriberDlq` (pkg-private), `ReplayWindowQueue` (pkg-private), `SubscriberRuntime` (pkg-private)) and the extended `EventBus` interface. Note that production type count grows from 4 (Phase 2: `EventBus`, `SubscriberInfo`, `SubscriptionFilter`, `CheckpointStore`) to ~9 public + ~5 package-private.
 
 Binary success criterion: `./gradlew :core:event-bus:check` GREEN.
@@ -741,7 +741,7 @@ Binary success criterion: `./gradlew :core:event-bus:check` GREEN.
 - The full list of M3.1-active contract test methods (§4.4) and the placeholder list with their `@Disabled("M3.X")` annotations.
 - AMD citations: AMD-42 §3.4.1 through §3.4.6, AMD-39 (clock), AMD-26 / AMD-27 (writer threading — relevant because the supervisor scheduler shares a `ScheduledExecutorService` whose threads must be platform threads if used to dispatch DB operations, but for bus-internal scheduling virtual threads are fine).
 - The package convention: all production code in `com.homesynapse.event.bus` (flat). Test fixtures additions in `com.homesynapse.event.bus.test`. Unit tests in `com.homesynapse.event.bus`.
-- The ArchUnit rule names (§4.5).
+- The module isolation constraints (§4.5) — note that JDBC isolation is JPMS-enforced, not ArchUnit.
 - The note that `SubscriberInfo` is being extended (or replaced with an interface) — Coder picks but reports the choice; the new shape MUST include `mode()`, `checkpoint()`, `dlqDepth()`, `crashCount()` accessors or there must be a separate `SubscriberSnapshot` record (the §4.3 example uses the snapshot record approach).
 
 #### The prompt MUST NOT specify
@@ -2244,7 +2244,7 @@ M3 is complete and Phase 3 advances to M4 when all of the following are simultan
 
 - `NO_DIRECT_TIME_ACCESS` (AMD-39, preserved — `Clock` injection only).
 - `PROJECTION_NO_WRITE_BATCHER_THREAD` (AMD-41 §3.2.1 — projection's only writer is the projection's VT parked on the writer platform thread).
-- `EVENT_BUS_DOES_NOT_IMPORT_SQLITE_DRIVER` (M3.1 — bus module is JDBC-free).
+- **JPMS-enforced JDBC isolation** (M3.1 — bus module is JDBC-free; enforced by `module-info.java` not requiring `java.sql`, not by ArchUnit).
 - `EVENT_PUBLISHER_HAS_NO_DEPTH_GATED_LOCK` (AMD-43 §3.6.1 — `EventPublisher.publish()` does not call `Semaphore.acquire`, `Lock.lock`, or `Object.wait` keyed on queue depth).
 - `BUS_METRICS_NOT_DIRECT_INSTANTIATION` (M3.3 — metric emissions route through `BusMetrics`).
 - `QUERY_SERVICE_READ_ONLY` (M3.6 — `MaterializedStateQueryService` and rest-api endpoints do not import write-path symbols).
