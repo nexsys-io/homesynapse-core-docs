@@ -2,9 +2,9 @@
 
 **Amendment ID:** AMD-45
 **Tier:** Tier-1 (architectural invariant)
-**Status:** DRAFT
+**Status:** RATIFIED
 **Date drafted:** 2026-05-27
-**Date applied:** —
+**Date applied:** 2026-05-29
 **Target documents:** Doc 03 (State Store & State Projection); Doc 04 (Event Bus & Subscription Management)
 **Target sections:** Doc 03 §9 (checkpoint settings); Doc 04 §3.12 (subscriber checkpoint semantics)
 **Refines:** AMD-38 (Checkpoint Policy Revision); INV-ES-05 (at-least-once delivery with subscriber idempotency)
@@ -72,7 +72,7 @@ The PM should evaluate both options during implementation planning and choose th
 
 With this change, the bus subscriber checkpoint for `state_projection` advances on **policy cadence** (every 200 events or 2 seconds under HOME_DEFAULT), not on every delivery. On crash recovery, the bus delivers from the last coupled checkpoint — which may be up to `eventThreshold` events behind the store head.
 
-This means `StateProjection` will re-process up to `eventThreshold` events (200 for HOME_DEFAULT) on recovery. This is **correct by design** — INV-ES-05 requires subscriber idempotency for exactly this reason. `StateProjection.onEvent()` applies `StateReported` events to the in-memory `ConcurrentHashMap` via `put()`, which is naturally idempotent (same entity + same state = same map entry). The `DerivationRule` must also be idempotent for derived event publication; the `MinimalDerivationRule` (M3.7) satisfies this trivially (it derives nothing).
+This means `StateProjection` will re-process up to `eventThreshold` events (200 for HOME_DEFAULT) on recovery. This is **correct by design** — INV-ES-05 requires subscriber idempotency for exactly this reason. `StateProjection.onEvent()` applies `StateReported` events to the in-memory `ConcurrentHashMap` via `put()`, which is naturally idempotent (same entity + same state = same map entry). The `DerivationRule` must also be idempotent for derived event publication; the no-op `MINIMAL_DERIVATION_RULE` lambda (M3.7) satisfies this trivially (it derives nothing).
 
 **Worst-case replay cost (HOME_DEFAULT):** 200 events × ~20µs/event = ~4ms. Well within the Pi 5's startup budget.
 
