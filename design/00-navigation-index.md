@@ -35,7 +35,7 @@ This file is the master index for `homesynapse-core-docs/design/`. It lists ever
 
 ## Amendments
 
-The on-disk inventory in `design/amendments/` contains numbered amendments AMD-25 through AMD-43 plus the non-numbered `AMD-M2Bridge_Tier2_Schema_Reservations.md`. AMD-01..AMD-24 and AMD-28..AMD-30 are intentionally non-existent (the numbering is not contiguous — early decisions were resolved without going to amendment).
+The on-disk inventory in `design/amendments/` contains numbered amendments AMD-25 through AMD-51 plus the non-numbered `AMD-M2Bridge_Tier2_Schema_Reservations.md`. AMD-01..AMD-24, AMD-28..AMD-30, AMD-46, AMD-48, AMD-49 are intentionally non-existent or reserved-unused (the numbering is not contiguous — early decisions were resolved without going to amendment; the M4 device/projection blocks 44–52 are allocated under the P2 scheme). **On-disk amendment watermark: AMD-51 (raised from AMD-50 on 2026-05-30 at AMD-51 ratification).**
 
 | AMD | Subject | Tier | Status | Target | One-line |
 |---|---|---|---|---|---|
@@ -56,6 +56,11 @@ The on-disk inventory in `design/amendments/` contains numbered amendments AMD-2
 | **AMD-41** | **State Projection Execution Model** | **Tier-1** | **APPLIED (2026-05-16)** | **Doc 03 §3.2** | **Two-phase read/publish/checkpoint discipline; SelfProducedFilter (60s TTL); reconciliation pass on `projectionVersion` mismatch; reconciliation metadata uses existing `CheckpointRecord.data` slot (no schema migration).** |
 | **AMD-42** | **Subscriber Lifecycle and Isolation** | **Tier-1** | **APPLIED (2026-05-16)** | **Doc 01 §3.4** | **Five-state subscriber mode FSM (COLD/REPLAY/TRANSITION/LIVE/SUSPENDED), three-phase REPLAY→LIVE, `onCaughtUp()` single-shot, INV-SUB-ISO-01..06 per-subscriber resources, supervisor with 3s/30s/0.2 backoff and 5-crash circuit breaker.** |
 | **AMD-43** | **Backpressure and Observability** | **Tier-1** | **APPLIED (2026-05-16)** | **Doc 01 §3.6 + Doc 11 §3.X** | **`EventPublisher.publish()` non-blocking on writer-queue depth (INV-BUS-02). Seven canonical bus metric names. `QueueSaturationHealthCheck` with WARN@5000/CRITICAL@10000. Per-subscriber `DerivedWriteRateLimit` (200/s default for `StateProjection`).** |
+| AMD-44 | Floor Aggregate and EntityRole Enum | Doc 02 | RATIFIED (pending implementation) | Device model | Floor spatial aggregate + `EntityRole` enum. |
+| AMD-45 | Atomic Subscriber+View Checkpoint Coupling | Tier-1 | APPLIED (2026-05-29, M4.0a `a441fdf`) | Doc 03 | Atomic subscriber+view checkpoint via `AtomicCheckpointSink` seam (AMD-45-INV-01); gated at all three writers (LIVE + both REPLAY writes). |
+| AMD-47 | AttributeValue Hierarchy Expansion + AttributeValueUpcaster SPI | Tier-1 | APPLIED (2026-05-30, M4.B3 `60b4185`) | Doc 02 | 8-variant sealed `AttributeValue` (+`QuantityValue`/`ArrayValue`/`DegradedAttributeValue`), `AttributeValueUpcaster` SPI (no `ServiceLoader`), `QuantityValue` canonicalize-at-construction. AMD-47-INV-01..05 (§20). |
+| AMD-50 | Version-Transition Reconciliation Backfill + Cursor Determinism | Tier-1 | RATIFIED + APPLIED (2026-05-29, M4.0b-2 `7610296`) | Doc 03 | General N→M reconciliation-backfill, supersession, cursor-as-log-position, `Clock` removed from `DerivationContext`. AMD-50-INV-01..04. |
+| **AMD-51** | **Typed `AttributeValue` Change-Detection Comparator** | **Tier-1** | **RATIFIED (2026-05-30)** | **Doc 03 §3.2** | **External `AttributeValueComparator` in state-store (`ComparisonPolicy`, exhaustive no-`default` switch, DEC-M3-16 gateway); per-type structural equality + pinned total-form float/quantity epsilon (`1e-9`, IEEE totality); units free via AMD-47; both operands reconstructed to schema-typed form (prior is always `StringValue`); String `StateChangedEvent` payload preserved (typed payload = AMD-52, staged); `projectionVersion` 2→3 on AMD-50 backfill. AMD-51-INV-01..05 (§21). Implemented by M4.0b-3 (not yet started).** |
 
 ---
 
