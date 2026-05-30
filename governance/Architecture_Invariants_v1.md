@@ -50,8 +50,9 @@ The complete set of category prefixes currently in use is:
 | `PROJ` | State Projection | §19 |
 | `WRITER` | Single-Writer Discipline | §19 |
 | `SUB-ISO` | Subscriber Isolation | §19 |
+| `AMD-47-INV` | Device-Model Attribute-Value Expansion (AMD-47) | §20 |
 
-The §17 Invariant Index provides the canonical per-identifier lookup; the §18 Traceability Matrix maps each category to failure modes and opportunities. The BUS / PROJ / WRITER / SUB-ISO categories were added by Phase 3 governance work (AMD-41, AMD-42, AMD-43, applied 2026-05-16); their canonical definitions live in §19.
+The §17 Invariant Index provides the canonical per-identifier lookup; the §18 Traceability Matrix maps each category to failure modes and opportunities. The BUS / PROJ / WRITER / SUB-ISO categories were added by Phase 3 governance work (AMD-41, AMD-42, AMD-43, applied 2026-05-16); their canonical definitions live in §19. The `AMD-47-INV-NN` identifiers are **amendment-scoped** contract-level invariants (the convention introduced by the projection block's `AMD-50-INV-NN`); their canonical definitions live in §20 and they trace 1:1 to AMD-47 (RATIFIED 2026-05-30).
 
 ### 0.4 Relationship to Other Artifacts
 
@@ -963,8 +964,13 @@ Complete index of all invariants for reference from subsystem design documents.
 | **INV-SUB-ISO-04** | One Mode AtomicReference Per Subscriber | §19 |
 | **INV-SUB-ISO-05** | One ReplayWindowQueue Per Subscriber | §19 |
 | **INV-SUB-ISO-06** | One SelfProducedFilter Per Derivation-Producing Subscriber | §19 |
+| **AMD-47-INV-01** | Sealing Remains Total (`AttributeValue` 8 variants) | §20 |
+| **AMD-47-INV-02** | Upcaster-Before-Derivation Ordering (both paths) | §20 |
+| **AMD-47-INV-03** | QuantityValue Normalization Determinism | §20 |
+| **AMD-47-INV-04** | DegradedAttributeValue Non-Declarable and Lossless | §20 |
+| **AMD-47-INV-05** | ArrayValue Full-Replacement | §20 |
 
-**Total: 94 invariants across 19 categories.**
+**Total: 99 invariants across 20 categories.**
 
 ---
 
@@ -988,6 +994,7 @@ This section maps each invariant category to the competitive failure modes and s
 | §12 Energy | Mixed-protocol 14% savings waste, cloud-dependent optimization failing during grid emergencies, vendor-locked energy hardware | Largest revenue opportunity (ranked #1, score 8.1/10). HEMS market $3.8–5.8B growing 13.8–20.6% CAGR. Self-funding subscription model | LADWP 1,200-home pilot (42% bill reduction), FERC DR capacity data, OpenADR 3.0 certification, V2G studies |
 | §13 Multi-User | Primary-user-centric design across all platforms, household power imbalances, satisfaction declining at 5+ years | Widest competitive gap (ranked #3, score 8.2/10). No platform offers identity-aware presence + preference arbitration. Potential killer feature | Nielsen Norman Group Nov 2025, ACM CHI 2019, IDC 2023, UWB/BLE hardware specs, ACRA/MeCRA research |
 | §14 Mesh/Network | Zero consumer 802.15.4 diagnostic tools, fragmented beta-quality HA visualization, battery life impact from network instability | Strongest first-mover advantage (ranked #6, score 7.6/10). Floor-plan RF heatmapping has zero competition in 802.15.4 space | Wi-Fi tool gap analysis, OpenThread diagnostic API, Thread 1.4 Enhanced Network Diagnostics, Aqara battery life data |
+| §20 Device-Model Attribute-Value Expansion (AMD-47) | Physical quantities losing unit identity at the value layer (the Home Assistant `native_unit_of_measurement` data-corruption class), list-valued attributes degrading to opaque string blobs the validator/comparator cannot reason about element-wise, sealed-hierarchy evolution with no migration seam or defined fallback for un-upcastable stored values, non-deterministic unit normalization, a degraded sentinel silently entering canonical state, and element-delta `ArrayValue` semantics that a bounded-window advancer cannot reconstruct | A value-layer `QuantityValue(value, unit)` carrier makes the (value, unit) moat decision enforceable at the value layer, not just the schema layer (AMD-47-INV-03 hand-rolled deterministic normalization, no JSR 385 — REC-93). The `AttributeValueUpcaster` SPI (strict for core projections, lenient/forensic yielding `DegradedAttributeValue`) gives the sealed hierarchy a `DegradedEvent`-parallel migration seam (AMD-47-INV-04). Upcaster-before-`DerivationRule.evaluate()` on **both** `onEvent` and `processBatch` (AMD-47-INV-02) extends the M4.0a D-1 / AMD-50 gate-every-path discipline to the value layer. `ArrayValue` full-replacement (AMD-47-INV-05) keeps the bounded-window advancer able to reconstruct from a single latest event. Exhaustive 8-variant sealing (AMD-47-INV-01) preserves the Doc 02 §8.2 sealed-exhaustiveness contract | AMD-47 (RATIFIED 2026-05-30); Research 8 PM Assessment REC-24/27/29 + REC-93/REC-78; P2 AMD-allocation decision (device block 46–49); parallels `DegradedEvent` (Doc 01 §3.10) and the AMD-50 both-paths backfill discipline. Implemented by **M4.B3** (contract registered now; production code + §5 contract tests land at M4.B3) |
 | §19 Event Distribution, Projection & Subscriber Lifecycle | Read-during-write deadlock between projection reads and derived-event writes, reentrant self-derivation loops where a projection re-derives from its own output, version-upgrade lossage when projection code drifts past its persisted checkpoint, silent re-delivery loops from unsupervised subscriber crashes, cross-subscriber transaction-isolation collapse from shared SQLite read connections, cold-start event loss during REPLAY catch-up, non-deterministic `onCaughtUp` firing across restarts, writer-queue saturation pathology under bursty derived-write storms, missing observability surface preventing operator detection of saturation before user-facing latency spikes, per-subscriber derived-write runaway exhausting the single writer | Two-phase READ/PUBLISH/CHECKPOINT discipline (AMD-41 §3.2.1) eliminates publish-path races constitutionally. Per-subscriber resource isolation catalog INV-SUB-ISO-01..06 (AMD-42 §3.4.4) makes cross-subscriber failure propagation structurally impossible. `SelfProducedFilter` with `stateVersion` defence-in-depth (AMD-41 §3.2.2, INV-PROJ-NEW-01) eliminates reentrant derivation without a bus-level filter mechanism. Five-state subscriber FSM (`COLD`/`REPLAY`/`TRANSITION`/`LIVE`/`SUSPENDED`) with `ReplayWindowQueue`-based catch-up (AMD-42 §3.4.1–§3.4.3) enables zero-loss cold-start. Non-blocking publish (INV-BUS-02, enforced by the M3.3 `EVENT_PUBLISHER_HAS_NO_DEPTH_GATED_LOCK` ArchUnit rule) preserves writer latency under saturation. Seven canonical bus metrics + `QueueSaturationHealthCheck` (AMD-43 §3.6.2–§3.6.3) make backpressure operationally observable. Per-subscriber `DerivedWriteRateLimit` token bucket (AMD-43 §3.6.4) bounds derived-write contribution to writer saturation. Registration of these invariants closes the citation chain for M3.1 `InProcessEventBus` contract tests and grounds AMD-41/42/43's normative invariant references on disk | AMD-41 / AMD-42 / AMD-43 (applied 2026-05-16); DEC-M3-01..DEC-M3-13 (PLAN-M3-CONSOLIDATED-02 §1.2 / §8.2 / §12); D1 WAL Pathology Validation Spike (2026-05-15); AMD-26 / AMD-27 (single-writer / bounded-read predecessors, 2026-03-21); AMD-36 (subscriber DLQ, 2026-05-02); AMD-38 (checkpoint policy revision, 2026-05-15) |
 
 ---
@@ -1065,6 +1072,32 @@ During REPLAY mode, events newly published while the subscriber is catching up a
 ### INV-SUB-ISO-06: One SelfProducedFilter Per Derivation-Producing Subscriber
 
 Derivation-producing subscribers (currently only `StateProjection`) each own one `SelfProducedFilter` instance with the 60-second TTL and lazy-eviction semantics defined by INV-PROJ-NEW-01. The filter is per-subscriber; cross-subscriber filter sharing is forbidden. Non-derivation-producing subscribers (e.g., observability subscribers, websocket relays) do not instantiate a `SelfProducedFilter`.
+
+---
+
+## 20. Device-Model Attribute-Value Hierarchy Expansion (AMD-47)
+
+§20 registers the invariant category added by AMD-47 (AttributeValue Hierarchy Expansion + AttributeValueUpcaster SPI), RATIFIED 2026-05-30. It follows the §19 precedent: an amendment-driven category appended after the §17 Invariant Index and §18 Traceability Matrix, with both of those structural sections updated in the same commit. The identifiers use the amendment-scoped `AMD-47-INV-NN` form (the convention the projection block's `AMD-50-INV-NN` introduced) rather than a semantic `INV-{CATEGORY}` prefix, because they are contract-level invariants bound 1:1 to a single amendment. AMD-47 remains the implementing-policy source-of-truth; this section provides the canonical invariant definitions it allocates. The contract is registered at ratification; the production types, the `AttributeValueUpcaster` SPI, and the §5 contract tests are implemented by **M4.B3** (the device-model `AttributeValue` expansion WU). The statements below are verbatim from AMD-47 §4.
+
+### AMD-47-INV-01: Sealing Remains Total
+
+After this amendment the `AttributeValue` `permits` clause enumerates **exactly** `{BooleanValue, IntValue, FloatValue, StringValue, EnumValue, QuantityValue, ArrayValue, DegradedAttributeValue}` (8 variants). Every exhaustive `switch` over `AttributeValue` must handle all eight; no implementor outside the `permits` clause may exist. (Preserves the Doc 02 §8.2 sealed-exhaustiveness contract; an ArchUnit/compile check is the enforcement, mirroring the Capability-hierarchy exhaustiveness rule.)
+
+### AMD-47-INV-02: Upcaster-Before-Derivation Ordering (REC-78)
+
+When the `AttributeValueUpcaster` is wired (M4.B3), it MUST execute **strictly before** `DerivationRule.evaluate()` on **both** the `onEvent` and `processBatch` projection paths. No path may reach `evaluate()` with an un-upcast stored value. (Gate-every-path discipline — the M4.0a / AMD-50 both-paths lesson.)
+
+### AMD-47-INV-03: QuantityValue Normalization Determinism (REC-93)
+
+`QuantityValue` normalizes to its canonical unit at construction via a pure, hand-rolled, deterministic conversion — no external units library, no I/O, no locale/clock dependence. Same-dimension `QuantityValue`s are magnitude-comparable on their canonical `value`. An unknown/unsupported unit, a `null`/blank unit, or a non-finite magnitude fails construction deterministically (fail-closed; never silently coerced, never degraded).
+
+### AMD-47-INV-04: DegradedAttributeValue Non-Declarable and Lossless
+
+`AttributeType.DEGRADED` may never appear in an `AttributeSchema.type` (the `AttributeValidator` rejects it). `DegradedAttributeValue` preserves `originalTypeName`/`rawForm`/`failureReason` without mutation and is never written to canonical state under strict mode — it is a lenient-mode/forensic artifact only (parallels `DegradedEvent` strict/lenient modes, Doc 01 §3.10).
+
+### AMD-47-INV-05: ArrayValue Full-Replacement
+
+`ArrayValue` carries no delta/patch semantics; a new `ArrayValue` wholly replaces the prior value for the attribute. This is required for compatibility with the bounded-window advancer (Research 8 insight #2). `elements` is an unmodifiable, null-free, possibly-empty `List<AttributeValue>`.
 
 ---
 

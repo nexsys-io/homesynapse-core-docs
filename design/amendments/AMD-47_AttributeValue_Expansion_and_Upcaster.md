@@ -2,9 +2,10 @@
 
 **Amendment ID:** AMD-47
 **Tier:** Tier-1 (architectural invariant / contract-level)
-**Status:** PROPOSED
+**Status:** RATIFIED
 **Date drafted:** 2026-05-30
-**Date applied:** — (PROPOSED; Nick ratifies — see §9)
+**Date applied:** 2026-05-30
+**Revision (Nick ratification, 2026-05-30):** Ratified by Nick. The §9 **ratification fork is RESOLVED — `AttributeType.QUANTITY` is added** (the 1:1 value↔type scheme, §2.5); the FLOAT-reuse alternative is rejected. §9 checklist accepted as written (three records, the `AttributeValueUpcaster` SPI with no `ServiceLoader`, the three `AttributeType` constants `QUANTITY`/`ARRAY`/`DEGRADED`, the five invariants AMD-47-INV-01..05, and the §2.6/§3.7 `Unit<?>`→`String` currency correction). The on-disk amendment watermark is **unchanged** — it stays **AMD-50** (47 < 50); ratification records AMD-47 RATIFIED, it does not raise the ceiling. AMD-47-INV-01..05 registered into `Architecture_Invariants_v1.md` (§20) and the Doc 02 §3.7/§8.2 PENDING-AMD-47 blocks folded current at this ratification (P4r mechanics session).
 **Classification:** CONTRACT-LEVEL (expands a sealed public hierarchy in the integration-facing device-model API)
 **Target documents:** Doc 02 (Device Model & Capability System) — §3.7 (Attribute Type System), §8.2 (Key Types). Doc 03 (State Store & State Projection) — **forward-reference only** (the typed `applyToState` / `CheckpointSerializer` typed-store evolution is AMD-52 / M4.0b-3, not this amendment — see §6).
 **Target sections:** Doc 02 §3.7 (AttributeType primitives + AttributeSchema), §8.2 (AttributeValue key-type row); the device-model `AttributeValue` sealed hierarchy in `com.homesynapse.device`.
@@ -93,7 +94,7 @@ The `AttributeValue`-layer analogue of `DegradedEvent`. **Visibility: `public`**
 - **`ARRAY`** — classifies `ArrayValue`. Schema-declarable; the validator applies element constraints per schema.
 - **`DEGRADED`** — classifies `DegradedAttributeValue`. **Sentinel only — not schema-declarable** (AMD-47-INV-04).
 
-> **Ratification fork (see §9):** the 1:1 value↔type mapping above (add `QUANTITY`) is the recommended scheme — it preserves the existing "the attribute type corresponding to this value's concrete type" contract and exhaustive-switch clarity. The alternative is to keep a `QuantityValue` schema-typed as `FLOAT` with unit metadata (no new `QUANTITY` constant), at the cost of breaking the 1:1 value↔type correspondence. PM recommends adding `QUANTITY`. Nick's call.
+> **Ratification fork — RESOLVED: `QUANTITY` added (Nick, 2026-05-30).** The 1:1 value↔type mapping above (add `QUANTITY`) is the ratified scheme — it preserves the existing "the attribute type corresponding to this value's concrete type" contract and exhaustive-switch clarity, and keeps the typed comparator (AMD-51) and `AttributeValidator` able to `switch(attributeType())` on the unit-dimensional case without down-casting. The alternative (keep `QuantityValue` schema-typed as `FLOAT` with unit metadata, no new `QUANTITY` constant) is **rejected**. One enum constant, near-zero downside.
 
 ### 2.6 Unit handling supersedes the deferred-JSR-385 plan
 
@@ -224,11 +225,11 @@ public enum AttributeType { BOOLEAN, INT, FLOAT, STRING, ENUM }
 
 ## 9. Ratification checklist (for Nick)
 
-- [ ] **Confirmed AMD number is 47** (P2 §3 device block 46–49; AMD-47 = AttributeValue expansion; the "AMD-47-equiv withdrawn" line was a placeholder, not a file — §AMD-allocation note). Accept.
-- [ ] The three new public records — `QuantityValue` `(double value, String unit)`, `ArrayValue` `(List<AttributeValue> elements)`, `DegradedAttributeValue` `(String originalTypeName, String rawForm, String failureReason)` — and their `rawValue()`/`attributeType()` contracts (§2.1/§2.2/§2.4) are correct.
-- [ ] **`AttributeType` gains `QUANTITY`, `ARRAY`, `DEGRADED`** (§2.5) — and the **ratification fork** is resolved: add `QUANTITY` (PM-recommended, 1:1 value↔type) vs. reuse `FLOAT` for quantities. Nick's call.
-- [ ] The `AttributeValueUpcaster` SPI shape + strict/lenient two-mode doctrine (§2.3) is acceptable; no `ServiceLoader` (DECIDE-04, constructor injection).
-- [ ] **REC-93 supersedes the deferred-JSR-385 plan** — unit normalization is hand-rolled `String`-based, no units library (§2.6, AMD-47-INV-03). Accept the Doc 02 §3.7 `Unit<?>` → `String` correction (P4 companion delta).
-- [ ] The five invariants (§4) are correct — in particular **AMD-47-INV-02** (upcaster strictly before `DerivationRule.evaluate()` on **both** paths) and **AMD-47-INV-05** (ArrayValue full-replacement, no deltas).
-- [ ] Scope boundaries (§6) hold: no `projectionVersion` bump, no `CheckpointSerializer` change, no Doc 03 change (forward-reference only), no entanglement with AMD-44/46/48/49 or AMD-52.
-- [ ] **On ratification:** set Status → RATIFIED + Date applied; the PM bumps the on-disk amendment watermark to **AMD-47**-inclusive (i.e. records AMD-47 RATIFIED alongside the existing AMD-50 ceiling), registers AMD-47-INV-01..05 into `Architecture_Invariants_v1.md`, logs AMD-47 in the KB ledger, and updates `pm-handoff` so **M4.B3** may be briefed (still also gated on P4 Doc-02 currency, delivered alongside this amendment).
+- [x] **Confirmed AMD number is 47** (P2 §3 device block 46–49; AMD-47 = AttributeValue expansion; the "AMD-47-equiv withdrawn" line was a placeholder, not a file — §AMD-allocation note). Accepted.
+- [x] The three new public records — `QuantityValue` `(double value, String unit)`, `ArrayValue` `(List<AttributeValue> elements)`, `DegradedAttributeValue` `(String originalTypeName, String rawForm, String failureReason)` — and their `rawValue()`/`attributeType()` contracts (§2.1/§2.2/§2.4) are correct.
+- [x] **`AttributeType` gains `QUANTITY`, `ARRAY`, `DEGRADED`** (§2.5) — and the **ratification fork is RESOLVED: add `QUANTITY`** (1:1 value↔type); the FLOAT-reuse alternative is rejected.
+- [x] The `AttributeValueUpcaster` SPI shape + strict/lenient two-mode doctrine (§2.3) is acceptable; no `ServiceLoader` (DECIDE-04, constructor injection).
+- [x] **REC-93 supersedes the deferred-JSR-385 plan** — unit normalization is hand-rolled `String`-based, no units library (§2.6, AMD-47-INV-03). The Doc 02 §3.7 `Unit<?>` → `String` correction (P4 companion delta) is accepted.
+- [x] The five invariants (§4) are correct — in particular **AMD-47-INV-02** (upcaster strictly before `DerivationRule.evaluate()` on **both** paths) and **AMD-47-INV-05** (ArrayValue full-replacement, no deltas).
+- [x] Scope boundaries (§6) hold: no `projectionVersion` bump, no `CheckpointSerializer` change, no Doc 03 change (forward-reference only), no entanglement with AMD-44/46/48/49 or AMD-52.
+- [x] **On ratification (DONE — P4r mechanics session, 2026-05-30):** Status set → RATIFIED + Date applied = 2026-05-30; the on-disk amendment watermark was **left unchanged at AMD-50** (47 < 50 — ratification records AMD-47 RATIFIED, it does not raise the ceiling); AMD-47-INV-01..05 registered into `Architecture_Invariants_v1.md` (§20); the Doc 02 §3.7/§8.2 PENDING-AMD-47 blocks folded current; AMD-47 logged in the KB ledger; `pm-handoff`/`PROJECT_SNAPSHOT`/`cross-agent-notes` updated so **M4.B3** is now **UNBLOCKED** (AMD-47 ratified ✓ + Doc 02 current ✓) — **not yet started** (the next, separate fresh session).
