@@ -7,6 +7,7 @@
 **Dependents:** State Store (entity state shape), Persistence Layer (registry snapshot storage via CheckpointStore §8.1), Integration Runtime (Integration API surface), Automation Engine (§3.8 command model per Doc 07 §3.11.1 Command Dispatch Service, §3.10 ExpectationFactory per Doc 07 §3.11.2 Pending Command Ledger, §8.1 DeviceRegistry per Doc 07 §3.11.1, §8.1 EntityRegistry per Doc 07 §3.11.1 and §3.12 selector validation, §8.1 CommandValidator per Doc 07 §3.11.1), Zigbee Adapter (§3.5–§3.6 capability definitions and standard capability set for ZCL cluster mapping per Doc 08 §3.5, §3.7 attribute type system for Zigbee attribute translation, §3.8 command confirmation model and ExpectationFactory for command lifecycle per Doc 08 §3.8, §3.10 entity type compositions for multi-endpoint Zigbee devices, §3.11 multi-function device modeling per Doc 08 §3.7, §3.12 discovery/adoption/deduplication pipeline per Doc 08 §3.4), REST API (§3.1 structural overview for device/entity hierarchy per Doc 09 §3.2, §3.8 command model for command dispatch per Doc 09 §3.4, §8.1 DeviceRegistry/EntityRegistry/CapabilityRegistry read interfaces per Doc 09 §3.2 and §7, §8.2 Device/Entity/Capability/AttributeValue types for response serialization per Doc 09 §4), WebSocket API (§8.1 EntityRegistry interface for subscription filter resolution of area_refs, label_refs, entity_types per Doc 10 §3.4, §8.1 CapabilityRegistry interface for capabilities filter resolution per Doc 10 §3.4, §8.1 EntityRegistry for Doc 10 §7 interaction table, §4.1 EntityState record for state_snapshot message serialization per Doc 10 §4.2), Observability & Debugging (Doc 11: §11 health indicator for health aggregation per Doc 11 §7.1), Web UI (capability-driven control rendering), Startup, Lifecycle & Shutdown (Doc 12 — Phase 3 Device Model registry initialization, orphan detection)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-05
+**Pending amendments:** **AMD-47** (`AttributeValue` expansion + `AttributeValueUpcaster` SPI — REC-24/27/29/93) is **PROPOSED** as of 2026-05-30; §3.7 and §8.2 carry inline "PENDING AMD-47" delta blocks to be folded into the body on ratification. AMD-44 (Floor/EntityRole) is RATIFIED pending implementation. 2026-05-30 currency pass also corrected the §3.7 `AttributeSchema` `unit`/`canonical_unit` pseudocode from JSR 385 `Unit<?>` to `String` (matches implementation; REC-93 makes hand-rolled units permanent).
 
 ---
 
@@ -295,6 +296,16 @@ Every attribute value in HomeSynapse is typed at the model boundary. Integration
 | STRING | `String` | string | For free-form values (firmware version, device label) |
 | ENUM | `String` (validated) | string | Value must be in `valid_values` set |
 
+> **▶ PENDING AMD-47 (PROPOSED 2026-05-30 — applied on ratification).** AMD-47 (`AttributeValue` expansion, M4.B3) adds three `AttributeType` constants and their value variants. On ratification, fold these rows into the table above:
+>
+> | Type | Java Representation | JSON Wire Format | Notes |
+> |---|---|---|---|
+> | QUANTITY | `QuantityValue(double value, String unit)` | object `{value, unit}` | Physical quantity normalized to the canonical unit at construction (hand-rolled, no JSR 385 — REC-93). Magnitude-comparable on the canonical `value`. |
+> | ARRAY | `ArrayValue(List<AttributeValue> elements)` | array | Ordered, **full-replacement** list (no delta semantics — bounded-window-advancer compatible, REC-27). |
+> | DEGRADED | `DegradedAttributeValue(String originalTypeName, String rawForm, String failureReason)` | object | Subtype-level upcast fallback paralleling `DegradedEvent` (REC-29). **Sentinel — not schema-declarable** (AMD-47-INV-04); never enters canonical state under strict mode. |
+>
+> See `design/amendments/AMD-47_AttributeValue_Expansion_and_Upcaster.md`.
+
 **Attribute schema record:**
 
 ```
@@ -305,8 +316,8 @@ AttributeSchema {
     maximum:          Number?         -- for INT, FLOAT
     step:             Number?         -- for INT, FLOAT (UI slider granularity)
     valid_values:     String[]?       -- for ENUM
-    unit:             Unit<?>?        -- JSR 385 unit (for physical quantities)
-    canonical_unit:   Unit<?>?        -- SI canonical for storage
+    unit:             String?         -- canonical unit symbol, e.g. "°C", "W" (for physical quantities)
+    canonical_unit:   String?         -- SI canonical unit symbol for storage normalization
     permissions:      Set<Permission> -- READ, WRITE, NOTIFY
     nullable:         boolean         -- whether null/unknown is a valid state
     persistent:       boolean         -- survives device restart
@@ -329,6 +340,8 @@ AttributeSchema {
 ```
 
 Presentation conversion (°C → °F for US users) is exclusively a query/view concern, never a storage concern. Historical data is never reinterpreted through a different unit lens. This directly prevents the Home Assistant unit-change data corruption problem where changing `native_unit_of_measurement` corrupts historical graphs.
+
+> **Currency note (2026-05-30).** The `unit`/`canonical_unit` schema fields are `String` canonical-unit symbols in the implementation (`AttributeSchema.unitSymbol` / `canonicalUnitSymbol`), **not** JSR 385 `Unit<?>` — the pseudocode above is corrected to match. The earlier "Phase 3 adds JSR 385" plan is **superseded by REC-93**: unit normalization is hand-rolled and deterministic with **no external units library** (confirmed against the version catalog). **PENDING AMD-47 (PROPOSED):** the *value*-side carrier of the (value, unit) moat decision is the new `QuantityValue(double value, String unit)` variant, which normalizes to the canonical unit at construction — making the moat decision enforceable at the value layer, not just the schema layer. See `design/amendments/AMD-47_AttributeValue_Expansion_and_Upcaster.md`.
 
 **Processing order for `state_reported` events.** When an integration produces a `state_reported` event, the following processing order applies:
 
@@ -824,7 +837,7 @@ This order is critical. Persisting before validation means the raw fact is never
 | `HardwareIdentifier` | Record | `(namespace, value)` tuple for protocol-level identity |
 | `ProposedDevice` | Record | Integration-proposed device during discovery, before adoption |
 | `CapabilityCompatibilityReport` | Record | Result of replacement compatibility checking |
-| `AttributeValue` | Sealed interface | Typed attribute value: `BooleanValue`, `IntValue`, `FloatValue`, `StringValue`, `EnumValue` |
+| `AttributeValue` | Sealed interface | Typed attribute value: `BooleanValue`, `IntValue`, `FloatValue`, `StringValue`, `EnumValue`. **PENDING AMD-47 (PROPOSED 2026-05-30):** `permits` expands to add `QuantityValue`, `ArrayValue`, `DegradedAttributeValue` (8 total — AMD-47-INV-01); the `AttributeValueUpcaster` SPI (REC-29) is added to the same package. Applied on ratification — see `design/amendments/AMD-47_AttributeValue_Expansion_and_Upcaster.md`. |
 | `QuantityValue` | Record | `(value, unit)` pair for physical quantities, wrapping JSR 385 `Quantity<?>` |
 
 ---
