@@ -8,7 +8,7 @@
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-04
 
-> **Amendment currency — AMD-52 (RATIFIED 2026-05-31), body fold pending M4.0b-4 implementation.** AMD-52 changes `StateChangedEvent.oldValue/newValue` from `String` to the typed `AttributeValue` (`oldValue` nullable = first report), carried via a custom `JsonSerializer`/`JsonDeserializer` pair in `core/persistence` (compact `{"t":<AttributeType>,"v":…}` envelope, no `@JsonTypeInfo` — ArchUnit Rule 7 + Jackson-isolation). The per-event `schema_version` column (the §3.10 event-upcaster seam) is the string(1)↔typed(2) discriminator — typed payloads write `schema_version = 2`; **no event-store row migration**. Reading a legacy `schema_version = 1` String `state_changed` under the typed reader yields a `DegradedEvent` (raw preserved — a defined non-upcast, version-gated in `EventPayloadCodec.decode`; no upcaster pushed into the codec). §4.6 (`StateChangedEvent` shape) and §3.10 (`schema_version` seam) fold to the body when M4.0b-4 lands the code. See `design/amendments/AMD-52_*` + AMD-52-INV-01..05 (Architecture_Invariants_v1.md §22).
+> **Amendment currency — AMD-52 (RATIFIED 2026-05-31), body FOLDED — M4.0b-4b shipped `72596cb` (2026-05-31).** `StateChangedEvent.oldValue/newValue` are the typed `AttributeValue` (`oldValue` nullable = first report), carried via a custom `JsonSerializer`/`JsonDeserializer` pair in `core/persistence` (compact `{"t":<AttributeType>,"v":…}` envelope, no `@JsonTypeInfo` — Jackson-isolation HARD RULE + ArchUnit `NO_JACKSON_IN_DOMAIN_MODEL`). The per-event `schema_version` column (the §3.10 seam) is the string(1)↔typed(2) discriminator — typed payloads write `schema_version = 2`; **no event-store row migration**. Reading a legacy `schema_version = 1` String `state_changed` under the typed reader yields a `DegradedEvent` (raw preserved — a defined non-upcast, version-gated in `EventPayloadCodec.decode`; no upcaster in the codec). **Folded into §4.6 (`state_changed` payload shape) and §3.10 (`schema_version` seam) below.** See `design/amendments/AMD-52_*` + AMD-52-INV-01..05 (Architecture_Invariants_v1.md §22).
 
 ---
 
@@ -362,6 +362,8 @@ Diagnostic tools (Trace Viewer, export utilities) run in lenient mode. Failed up
 
 **Snapshot invalidation:** Snapshots record the event type schema versions at snapshot creation time. If the system starts with newer schema versions than the snapshot was built from, the snapshot is invalid. The projection rebuilds from events, applying upcasters during replay. This prevents stale snapshots from containing outdated interpretations.
 
+**`state_changed` v1→v2 — version-discriminated, deliberately NOT upcasted (AMD-52).** The `state_changed` payload's v1→v2 transition (serialized-`String` `old_value`/`new_value` → typed `AttributeValue` envelope, §4.6) is the documented exception to the upcaster chain. A pure `JsonNode` upcaster cannot reconstruct the typed value, because the variant is determined by the device-model attribute *schema*, and pushing schema knowledge into the read-path codec would invert the module layering (persistence would depend on device/state semantics). Instead, `schema_version` acts purely as a string(1)↔typed(2) **discriminator**: a v1 `state_changed` read under the typed reader degrades to a `DegradedEvent` with the raw payload preserved (AMD-52-INV-05 / Path B, version-gated in `EventPayloadCodec.decode`), and authoritative state is re-derived from the immutable `state_reported` log (Path A). No `state_changed` upcaster exists. Shipped M4.0b-4b (`72596cb`).
+
 ---
 
 ## 4. Data Model
@@ -678,12 +680,15 @@ This section defines payload schemas for event types where the structure is owne
 | `raw_protocol_value` | Any | No | The value as received from the protocol, before canonical conversion. Present when the integration performs unit conversion. |
 | `raw_protocol_unit` | String | No | The protocol-native unit. Present alongside `raw_protocol_value`. |
 
-**`state_changed` payload:**
+**`state_changed` payload (typed — AMD-52, `schema_version = 2`):**
+
+`old_value`/`new_value` carry the typed `AttributeValue` the State Projection reconstructs (AMD-51), serialized as the compact tagged-union envelope `{"t":<AttributeType>,"v":<value>[,"u":<unit>]}` — an explicit `AttributeType` discriminator, never `@JsonTypeInfo` (Jackson-isolation HARD RULE; the (de)serializer lives only in `core/persistence`). The envelope is written at per-event `schema_version = 2`.
+
 ```json
 {
   "attribute_key": "brightness",
-  "old_value": 50,
-  "new_value": 74,
+  "old_value": {"t": "INT", "v": 50},
+  "new_value": {"t": "INT", "v": 74},
   "triggered_by": "01HV..."
 }
 ```
@@ -691,9 +696,13 @@ This section defines payload schemas for event types where the structure is owne
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `attribute_key` | String | Yes | The attribute that changed. |
-| `old_value` | Any (typed per schema) | Yes | The previous canonical value. |
-| `new_value` | Any (typed per schema) | Yes | The new canonical value. |
+| `old_value` | Typed `AttributeValue` envelope | No | The previous canonical value, or `null` on a first report (no prior value — replaces the former `""` sentinel). |
+| `new_value` | Typed `AttributeValue` envelope | Yes | The new canonical value. Never `null`. |
 | `triggered_by` | ULID | Yes | The `event_id` of the `state_reported` event that caused this state change. |
+
+**Envelope encoding (AMD-52-INV-02/03/04).** Scalars: `BOOLEAN`→`"v"` boolean, `INT`→`"v"` number, `FLOAT`→`"v"` round-trippable number or a JSON-valid non-finite sentinel string (`"NaN"`/`"+Inf"`/`"-Inf"`; `−0.0`→`+0.0`; identity is the `Double.doubleToLongBits` bits, not the text), `STRING`/`ENUM`→`"v"` string. `QUANTITY`→`"v"` canonical magnitude + `"u"` canonical unit. `ARRAY`→`"v"` JSON array recursing the same envelope per element, in order. `DEGRADED`→`original_type_name`/`raw_form`/`failure_reason` fields. Dispatch is an exhaustive `switch` with no `default` arm.
+
+**Legacy reads (AMD-52-INV-05 / Path B).** A pre-AMD-52 `state_changed` row at `schema_version = 1` carried a serialized-`String` payload. Read under the typed reader it returns a `DegradedEvent` with the raw payload preserved — a defined non-upcast, version-gated in `EventPayloadCodec.decode`; no upcaster is pushed into the codec. Canonical state is never sourced from such a read — the State Projection re-derives typed state from the immutable `state_reported` log (Path A authoritative). Shipped M4.0b-4b (`72596cb`).
 
 **`state_confirmed` payload:**
 ```json
