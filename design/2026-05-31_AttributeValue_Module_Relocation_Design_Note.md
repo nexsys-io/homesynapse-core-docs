@@ -139,13 +139,31 @@ This edge was missed by reading twice (the design beat, and AMD-52's external re
 
 **Gate:** M4.0b-4a (the production relocation) is authored only after the spike compiles clean AND an external-review pass concurs. The spike is the gate; review is the second pair of eyes.
 
+### 5.1 Spike OUTCOME — PASS (2026-05-31)
+
+The spike was applied in a throwaway worktree (off `f699f3e`) and compiled: **`./gradlew compileJava compileTestJava` → BUILD SUCCESSFUL (75 tasks, clean build).** PM source-verified the load-bearing facts against the worktree (Read tool): `com.homesynapse.value` exists as a true leaf (`exports com.homesynapse.value`, requires nothing); **`com.homesynapse.event` does NOT require `com.homesynapse.device`** (requires `value` + `platform` only — the cycle is structurally gone, a JPMS cycle would have failed the compile); `AttributeValue` + 8 variants + `AttributeType` are in `com.homesynapse.value` with `permits` intact; no value type remains in `device`; persistence/automation `requires com.homesynapse.value` (plain), state-store/event/device `requires transitive`. **All four success criteria met; no forced moves** (`AttributeSchema`/`AttributeValueUpcaster` stayed in device-model).
+
+**Confirmed final `requires` edge set** (corrects/extends §4):
+```
+com.homesynapse.value       → java.base only; exports com.homesynapse.value
+com.homesynapse.event       → requires transitive value, platform
+com.homesynapse.device      → requires transitive value; requires event; requires transitive platform
+com.homesynapse.state       → requires transitive value (+ device, event, event.bus, platform)
+com.homesynapse.persistence → requires value (plain) (+ state, event, event.bus, platform, jackson…)
+com.homesynapse.automation  → requires value (plain) (+ event, device, state, platform)   ← hygiene only
+api/rest-api                → testImplementation(":core:value-model"); NO module-info edge  ← test-only usage
+```
+**Corrections to §4 the spike surfaced:** (1) **`automation`** is an extra importer beyond §4's list — but `PendingCommand` references `AttributeValue` only in a javadoc `{@link}`, reachable transitively via `device`; the explicit edge is hygiene, not a hard requirement. (2) **`rest-api`** usage is entirely in `src/test` → `testImplementation` + **no** `module-info` change (§4 implied a module edge — incorrect). (3) `event → value` is unused at the 4a baseline (forward-prep for 4b). (4) A handful of prose/`{@code}`-only references need no change; one stale prose string in `integration-zigbee/AttributeReport.java` ("device-model AttributeValue") is cosmetic — fold the fix into the production M4.0b-4a closeout. (5) `device → event` confirmed vestigial (device-model main references event only in javadoc `@see`) — left untouched (optional hygiene, separate).
+
+**Remaining gate before M4.0b-4a commits:** the spike ran `compileJava compileTestJava` only — the full **`./gradlew check`** (tests + ArchUnit) has NOT yet run. That is the real green-build gate for the production relocation: it confirms the move is behavior-preserving (same tests pass) and that no ArchUnit rule (e.g. package-structure or the Jackson-isolation/`NO_DIRECT_TIME_ACCESS` rules) references the old `com.homesynapse.device` home of the value types. The spike worktree is clean and complete → **promote it to M4.0b-4a** (run full `check`; add the MODULE_CONTEXT updates + the stale-prose fix; WUCP; commit) rather than redo the diff.
+
 ---
 
 ## 6. WU sequencing — relocation and typed-payload on separate commit boundaries
 
 Per milestone discipline ("single compile-and-commit unit") and to keep structural risk and semantic risk apart:
 
-- **M4.0b-4a — relocation (this note).** Pure, behavior-preserving refactor: create `core/value-model`, move the 10 types (package rename), add the §4 `requires` edges, update every `import com.homesynapse.device.{AttributeValue,…}` → `com.homesynapse.value.*` across the codebase, update MODULE_CONTEXTs. **No `projectionVersion` change, no semantics, no typed payload.** Build GREEN on its own commit. This is where a rename slip is caught in isolation.
+- **M4.0b-4a — relocation (this note). ✓ DONE + COMMITTED `971cfa1` (2026-05-31)** — spike PASS → full `./gradlew check` GREEN (143 tasks) → promoted; `event` no longer requires `device`; behavior-preserving. Pure, behavior-preserving refactor: create `core/value-model`, move the 10 types (package rename), add the §4 `requires` edges, update every `import com.homesynapse.device.{AttributeValue,…}` → `com.homesynapse.value.*` across the codebase, update MODULE_CONTEXTs. **No `projectionVersion` change, no semantics, no typed payload.** Build GREEN on its own commit. This is where a rename slip is caught in isolation.
 - **M4.0b-4b — typed payload (AMD-52).** Layer the typed `StateChangedEvent` + the `AttributeValue` codec + typed materialization + Path-B gate + `projectionVersion` 3→4 onto the now-clean graph. This is the existing `M4.0b-4_Typed_StateChangedEvent_Payload_Serializer.md` instruction, **re-targeted to 4b** and rebased on the relocated packages (the `AttributeValue` import path changes `device` → `value`; the event-model→device STOP-gate is removed because the edge is now event→value, which is legal).
 
 Milestone ids M4.0b-4a / M4.0b-4b proposed under the projection-block scheme — confirm with Nick (M4.0b-4 was already confirmed as the typed-payload step; this splits it).
