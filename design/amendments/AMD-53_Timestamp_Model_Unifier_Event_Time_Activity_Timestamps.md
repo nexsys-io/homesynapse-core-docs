@@ -2,9 +2,9 @@
 
 **Amendment ID:** AMD-53
 **Tier:** Tier-1 (architectural invariant)
-**Status:** PROPOSED
+**Status:** RATIFIED
 **Date drafted:** 2026-05-31
-**Date applied:** _(pending ratification)_
+**Date applied:** 2026-05-31
 **Target documents:** Doc 03 (State Store & State Projection)
 **Target sections:** Doc 03 §4.1 (EntityState field contracts — code brought into compliance, no contract change); Doc 03 §3.2 (LIVE/REPLAY dispatch tables); Doc 03 §3.8 (staleness — the carve-out reference)
 **Refines / ties into:** AMD-50-INV-03 (rebuild determinism of the rule) — **extends** the determinism contract from the `DerivationRule` to the projection's own timestamp materialization; INV-PROJ-01 (projection determinism); Doc 01 INV-ES-08 (`event_time` vs `ingest_time`); INV-ES-01 (events immutable once persisted).
@@ -167,14 +167,14 @@ Extend the existing `StateProjectionContractTest` + `ReconciliationTest` (do not
 
 Nick gave the four design-fork calls 2026-05-31; this checklist records them for the formal ratification step.
 
-- [ ] **Option A (§2.1):** event-time everywhere for `lastChanged`/`lastUpdated`/`lastReported` (incl. the `availability_changed` `lastUpdated` and adoption seeding). _(Nick: confirmed — event-time everywhere; `staleAfter`/`stale` stay wall-clock.)_
-- [ ] **Carve-out (§2.2 / AMD-53-INV-02):** `staleAfter`/`stale` stay real-time and are excluded from the rule.
-- [ ] **`lastReported` finding (§1.2):** confirm the broadened scope (all three fields), not `lastChanged` alone.
-- [ ] **`initialEntityState` seeding (§1.5):** confirm adoption seeding moves to event-time (closes the never-changed-field hole).
-- [ ] **AMD number:** AMD-53 (next free monotonic integer); P2 renumbering-decision allocation note added; integration block re-bases to 54+. _(Nick: confirmed — take 53 cleanly.)_
-- [ ] **`projectionVersion` 4→5 on AMD-50's backfill (§2.4):** confirm the bump, and that the reconciliation replay re-derives **all three** activity timestamps from event-time (not only `lastChanged`). _(Nick: confirmed — bump 4→5; replay must re-derive all three.)_
-- [ ] **Invariants (§4):** AMD-53-INV-01 (event-time materialization determinism, extends AMD-50-INV-03) and AMD-53-INV-02 (real-time freshness carve-out) are correct.
-- [ ] **On ratification:** Status → RATIFIED + Date applied; register AMD-53-INV-01/02 into `Architecture_Invariants_v1.md` (new §23 + §0.3 prefix + §17 index + §18 traceability); raise the on-disk watermark **AMD-52 → AMD-53** (`00-navigation-index.md` + amendments-table row); fold the Doc 03 §4.1 currency note (the contract already states event-time — add a "code brought into compliance by AMD-53" note, not a contract change); then the PM briefs the timestamp-unifier Coder WU (§8).
+- [x] **Option A (§2.1):** event-time everywhere for `lastChanged`/`lastUpdated`/`lastReported` (incl. the `availability_changed` `lastUpdated` and adoption seeding). _(Nick: confirmed — event-time everywhere; `staleAfter`/`stale` stay wall-clock.)_
+- [x] **Carve-out (§2.2 / AMD-53-INV-02):** `staleAfter`/`stale` stay real-time and are excluded from the rule.
+- [x] **`lastReported` finding (§1.2):** confirm the broadened scope (all three fields), not `lastChanged` alone.
+- [x] **`initialEntityState` seeding (§1.5):** confirm adoption seeding moves to event-time (closes the never-changed-field hole).
+- [x] **AMD number:** AMD-53 (next free monotonic integer); P2 renumbering-decision allocation note added; integration block re-bases to 54+. _(Nick: confirmed — take 53 cleanly.)_
+- [x] **`projectionVersion` 4→5 on AMD-50's backfill (§2.4):** confirm the bump, and that the reconciliation replay re-derives **all three** activity timestamps from event-time (not only `lastChanged`). _(Nick: confirmed — bump 4→5; replay must re-derive all three.)_
+- [x] **Invariants (§4):** AMD-53-INV-01 (event-time materialization determinism, extends AMD-50-INV-03) and AMD-53-INV-02 (real-time freshness carve-out) are correct.
+- [x] **On ratification:** Status → RATIFIED + Date applied; register AMD-53-INV-01/02 into `Architecture_Invariants_v1.md` (new §23 + §0.3 prefix + §17 index + §18 traceability); raise the on-disk watermark **AMD-52 → AMD-53** (`00-navigation-index.md` + amendments-table row); fold the Doc 03 §4.1 currency note (the contract already states event-time — add a "code brought into compliance by AMD-53" note, not a contract change); then the PM briefs the timestamp-unifier Coder WU (§8).
 
 ---
 
