@@ -7,7 +7,7 @@
 **Dependents:** State Store (entity state shape), Persistence Layer (registry snapshot storage via CheckpointStore §8.1), Integration Runtime (Integration API surface), Automation Engine (§3.8 command model per Doc 07 §3.11.1 Command Dispatch Service, §3.10 ExpectationFactory per Doc 07 §3.11.2 Pending Command Ledger, §8.1 DeviceRegistry per Doc 07 §3.11.1, §8.1 EntityRegistry per Doc 07 §3.11.1 and §3.12 selector validation, §8.1 CommandValidator per Doc 07 §3.11.1), Zigbee Adapter (§3.5–§3.6 capability definitions and standard capability set for ZCL cluster mapping per Doc 08 §3.5, §3.7 attribute type system for Zigbee attribute translation, §3.8 command confirmation model and ExpectationFactory for command lifecycle per Doc 08 §3.8, §3.10 entity type compositions for multi-endpoint Zigbee devices, §3.11 multi-function device modeling per Doc 08 §3.7, §3.12 discovery/adoption/deduplication pipeline per Doc 08 §3.4), REST API (§3.1 structural overview for device/entity hierarchy per Doc 09 §3.2, §3.8 command model for command dispatch per Doc 09 §3.4, §8.1 DeviceRegistry/EntityRegistry/CapabilityRegistry read interfaces per Doc 09 §3.2 and §7, §8.2 Device/Entity/Capability/AttributeValue types for response serialization per Doc 09 §4), WebSocket API (§8.1 EntityRegistry interface for subscription filter resolution of area_refs, label_refs, entity_types per Doc 10 §3.4, §8.1 CapabilityRegistry interface for capabilities filter resolution per Doc 10 §3.4, §8.1 EntityRegistry for Doc 10 §7 interaction table, §4.1 EntityState record for state_snapshot message serialization per Doc 10 §4.2), Observability & Debugging (Doc 11: §11 health indicator for health aggregation per Doc 11 §7.1), Web UI (capability-driven control rendering), Startup, Lifecycle & Shutdown (Doc 12 — Phase 3 Device Model registry initialization, orphan detection)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-05
-**Amendment status:** **AMD-47** (`AttributeValue` expansion + `AttributeValueUpcaster` SPI — REC-24/27/29/93) is **RATIFIED 2026-05-30**; its §3.7 and §8.2 deltas are **folded into the body** (the prior inline "PENDING AMD-47" blocks are retired) — the QUANTITY/ARRAY/DEGRADED rows and the 8-variant `AttributeValue` sealing are now current contract. The production types + SPI are implemented by M4.B3. AMD-44 (Floor/EntityRole) is RATIFIED pending implementation. The §3.7 `AttributeSchema` `unit`/`canonical_unit` pseudocode is `String` (JSR 385 `Unit<?>` corrected away — matches implementation; REC-93 makes hand-rolled units permanent). No amendments pending against this document.
+**Amendment status:** **AMD-47** (`AttributeValue` expansion + `AttributeValueUpcaster` SPI — REC-24/27/29/93) is **RATIFIED 2026-05-30**; its §3.7 and §8.2 deltas are **folded into the body** (the prior inline "PENDING AMD-47" blocks are retired) — the QUANTITY/ARRAY/DEGRADED rows and the 8-variant `AttributeValue` sealing are now current contract. The production types + SPI are implemented by M4.B3. **AMD-44 (Floor/EntityRole/`Set<HardwareIdentifier>`): Stage 1 IMPLEMENTED + COMMITTED `e73e199` (M4.B-S1, 2026-05-31)** — `FloorId`/`Floor`/`Area` + `FloorRegistry`/`AreaRegistry` (interface-only), the `AreaId` Javadoc de-conflation (code), the `List`→`Set<HardwareIdentifier>` refactor on §4.1 `Device`/§3.12 `ProposedDevice`/§8.1 `DiscoveryPipeline`, and the five floor lifecycle event payloads folded into §4.4 above. **Stage 2 (EntityRole enum + `EntityType.legalRoles`/`allows(...)` matrix + `ProposedEntity`/`Entity.entityRole` + `entity_profile_changed` `oldRole`/`newRole`) is RATIFIED, pending implementation.** The §3.7 `AttributeSchema` `unit`/`canonical_unit` pseudocode is `String` (JSR 385 `Unit<?>` corrected away — matches implementation; REC-93 makes hand-rolled units permanent). No amendments pending against this document.
 
 ---
 
@@ -669,6 +669,26 @@ This subsystem defines the payload schemas for device-related event types declar
     "requires_user_confirmation": false
 }
 ```
+
+**Floor lifecycle event payloads (AMD-44 §2.4 — Stage 1 implemented M4.B-S1, `e73e199`).** These five floor / area-floor-assignment events are **string event types with JSON payloads**, not typed Java event records at this stage (typed records arrive when the device-model module receives its Phase 3 event implementations — AMD-44 §4.3). As of M4.B-S1 the `Floor`/`Area` records and `FloorRegistry`/`AreaRegistry` interfaces exist; the registry *implementations* that emit these events, and first-boot synthetic-`Area` creation, are deferred (later registry-impl WU / AMD-45). Moving an area between floors emits `area_floor_unassigned` (carrying `previousFloorId`) followed by `area_floor_assigned`. A forced floor delete (`?force=true`) emits an `area_floor_unassigned` per still-assigned area **before** `floor_deleted`.
+
+```json
+{ "eventType": "floor_created", "floorId": "<ULID>", "name": "Ground Floor", "level": 0, "icon": "mdi:home-floor-g", "aliases": ["ground", "main level"], "createdAt": "2026-05-22T10:00:00Z" }
+```
+```json
+{ "eventType": "floor_updated", "floorId": "<ULID>", "changes": { "name": { "old": "Ground", "new": "Ground Floor" }, "level": { "old": 1, "new": 0 } } }
+```
+```json
+{ "eventType": "floor_deleted", "floorId": "<ULID>" }
+```
+```json
+{ "eventType": "area_floor_assigned", "areaId": "<ULID>", "floorId": "<ULID>" }
+```
+```json
+{ "eventType": "area_floor_unassigned", "areaId": "<ULID>", "previousFloorId": "<ULID>" }
+```
+
+The `floor_updated` `changes` map carries only changed fields, matching the `entity_profile_changed` / `device_metadata_changed` diff precedent.
 
 ---
 
