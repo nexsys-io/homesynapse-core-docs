@@ -8,6 +8,8 @@
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-05
 
+> **Amendment currency — AMD-52 (RATIFIED 2026-05-31), body fold pending M4.0b-4 implementation.** AMD-52 adds a custom `AttributeValue` `JsonSerializer`/`JsonDeserializer` pair to `core/persistence` (registered alongside `PersistenceJacksonModule` — the DECIDE-M2-03 pre-declared expansion point), emitting a compact `{"t":<AttributeType>,"v":…}` tagged-union envelope with an exhaustive no-`default` switch over the 8 `AttributeValue` variants, **no `@JsonTypeInfo`** (Jackson-isolation HARD RULE), and **no new `requires` or Jackson artifact** (`AttributeValue` is reachable via `persistence → transitive state → transitive device`; `JsonSerializer` is in `jackson-databind`). Float identity is bit-anchored (`Double.doubleToLongBits`; stored text round-trippable, not byte-frozen); non-finite `FloatValue` uses JSON-valid sentinels; `chain_hash` stays the inert AMD-37 zero-reservation. `CheckpointSerializer` (§3.6) materializes `attributes` as a typed envelope per entry in the same `view_checkpoints.data` BLOB (§3.12) — **no row migration on `events` or `view_checkpoints`** (the typed payload stays in-BLOB; per-event `schema_version` is the discriminator). §3.6 (`CheckpointSerializer`) and the §3.12 / §4.2 BLOB notes fold to the body when M4.0b-4 lands the code. See `design/amendments/AMD-52_*` + AMD-52-INV-02/03/04/06 (Architecture_Invariants_v1.md §22).
+
 ---
 
 ## 0. Purpose

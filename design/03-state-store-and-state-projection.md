@@ -8,6 +8,8 @@
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-05
 
+> **Amendment currency — AMD-52 (RATIFIED 2026-05-31), body fold pending M4.0b-4 implementation.** AMD-52 ends the materialized-`StringValue`-only regime that AMD-51 §1.2 / AMD-51-INV-05 depended on: `ProductionDerivationRule` emits a **typed** `StateChangedEvent` (carrying the `AttributeValue` it already reconstructs for the AMD-51 comparison, at `schema_version = 2`), and `StateProjection.applyToState` (§3.2) + the AMD-50 backfill materialize the **typed** value into `EntityState.attributes` (§4.1) instead of `new StringValue(...)`. `shouldPublishDerived` migrates to a typed-coherent comparison. This is a materialized-output change → `projectionVersion` **3→4**, riding AMD-50's frozen reconciliation-backfill unchanged (Path A re-derivation from the immutable `state_reported` log is authoritative). §3.2 (derivation emit) and §4.1 (`EntityState.attributes` materialization) fold to the body when M4.0b-4 lands the code. See `design/amendments/AMD-52_*` + AMD-52-INV-01/05/06/07 (Architecture_Invariants_v1.md §22).
+
 ---
 
 ## 0. Purpose

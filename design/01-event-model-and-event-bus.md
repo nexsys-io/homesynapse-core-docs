@@ -8,6 +8,8 @@
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-04
 
+> **Amendment currency — AMD-52 (RATIFIED 2026-05-31), body fold pending M4.0b-4 implementation.** AMD-52 changes `StateChangedEvent.oldValue/newValue` from `String` to the typed `AttributeValue` (`oldValue` nullable = first report), carried via a custom `JsonSerializer`/`JsonDeserializer` pair in `core/persistence` (compact `{"t":<AttributeType>,"v":…}` envelope, no `@JsonTypeInfo` — ArchUnit Rule 7 + Jackson-isolation). The per-event `schema_version` column (the §3.10 event-upcaster seam) is the string(1)↔typed(2) discriminator — typed payloads write `schema_version = 2`; **no event-store row migration**. Reading a legacy `schema_version = 1` String `state_changed` under the typed reader yields a `DegradedEvent` (raw preserved — a defined non-upcast, version-gated in `EventPayloadCodec.decode`; no upcaster pushed into the codec). §4.6 (`StateChangedEvent` shape) and §3.10 (`schema_version` seam) fold to the body when M4.0b-4 lands the code. See `design/amendments/AMD-52_*` + AMD-52-INV-01..05 (Architecture_Invariants_v1.md §22).
+
 ---
 
 ## 0. Purpose
