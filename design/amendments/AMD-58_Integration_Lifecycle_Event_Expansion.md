@@ -2,7 +2,7 @@
 file: design/amendments/AMD-58_Integration_Lifecycle_Event_Expansion.md
 purpose: AMD-58 — five new IntegrationLifecycleEvent permits (REC-44's four + IntegrationReauthCompleted), 5→10; dot-namespaced event-type strings.
 audience: Nick (ratify), PM, Coder
-status: PROPOSED — pending DOCS-Project review + Nick ratification (Workstream C block, AMD-54..64)
+status: RATIFIED 2026-06-05 — DOCS-Project review (RATIFY-WITH-EDITS; R5 arbitrated, E7 folded) + Nick arbitration A2; review return: nexsys-hivemind `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md`
 source: Research 6 REC-44 ACCEPT + assessment note "the 5 new permits (REC-44's 4 + the IntegrationReauthCompleted in §7.3) land in integration-api alongside the existing 5"; AMD-33 (permits live in com.homesynapse.integration, NOT event-model)
 baseline: homesynapse-core HEAD `e76b925` — sealed hierarchy source-verified: 5 permits; IntegrationEvents.LIFECYCLE_EVENT_CLASSES = 5 entries; EventTypes INTEGRATION_* = 5 constants; zero dot-namespaced strings exist anywhere in EventTypes
 -->
@@ -17,7 +17,7 @@ The AMD-55 hook flows and the AMD-56 reauth path produce observable lifecycle tr
 
 ### 2.1 Five new records (all `com.homesynapse.integration`, implementing `IntegrationLifecycleEvent`)
 
-> **[REVIEW-FLAG R5 — name provenance.]** REC-44's four event names are not enumerated in the on-disk assessment; the five names below are PM-derived 1:1 from the AMD-55 hook flows plus the assessment's explicitly-named `IntegrationReauthCompleted` (§7.3). The DOCS-Project review MUST diff names and per-permit fields against the Research 6 return §REC-44/§7.3 and correct verbatim if they differ.
+> **[REVIEW-FLAG R5 — RESOLVED by Nick arbitration A2 (2026-06-05).]** The review diffed names/fields against the inline return §REC-44/§7.3. `IntegrationReauthCompleted` CONFIRMED present (§7.3 only; REC-44's code block has four). The return's verbatim names/strings where they differ: `IntegrationReauthRequested`/`"integration.reauth_requested"` and `IntegrationMigrated`/`"integration.migrated"` — and the return is internally inconsistent (its hook is `onReauthRequired`, its event `reauth_requested`). **Arbitration: the PM names below stand** — `IntegrationReauthRequired` aligns hook-to-event; `IntegrationMigrationCompleted` pairs with `MigrationOutcome`. Field diffs (the return's `timestamp` components dropped per the envelope-owns-time house rule; `configHashBefore/After`/`changedKeys` → `outcome`; `boolean success` → `MigrationOutcome`) are recorded verbatim in the review return §2.R5.
 
 All five satisfy the sealed parent's 5-accessor contract (source-verified: `integrationId(), integrationType(), previousState() [nullable only for IntegrationStarted], newState(), reason()`). For these five, lifecycle flows do not change `HealthState`, so `previousState` and `newState` both carry the current state (non-null).
 
@@ -30,6 +30,8 @@ All five satisfy the sealed parent's 5-accessor contract (source-verified: `inte
 | `IntegrationMigrationCompleted` | `int fromMajor, int fromMinor, int toMajor, int toMinor, MigrationOutcome outcome` | `integration.migration.completed` |
 
 No timestamp components — `EventEnvelope` owns `eventTime`/`ingestTime` (house rule; the existing 5 permits carry none).
+
+**Migration-failure representation (review E7 → Nick ruling, 2026-06-05):** a failed migration intentionally emits **no** migration event. `PermanentIntegrationException` from `migrate` drives the FAILED transition (AMD-55-INV-03), observable via the existing health/lifecycle transition events — that transition IS the signal; adding `FAILED` to `MigrationOutcome` would create two channels for one condition. The asymmetry with `ConfigUpdateOutcome.REJECTED` (AMD-55) is deliberate and principled: a rejected config apply has a valid fallback state (the prior config — the adapter keeps running), so it is an expressible *outcome*; a failed migration has no valid state to fall back to (old-schema config + new-schema code), so it is correctly a *permanent failure*.
 
 ### 2.2 Naming convention (the dot-namespace decision)
 
@@ -79,10 +81,16 @@ Module-info: unchanged — see AMD-54 §7 verbatim embed.
 
 ## 8. Ratification Checklist
 
-- [ ] DOCS-Project review (**R5: names/fields vs the Research 6 return**)
-- [ ] Nick ratification
-- [ ] Invariants registered
+- [x] DOCS-Project review (R5 diffed; arbitrated by A2 — see §2.1) — 2026-06-05
+- [x] Nick ratification — 2026-06-05
+- [x] Invariants registered (`Architecture_Invariants_v1.md` §28)
 
 ## 9. Review Disposition
 
-*(populated at ratification)*
+**DOCS-Project review (2026-06-05): RATIFY-WITH-EDITS — R5 arbitrated, E7 folded.** Return: nexsys-hivemind `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md`.
+
+- **R5 (G1 fidelity, run against the inline return):** `IntegrationReauthCompleted` CONFIRMED (§7.3). Two name diffs + leaf-string convention diffs recorded verbatim in §2.1 and the review return §2.R5. **Nick arbitration A2: PM names stand** (hook-to-event alignment; the return is internally inconsistent on requested/required).
+- **E7 → Nick ruling (2026-06-05):** documented the FAILED-transition route for migration failure with the REJECTED-asymmetry principle (§2.1); `MigrationOutcome` deliberately gains no `FAILED` value.
+- Dot-namespace coherence (G4) verified: `integration.*` for the new five, legacy snake_case five frozen, annotation-test prefix evolution specified and matches the source-verified pin.
+
+Ratified by Nick 2026-06-05.

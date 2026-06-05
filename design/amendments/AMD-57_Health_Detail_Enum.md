@@ -2,8 +2,8 @@
 file: design/amendments/AMD-57_Health_Detail_Enum.md
 purpose: AMD-57 — HealthDetail enum + IntegrationHealthRecord.detail component (REC-42; description field dropped per PM disposition).
 audience: Nick (ratify), PM, Coder
-status: PROPOSED — pending DOCS-Project review + Nick ratification (Workstream C block, AMD-54..64)
-source: Research 6 REC-42 ACCEPT(MODIFY) — 12-value enum stands; @Nullable String description DROPPED (YAGNI; lifecycle-event reason covers narrative)
+status: RATIFIED 2026-06-05 — DOCS-Project review (RATIFY-WITH-EDITS; R4 arbitrated) + Nick arbitration A1 (PM transition-trigger taxonomy stands); review return: nexsys-hivemind `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md`
+source: Research 6 REC-42 ACCEPT(MODIFY) — 12-value count stands (taxonomy arbitrated, see §2.1); @Nullable String description DROPPED (YAGNI; lifecycle-event reason covers narrative)
 baseline: homesynapse-core HEAD `e76b925` — IntegrationHealthRecord source-verified: 13 components, com.homesynapse.integration.runtime
 -->
 
@@ -17,7 +17,7 @@ baseline: homesynapse-core HEAD `e76b925` — IntegrationHealthRecord source-ver
 
 ### 2.1 `HealthDetail` enum (new, `com.homesynapse.integration.runtime`)
 
-> **[REVIEW-FLAG R4 — value-list provenance.]** The Research 6 return proposed a 12-value enum which the PM disposition accepted as proposed; the return document is not on disk and the assessment does not enumerate the values. The 12 values below are **PM-reconstructed from the HealthParameters threshold surface** (each value maps 1:1 to a supervisor transition trigger). The DOCS-Project review MUST diff this list against the Research 6 return §REC-42 and replace it verbatim if it differs. Semantics and placement are not affected by the exact list.
+> **[REVIEW-FLAG R4 — RESOLVED by Nick arbitration A1 (2026-06-05).]** The review diffed this list against the inline Research 6 return §REC-42. **Count confirmed (12 = 12), but the return proposed a different, operator-cause taxonomy** — verbatim: `NONE`, `COMMUNICATION_ERROR`, `CONFIGURATION_ERROR`, `AUTH_FAILED`, `BRIDGE_OFFLINE`, `DUTY_CYCLE_THROTTLED`, `RATE_LIMITED`, `STARTUP_TIMEOUT`, `RESOURCE_LIMIT`, `DEPENDENCY_FAILED`, `MIGRATING`, `DISABLED_BY_USER`. **Arbitration: the PM transition-trigger taxonomy below stands; the research taxonomy was considered and declined.** Rationale: the research list is OpenHAB-derived, and Research 6's own §1 verdict explains why it does not transfer — OpenHAB's detail matrix is load-bearing only because bindings *self-report* their status, whereas HomeSynapse *aggregates health from metrics*; a transition-trigger vocabulary is what a metrics-driven FSM can actually emit truthfully. Verbatim replacement would also have broken AMD-57-INV-02 (1:1 trigger mapping) as written. The operator-cause vocabulary may resurface later as **observability display labels**, not enum values. (Each value below maps 1:1 to a supervisor transition trigger on the source-verified `HealthParameters` surface.)
 
 ```java
 public enum HealthDetail {
@@ -73,10 +73,15 @@ Module-info (integration-runtime): unchanged — see AMD-56 §6 verbatim embed.
 
 ## 8. Ratification Checklist
 
-- [ ] DOCS-Project review (**R4: replace the value list verbatim from the Research 6 return if it differs**)
-- [ ] Nick ratification
-- [ ] Invariants registered
+- [x] DOCS-Project review (R4 diffed; arbitrated by A1 — see §2.1) — 2026-06-05
+- [x] Nick ratification — 2026-06-05
+- [x] Invariants registered (`Architecture_Invariants_v1.md` §27)
 
 ## 9. Review Disposition
 
-*(populated at ratification)*
+**DOCS-Project review (2026-06-05): RATIFY-WITH-EDITS — R4 arbitrated.** Return: nexsys-hivemind `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md`.
+
+- **R4 (G1 fidelity, run against the inline return):** REC-42's 12-value count CONFIRMED; the lists differed in 11 of 12 entries — two different taxonomies, not transcription drift (the return's verbatim list is preserved in §2.1). **Nick arbitration A1: keep the PM transition-trigger taxonomy** (self-report-vs-metrics-aggregation rationale, recorded in §2.1); operator-cause vocabulary may resurface as observability display labels. AMD-57-INV-02 stands as written.
+- The return's `@Nullable String description` stays dropped (PM disposition; Javadoc-only nullability convention; narrative lives in lifecycle-event `reason`).
+
+Ratified by Nick 2026-06-05.

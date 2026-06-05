@@ -2,7 +2,7 @@
 file: design/amendments/AMD-62_Backoff_Parameters.md
 purpose: AMD-62 — BackoffParameters record on IntegrationDescriptor (REC-48) + the NQ-5/NQ-6 restart-intensity documentation fold.
 audience: Nick (ratify), PM, Coder
-status: PROPOSED — pending DOCS-Project review + Nick ratification (Workstream C block, AMD-54..64)
+status: RATIFIED 2026-06-05 — DOCS-Project review (RATIFY-WITH-EDITS; E10 doc-only edit folded); review return: nexsys-hivemind `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md`
 source: Research 6 REC-48 ACCEPT (HA empirical 5/10/20/40/80 schedule; fix @Nullable convention violation) + NQ-5/NQ-6 (RESOLVED: REC-49 rejected; document the OTP embedded override; keep global default + per-descriptor override + pre-M9 spike)
 baseline: homesynapse-core HEAD `e76b925` — HealthParameters 11 fields + defaults() (maxRestarts=3, restartWindow=60s) source-verified
 -->
@@ -29,7 +29,7 @@ public record BackoffParameters(
 }
 ```
 
-`defaults()` reproduces the HA schedule exactly: 5, 10, 20, 40, 80, 80, … No jitter field — deterministic schedules are testable; jitter (if M9 wants it) is supervisor policy, not adapter contract. Nullability convention: Javadoc-only (the research's `@Nullable` annotation violates the codebase rule — integration-api MODULE_CONTEXT gotcha, fixed here per the REC-48 disposition).
+`defaults()` reproduces the HA schedule exactly: 5, 10, 20, 40, 80, 80, … No jitter field — deterministic schedules are testable; jitter (if M9 wants it) is supervisor policy, not adapter contract. Nullability convention: Javadoc-only (the research's `@Nullable` annotation violates the codebase rule — integration-api MODULE_CONTEXT gotcha, fixed here per the REC-48 disposition). The research's fourth field — `maxConsecutiveBeforeSuspend` (REC-48, default 5) — is likewise dropped (review E10): it duplicates the existing suspend-threshold surface (`HealthParameters.maxRestarts`/`restartWindow`/`maxSuspensionCycles`, source-verified), the same check-existing-fields rationale that rejected REC-49 (NQ-5).
 
 ### 2.2 Descriptor change
 
@@ -64,8 +64,8 @@ Module-info: unchanged — see AMD-54 §7 verbatim embed.
 
 ## 7. Ratification Checklist
 
-- [ ] DOCS-Project review — [ ] Nick ratification — [ ] Invariants registered
+- [x] DOCS-Project review — [x] Nick ratification — [x] Invariants registered (`Architecture_Invariants_v1.md` §32) — all 2026-06-05
 
 ## 8. Review Disposition
 
-*(populated at ratification)*
+**DOCS-Project review (2026-06-05): RATIFY-WITH-EDITS — E10 (doc-only) folded.** Return: nexsys-hivemind `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md`. The `(initialDelay, multiplier, maxDelay)` shape vs. the return's `(minBackoff, maxBackoff, jitterFactor, maxConsecutiveBeforeSuspend)` verified as sound narrowing: defaults reproduce the return's HA-derived 5/10/20/40/80 schedule exactly; jitter is supervisor policy; the fourth field's drop is now documented in §2.1 (NQ-5 existing-fields rationale). NQ-5/NQ-6 rendering verified (REC-49 stays REJECTED; OTP 1/60s embedded override documented; pre-M9 Zigbee spike named). Ratified by Nick 2026-06-05.

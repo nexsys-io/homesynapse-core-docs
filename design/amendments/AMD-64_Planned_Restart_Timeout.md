@@ -2,7 +2,7 @@
 file: design/amendments/AMD-64_Planned_Restart_Timeout.md
 purpose: AMD-64 — per-descriptor plannedRestartTimeout overriding the Doc 05 §3.14 global 60s (REC-51).
 audience: Nick (ratify), PM, Coder
-status: PROPOSED — pending DOCS-Project review + Nick ratification (Workstream C block, AMD-54..64)
+status: RATIFIED 2026-06-05 — DOCS-Project review (RATIFY-AS-IS) + Nick ratification; review return: nexsys-hivemind `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md`
 source: Research 6 REC-51 ACCEPT (clean override; Doc 05 §3.14 60s remains the fallback)
 baseline: homesynapse-core HEAD `e76b925` — IntegrationHealthRecord.plannedRestart boolean source-verified (the planned-restart mechanism exists in the health model)
 -->
@@ -42,8 +42,8 @@ Module-info: unchanged — see AMD-54 §7 verbatim embed.
 
 ## 7. Ratification Checklist
 
-- [ ] DOCS-Project review — [ ] Nick ratification — [ ] Invariants registered
+- [x] DOCS-Project review — [x] Nick ratification — [x] Invariants registered (`Architecture_Invariants_v1.md` §34) — all 2026-06-05
 
 ## 8. Review Disposition
 
-*(populated at ratification)*
+**DOCS-Project review (2026-06-05): RATIFY-AS-IS — no edits.** Return: nexsys-hivemind `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md`. REC-51 fidelity verified (null→global 60s fallback; the return's `@Nullable` rendered as Javadoc-only per convention; the return's Zigbee-90s/HTTP-15s figures are adapter-authoring guidance, not contract); `plannedRestart` mechanism hook source-verified; full-replace-never-combine semantics (AMD-64-INV-01) sound. Ratified by Nick 2026-06-05.

@@ -7,7 +7,7 @@
 **Dependents:** State Store (entity state shape), Persistence Layer (registry snapshot storage via CheckpointStore §8.1), Integration Runtime (Integration API surface), Automation Engine (§3.8 command model per Doc 07 §3.11.1 Command Dispatch Service, §3.10 ExpectationFactory per Doc 07 §3.11.2 Pending Command Ledger, §8.1 DeviceRegistry per Doc 07 §3.11.1, §8.1 EntityRegistry per Doc 07 §3.11.1 and §3.12 selector validation, §8.1 CommandValidator per Doc 07 §3.11.1), Zigbee Adapter (§3.5–§3.6 capability definitions and standard capability set for ZCL cluster mapping per Doc 08 §3.5, §3.7 attribute type system for Zigbee attribute translation, §3.8 command confirmation model and ExpectationFactory for command lifecycle per Doc 08 §3.8, §3.10 entity type compositions for multi-endpoint Zigbee devices, §3.11 multi-function device modeling per Doc 08 §3.7, §3.12 discovery/adoption/deduplication pipeline per Doc 08 §3.4), REST API (§3.1 structural overview for device/entity hierarchy per Doc 09 §3.2, §3.8 command model for command dispatch per Doc 09 §3.4, §8.1 DeviceRegistry/EntityRegistry/CapabilityRegistry read interfaces per Doc 09 §3.2 and §7, §8.2 Device/Entity/Capability/AttributeValue types for response serialization per Doc 09 §4), WebSocket API (§8.1 EntityRegistry interface for subscription filter resolution of area_refs, label_refs, entity_types per Doc 10 §3.4, §8.1 CapabilityRegistry interface for capabilities filter resolution per Doc 10 §3.4, §8.1 EntityRegistry for Doc 10 §7 interaction table, §4.1 EntityState record for state_snapshot message serialization per Doc 10 §4.2), Observability & Debugging (Doc 11: §11 health indicator for health aggregation per Doc 11 §7.1), Web UI (capability-driven control rendering), Startup, Lifecycle & Shutdown (Doc 12 — Phase 3 Device Model registry initialization, orphan detection)
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-05
-**Amendment status:** **AMD-47** (`AttributeValue` expansion + `AttributeValueUpcaster` SPI — REC-24/27/29/93) is **RATIFIED 2026-05-30**; its §3.7 and §8.2 deltas are **folded into the body** (the prior inline "PENDING AMD-47" blocks are retired) — the QUANTITY/ARRAY/DEGRADED rows and the 8-variant `AttributeValue` sealing are now current contract. The production types + SPI are implemented by M4.B3. **AMD-44 (Floor/EntityRole/`Set<HardwareIdentifier>`): Stage 1 IMPLEMENTED + COMMITTED `e73e199` (M4.B-S1, 2026-05-31)** — `FloorId`/`Floor`/`Area` + `FloorRegistry`/`AreaRegistry` (interface-only), the `AreaId` Javadoc de-conflation (code), the `List`→`Set<HardwareIdentifier>` refactor on §4.1 `Device`/§3.12 `ProposedDevice`/§8.1 `DiscoveryPipeline`, and the five floor lifecycle event payloads folded into §4.4 above. **Stage 2 (EntityRole enum + `EntityType.legalRoles`/`allows(...)` matrix + `ProposedEntity`/`Entity.entityRole` + `entity_profile_changed` `oldRole`/`newRole`) is RATIFIED, pending implementation.** The §3.7 `AttributeSchema` `unit`/`canonical_unit` pseudocode is `String` (JSR 385 `Unit<?>` corrected away — matches implementation; REC-93 makes hand-rolled units permanent). No amendments pending against this document.
+**Amendment status:** **AMD-47** (`AttributeValue` expansion + `AttributeValueUpcaster` SPI — REC-24/27/29/93) is **RATIFIED 2026-05-30**; its §3.7 and §8.2 deltas are **folded into the body** (the prior inline "PENDING AMD-47" blocks are retired) — the QUANTITY/ARRAY/DEGRADED rows and the 8-variant `AttributeValue` sealing are now current contract. The production types + SPI are implemented by M4.B3. **AMD-44 (Floor/EntityRole/`Set<HardwareIdentifier>`): Stage 1 IMPLEMENTED + COMMITTED `e73e199` (M4.B-S1, 2026-05-31)** — `FloorId`/`Floor`/`Area` + `FloorRegistry`/`AreaRegistry` (interface-only), the `AreaId` Javadoc de-conflation (code), the `List`→`Set<HardwareIdentifier>` refactor on §4.1 `Device`/§3.12 `ProposedDevice`/§8.1 `DiscoveryPipeline`, and the five floor lifecycle event payloads folded into §4.4 above. **Stage 2 (EntityRole) IMPLEMENTED + COMMITTED `e76b925` (M4.B-S2, 2026-06-05; Workstream B COMPLETE)** — `EntityRole` enum (PRIMARY/DIAGNOSTIC/CONFIG), the `EntityType` 6×3 legality matrix (`legalRoles`/`allows(...)`, construction-enforced), `Entity` 11→12 + `ProposedEntity` 3→4 (`entityRole`, null→PRIMARY coercion before the matrix guard; back-compat convenience ctors), `entity_profile_changed` `oldRole`/`newRole` (taxonomy-level); the §3.10/§4.2/§11.2 Stage-2 currency is **folded into the body** (2026-06-05 ratification-mechanics session). The §3.7 `AttributeSchema` `unit`/`canonical_unit` pseudocode is `String` (JSR 385 `Unit<?>` corrected away — matches implementation; REC-93 makes hand-rolled units permanent). One boundary-adjacent note: the integration block **AMD-59 (RATIFIED 2026-06-05)** adds the event-sourced post-adoption mutation path for `Entity.capabilities` (`capability.added`/`capability.removed`, entity-registry projection, no new table — see Doc 05 §4.4); device-model types are consumed, not modified. No amendments pending against this document.
 
 ---
 
@@ -419,6 +419,19 @@ Entity type determines the required and optional capabilities for an entity, fol
 
 **Post-MVP entity types (reserved):** `lock`, `climate`, `cover`, `media_player`, `fan`, `valve`, `siren`, `inverter`, `battery_storage`, `ev_charger`, plus helper types: `input_boolean`, `input_number`, `input_text`, `input_select`, `template_sensor`, `counter`, `timer`.
 
+> **Folded current per AMD-44 Stage 2 (implemented M4.B-S2, `e76b925`).** Every entity additionally carries an **`EntityRole`** — `PRIMARY` (the user-facing function), `DIAGNOSTIC` (health/telemetry: voltage, RSSI/LQI, status LEDs), or `CONFIG` (configuration toggles: power-on behavior). Each `EntityType` constant declares its **legal roles** (the AMD-44 §2.5.1 legality matrix, encoded on the enum and construction-enforced — `Entity`/`ProposedEntity` reject an illegal `(entityType, entityRole)` pair):
+>
+> | entity_type | Legal roles |
+> |---|---|
+> | `light` | PRIMARY, DIAGNOSTIC (status-indicator LEDs are real diagnostic LIGHT entities) |
+> | `switch` | PRIMARY, DIAGNOSTIC, CONFIG (power-on-behavior toggles) |
+> | `plug` | PRIMARY only |
+> | `sensor` | PRIMARY, DIAGNOSTIC (voltage/RSSI/LQI, coordinator-state sensors) |
+> | `binary_sensor` | PRIMARY, DIAGNOSTIC |
+> | `energy_meter` | PRIMARY, DIAGNOSTIC |
+>
+> A `null` role coerces to `PRIMARY` before the matrix guard (back-compat). Role changes are governed mutations: `entity_profile_changed` carries `oldRole`/`newRole`. The role drives UI grouping and automation-selector scope; it never affects capability validation (§3.10 composition rules are role-independent).
+
 ### 3.11 Multi-Function Device Modeling
 
 A single physical device may expose multiple entities, each with independent capabilities and state. The canonical examples: a smart power strip with 4 individually controllable outlets plus aggregate energy monitoring; a thermostat with temperature sensing, humidity sensing, HVAC control, and fan control.
@@ -561,6 +574,7 @@ Re-adoption matching uses the same `DeviceIdentifiers` registry and matching log
     "area_id": null,
     "enabled": true,
     "labels": [],
+    "entity_role": "PRIMARY",
     "capabilities": [
         {
             "capability_id": "on_off",
@@ -578,6 +592,8 @@ Re-adoption matching uses the same `DeviceIdentifiers` registry and matching log
     "created_at": "2026-03-01T10:30:00Z"
 }
 ```
+
+> **Folded current per AMD-44 Stage 2 (implemented M4.B-S2, `e76b925`).** The `Entity` record is **12 components** — `entity_role` (shown above; never null in a constructed record, null input coerces to `PRIMARY`) joins the Stage-1 shape, subject to the §3.10 legality matrix at construction. `ProposedEntity` correspondingly carries a fourth `entityRole` component. Post-adoption, `capabilities` mutates **only** via the event-sourced `capability.added`/`capability.removed` path (AMD-59, RATIFIED 2026-06-05 — see Doc 05 §4.4); `EntityId` is stable across capability changes (AMD-59-INV-04).
 
 ### 4.3 Capability Instance (on an Entity)
 
@@ -948,7 +964,7 @@ All targets are specified for the primary deployment target: Raspberry Pi 5, 4 G
 | `device.metadata_changed` | INFO | `device_id`, `changed_fields`, `integration_id` | Device mutable metadata updated (firmware version, configuration) |
 | `entity.enabled` | INFO | `entity_id`, `actor_ref` | An entity was enabled |
 | `entity.disabled` | INFO | `entity_id`, `actor_ref` | An entity was disabled |
-| `entity.profile_changed` | INFO | `entity_id`, `change_type`, `capability_id` | Entity capability profile changed |
+| `entity.profile_changed` | INFO | `entity_id`, `change_type`, `capability_id`, `old_role`, `new_role` (role changes — AMD-44 Stage 2) | Entity capability profile or role changed |
 | `validation.attribute_rejected` | WARN | `entity_id`, `attribute_key`, `rejected_value`, `reason` | An attribute value failed validation |
 | `validation.command_rejected` | WARN | `entity_id`, `command_type`, `reason` | A command failed validation |
 | `discovery.dedup_matched` | DEBUG | `device_id`, `hardware_identifier`, `integration_id` | Discovery re-linked to existing device |

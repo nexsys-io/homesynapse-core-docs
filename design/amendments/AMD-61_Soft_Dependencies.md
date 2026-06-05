@@ -2,7 +2,7 @@
 file: design/amendments/AMD-61_Soft_Dependencies.md
 purpose: AMD-61 — softDependencies on IntegrationDescriptor + Kahn soft-edge semantics (REC-46).
 audience: Nick (ratify), PM, Coder
-status: PROPOSED — pending DOCS-Project review + Nick ratification (Workstream C block, AMD-54..64)
+status: RATIFIED 2026-06-05 — DOCS-Project review (RATIFY-AS-IS) + Nick ratification; review return: nexsys-hivemind `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md`
 source: Research 6 REC-46 ACCEPT (clean; matches HA after_dependencies)
 baseline: homesynapse-core HEAD `e76b925` — IntegrationDescriptor.dependsOn() Set<String> source-verified (type strings, not IDs)
 -->
@@ -48,8 +48,8 @@ Module-info: unchanged — see AMD-54 §7 verbatim embed.
 
 ## 7. Ratification Checklist
 
-- [ ] DOCS-Project review — [ ] Nick ratification — [ ] Invariants registered
+- [x] DOCS-Project review — [x] Nick ratification — [x] Invariants registered (`Architecture_Invariants_v1.md` §31) — all 2026-06-05
 
 ## 8. Review Disposition
 
-*(populated at ratification)*
+**DOCS-Project review (2026-06-05): RATIFY-AS-IS — no edits.** Return: nexsys-hivemind `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md`. REC-46 fidelity verified incl. the INFO-not-WARN call (return verbatim: "Soft-edge violations log at INFO, not WARN"); `Set<String>` type-string vocabulary (vs. the return's `Set<IntegrationId>`) verified as the correct narrowing matching the source-verified `dependsOn` shape; uniform cycle detection and the `dependsOn ∩ softDependencies = ∅` guard are sound additions frozen here. Ratified by Nick 2026-06-05.

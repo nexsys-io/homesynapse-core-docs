@@ -2,7 +2,7 @@
 file: design/amendments/AMD-63_Isolation_Level_Reservation.md
 purpose: AMD-63 — IsolationLevel enum + isolationLevel descriptor field, reservation-only (REC-50, corrected: NEW field — no existing isolationHint to rename).
 audience: Nick (ratify), PM, Coder
-status: PROPOSED — pending DOCS-Project review + Nick ratification (Workstream C block, AMD-54..64)
+status: RATIFIED 2026-06-05 — DOCS-Project review (RATIFY-AS-IS) + Nick ratification; review return: nexsys-hivemind `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md`
 source: Research 6 REC-50 ACCEPT(RENAME) as corrected by PLAN-M4-CONSOLIDATED-v2 §6 [VR §B F-C]: "ADD a new field + IsolationLevel enum; there is no existing isolationHint to rename"
 baseline: homesynapse-core HEAD `e76b925` — IntegrationDescriptor has no isolation field (verified: 8 components)
 -->
@@ -51,8 +51,8 @@ Module-info: unchanged — see AMD-54 §7 verbatim embed.
 
 ## 7. Ratification Checklist
 
-- [ ] DOCS-Project review — [ ] Nick ratification — [ ] Invariants registered
+- [x] DOCS-Project review — [x] Nick ratification — [x] Invariants registered (`Architecture_Invariants_v1.md` §33) — all 2026-06-05
 
 ## 8. Review Disposition
 
-*(populated at ratification)*
+**DOCS-Project review (2026-06-05): RATIFY-AS-IS — no edits.** Return: nexsys-hivemind `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md`. REC-50 fidelity verified — enum members `IN_JVM, RESERVED_SUBPROCESS` and the `UnsupportedOperationException` rejection match the return verbatim; the no-existing-`isolationHint` correction independently confirmed at `e76b925` (8 components, no isolation field); Register C rejection message present. Ratified by Nick 2026-06-05.

@@ -8,7 +8,7 @@
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-06
 
-> **⚠ CURRENCY NOTE (2026-06-05 — Workstream C briefing).** The integration-api surface this document specifies is amended by the **PROPOSED AMD-54..64 block** (`design/amendments/`, authored 2026-06-05 against `e76b925`, pending DOCS-Project review + Nick ratification): descriptor config-schema versioning + rename (AMD-54), four adapter lifecycle hooks (AMD-55), `AUTH_FAILED` (AMD-56), `HealthDetail` (AMD-57), five new lifecycle event permits (AMD-58), capability events + `CapabilityPublisher` + `DiscoveryServices` (AMD-59), `SecurityServices`/`CredentialRotator` (AMD-60), `softDependencies` (AMD-61), `BackoffParameters` (AMD-62), `IsolationLevel` (AMD-63), `plannedRestartTimeout` (AMD-64). Body-fold of §3.7/§3.8/§3.14/§4.1–§4.4/§8 happens at block ratification mechanics. Until then, the AMD files govern where they differ from this body. One B-adjacent note already in force: AMD-44 Stage 1 changed `hardwareIdentifiers` `List`→`Set` (the §"Dependencies" Device-Model §8.2 reference is unaffected — this doc describes the boundary, not the collection type).
+> **AMENDMENT STATUS (2026-06-05 — Workstream C block RATIFIED).** The integration-api surface this document specifies is amended by the **RATIFIED AMD-54..64 block** (`design/amendments/`, ratified 2026-06-05 — DOCS-Project review return `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md` (hivemind) + Nick arbitrations A1–A5): descriptor config-schema versioning + rename (AMD-54), four adapter lifecycle hooks + three outcome enums (AMD-55), `AUTH_FAILED` + the code-bearing `PermanentIntegrationException` surface (AMD-56), `HealthDetail` (AMD-57), five new lifecycle event permits (AMD-58), capability events + `CapabilityPublisher` + `DiscoveryServices` (AMD-59), `SecurityServices`/`CredentialRotator` (AMD-60), `softDependencies` (AMD-61), `BackoffParameters` (AMD-62), `IsolationLevel` (AMD-63), `plannedRestartTimeout` (AMD-64). The §3.7/§3.8/§3.14/§4.1–§4.4/§8 bodies below are **folded current** against the ratified surface; the AMD files remain the implementing-policy source-of-truth (invariants registered at `Architecture_Invariants_v1.md` §24–§34). Types and shape tests land at **M4.C**; supervisor behavior at **M9**. One B-adjacent note already in force: AMD-44 Stage 1 changed `hardwareIdentifiers` `List`→`Set` (the §"Dependencies" Device-Model §8.2 reference is unaffected — this doc describes the boundary, not the collection type).
 
 ---
 
@@ -272,7 +272,7 @@ Every exception that escapes an adapter's main loop or lifecycle method is inter
 | `InterruptedException` | Shutdown signal | Do not restart. The supervisor initiated the stop. |
 | `ClosedByInterruptException` | Shutdown signal | Do not restart. NIO-layer manifestation of interrupt on virtual thread socket I/O. |
 | `ConfigurationException` (integration-defined) | Permanent | Transition to FAILED. Configuration must be corrected before retry. |
-| `AuthenticationException` (integration-defined) | Permanent | Transition to FAILED. Credentials must be updated. |
+| `AuthenticationException` (integration-defined), `PermanentIntegrationException` with `errorCode() == "integration.auth_failed"` | **Auth-failed (AMD-56)** | Route to re-authentication: invoke `IntegrationAdapter.onReauthRequired()` (AMD-55). `ReauthOutcome.INITIATED` → await `integration.reauth.completed`; `UNSUPPORTED` → degrade to the standard suspension policy with the failure reason preserved. Never transient backoff (AMD-56-INV-01). |
 | `UnsupportedOperationException` | Permanent | Transition to FAILED. Adapter incompatible with current environment. |
 | `OutOfMemoryError` | Permanent | Transition to FAILED. Log at CRITICAL. Produce `integration_resource_exceeded` event. |
 | All other `RuntimeException` | Transient (default) | Restart with backoff. Unknown exceptions default to transient to avoid permanent failure on recoverable bugs. |
@@ -283,6 +283,8 @@ Every exception that escapes an adapter's main loop or lifecycle method is inter
 The default-to-transient policy for unknown `RuntimeException` prevents the scenario observed in Home Assistant where an unexpected exception type causes permanent integration death with no automatic recovery. If a transient-classified exception recurs rapidly, the restart intensity limit (§3.4) escalates to FAILED after 3 restarts in 60 seconds — providing the same protection as permanent classification, but with an automatic recovery attempt first.
 
 Adapters may throw `PermanentIntegrationException` (a subclass provided by the Integration API) to explicitly signal a permanent failure with a user-readable message. The supervisor attaches this message to the `integration_health_changed` event and surfaces it through the REST API and dashboard (INV-HO-04).
+
+> **Folded current per AMD-56 (RATIFIED 2026-06-05).** `ExceptionClassification` is now four values — `TRANSIENT, PERMANENT, SHUTDOWN_SIGNAL, AUTH_FAILED` (append-last; declaration order frozen, AMD-56-INV-02). `PermanentIntegrationException` gains an append-only **code-bearing constructor pair** (`(String errorCode, String message[, Throwable cause])`); the no-code constructors permanently yield `integration.permanent_failure`, and `integration.auth_failed` is the documented well-known code that routes to AUTH_FAILED (AMD-56-INV-03). The classifier implementation is M9; the table row above freezes the routing contract.
 
 ### 3.8 IntegrationContext — The Typed API Surface
 
@@ -301,6 +303,10 @@ Each adapter receives an `IntegrationContext` at construction. This context is a
 | `HealthReporter` | Integration-scoped | Report health signals to the supervisor: heartbeat updates, keepalive status, self-assessed health transitions, error counts. The adapter calls `reportHeartbeat()` on every loop iteration and `reportError(Throwable)` on handled exceptions. |
 | `TelemetryWriter` | Write-only | Route high-frequency numeric samples to the telemetry ring store (**Persistence Layer** §3.6, §8.3). Only available to integrations that declare `DataPath.TELEMETRY` in their descriptor. |
 | `ManagedHttpClient` | Integration-scoped, optional | A `java.net.http.HttpClient` wrapper with concurrency limits and rate limiting (L8). Provided only to integrations that declare `RequiredService.HTTP_CLIENT` in their descriptor. Each integration receives its own instance with isolated connection pool, configurable timeouts, and lifecycle tied to the adapter. |
+| `SecurityServices` | Integration-scoped, optional (AMD-60) | Service-family aggregator (component 11), gated by `RequiredService.SECURITY`. Carries `CredentialRotator` — the sanctioned post-reauth write path for rotated secrets: `rotate(Map<String,String>)` is integration-scoped, atomic across all entries, durable-before-return (AMD-60-INV-03), with a `default` single-key convenience. Future security services join this record; the context never grows per-service (AMD-60-INV-01, the NQ-1 doctrine). |
+| `DiscoveryServices` | Integration-scoped, optional (AMD-59) | Service-family aggregator (component 12), gated by `RequiredService.DISCOVERY`. Carries `CapabilityPublisher` — `publishAdded(EntityId, CapabilityInstance)` / `publishAdded(EntityId, Class<? extends Capability>)` / `publishRemoved(EntityId, String capabilityId, CapabilityRemovalReason)` — integration-scoped (AMD-59-INV-05), routing `capability.added`/`capability.removed` through the standard `EventPublisher`. |
+
+> **Folded current per AMD-59/AMD-60 (RATIFIED 2026-06-05).** `IntegrationContext` is now **12 components** (10 + `security` + `discovery`, both appended, both nullable-when-undeclared); a 10-arg convenience constructor preserves every existing caller. `RequiredService` is now **5 values** (`HTTP_CLIENT, SCHEDULER, TELEMETRY_WRITER, DISCOVERY, SECURITY` — append-only).
 
 **Scoping enforcement:** The `EntityRegistry` and `StateQueryService` implementations filter by `integration_id` at the query level. The adapter never receives a reference to the full registry or state store. Build-time enforcement (Gradle module dependencies, ArchUnit tests) prevents integration modules from importing `core.internal` packages. Runtime enforcement (JPMS module boundaries) prevents reflective access to unexported core packages (L7).
 
@@ -425,8 +431,10 @@ When `IntegrationSupervisor.restartIntegration(IntegrationId)` is called (e.g., 
 
 5. **Clear the flag on completion.** The `plannedRestart` flag is cleared when one of the following occurs:
    - The adapter reaches RUNNING state (successful restart). Queued commands are dispatched.
-   - The restart exceeds a configurable timeout (default: 60 seconds, configurable via `integration.restart.timeout_seconds`). The flag is cleared and normal failure handling proceeds — the integration transitions to FAILED, device orphaning (AMD-17) applies, and queued commands are rejected with `reason: restart_timeout`.
+   - The restart exceeds the planned-restart timeout. **Folded current per AMD-64 (RATIFIED 2026-06-05):** the timeout is per-descriptor — `IntegrationDescriptor.plannedRestartTimeout` when present (must be positive; fully replaces, never combines — AMD-64-INV-01), else the global default (60 seconds, configurable via `integration.restart.timeout_seconds`). On expiry the flag is cleared and normal failure handling proceeds — the integration transitions to FAILED, device orphaning (AMD-17) applies, and queued commands are rejected with `reason: restart_timeout`.
    - The adapter throws a `PermanentIntegrationException` during restart initialization. The flag is cleared, FAILED transition proceeds, and orphaning applies.
+
+> **Folded current per AMD-55 (RATIFIED 2026-06-05).** A new planned-restart trigger exists alongside `restartIntegration(...)`: `onConfigUpdated`/`onOptionsUpdated` returning `ConfigUpdateOutcome.RESTART_REQUIRED` schedules a planned restart under this same protocol, and `REJECTED` schedules a planned restart **on the prior config** (which remains the valid running config — AMD-55-INV-04). Both emit the corresponding `integration.config.updated`/`integration.options.updated` events (AMD-58).
 
 **Difference from unplanned crash behavior.** When a `PermanentIntegrationException` or OOM causes an unplanned adapter failure, the supervisor does NOT set the `plannedRestart` flag. The standard failure path applies immediately: health state transitions to FAILED, device orphaning (AMD-17) fires, `availability_changed` events are produced for all managed entities, and automations see genuine availability transitions. The `ExceptionClassification.SHUTDOWN_SIGNAL` classification (§3.7) prevents shutdown-caused exceptions from triggering the crash path during a planned restart.
 
@@ -466,6 +474,8 @@ new IntegrationDescriptor(
 
 The adapter uses `HealthParameters.defaults()` without overrides. The defaults are appropriate: 120-second heartbeat timeout with a 30-second watchdog ping provides 4 missed pings before stale detection, and 3/60s restart intensity prevents restart storms from serial port flapping.
 
+> **Folded current per AMD-54/61/62/63/64 (RATIFIED 2026-06-05).** `IntegrationDescriptor` is now **14 components**, in this declaration order: `integrationType, displayName, ioType, requiredServices, dataPaths, healthParameters, dependsOn, descriptorSchemaVersion, configSchemaMajor, configSchemaMinor, softDependencies, backoffParameters, isolationLevel, plannedRestartTimeout`. Deltas: `schemaVersion` is **renamed `descriptorSchemaVersion`** (the descriptor parsing contract — AMD-54); `configSchemaMajor`/`configSchemaMinor` version the adapter's *config document* (major mismatch triggers `migrate(...)`, minor never — AMD-54-INV-01/02); `softDependencies` is a soft startup-ordering tier (orders when present, never blocks when absent, INFO log; `dependsOn ∩ softDependencies = ∅` — AMD-61); `backoffParameters` declares the transient-retry schedule (non-null, `BackoffParameters.defaults()` = HA's 5/10/20/40/80s; distinct from probe backoff — AMD-62); `isolationLevel` is the `{ IN_JVM, RESERVED_SUBPROCESS }` reservation (AMD-63); `plannedRestartTimeout` overrides the §3.14 global when present (nullable — AMD-64). The 8-arg example above continues to compile unchanged via the **8-arg convenience constructor** (defaults: `configSchemaMajor=1, configSchemaMinor=0, softDependencies=Set.of(), backoffParameters=BackoffParameters.defaults(), isolationLevel=IN_JVM, plannedRestartTimeout=null`).
+
 ### 4.2 HealthParameters
 
 ```java
@@ -501,6 +511,8 @@ public record HealthParameters(
 }
 ```
 
+> **Folded current per AMD-62 (RATIFIED 2026-06-05).** `HealthParameters` is structurally unchanged by the block. Two Javadoc-level clarifications are now contract: (1) the OTP-derived **embedded-systems override is `(maxRestarts=1, restartWindow=60s)`** — radio-based adapters (Zigbee/Matter) that legitimately glitch during radio init should use per-descriptor `HealthParameters` overrides rather than a loosened global default (NQ-5/NQ-6; an empirical Zigbee/Matter restart-frequency spike on Pi 5 is scheduled before M9); (2) transient-retry backoff is declared by the descriptor's **`BackoffParameters`** (AMD-62), which is a distinct mechanism from the `probeInitialDelay`/`probeMaxDelay` recovery probing above — neither reuses the other's parameters (AMD-62-INV-02).
+
 ### 4.3 IntegrationHealthRecord
 
 The supervisor maintains a health record per integration in memory. This record is not persisted — it is reconstructed on startup from the integration's current state.
@@ -509,6 +521,7 @@ The supervisor maintains a health record per integration in memory. This record 
 public record IntegrationHealthRecord(
     IntegrationId integrationId,
     HealthState state,                 // HEALTHY, DEGRADED, SUSPENDED, FAILED
+    HealthDetail detail,               // WHY — machine-readable cause (AMD-57; NONE ⇔ no active cause)
     double healthScore,                // 0.0 to 1.0
     Instant lastHeartbeat,
     Instant lastKeepalive,
@@ -518,11 +531,14 @@ public record IntegrationHealthRecord(
     Duration totalSuspendedTime,
     SlidingWindow errorWindow,
     SlidingWindow timeoutWindow,
-    SlidingWindow slowCallWindow
+    SlidingWindow slowCallWindow,
+    boolean plannedRestart             // §3.14 planned-restart window flag
 ) {}
 
 public enum HealthState { HEALTHY, DEGRADED, SUSPENDED, FAILED }
 ```
+
+> **Folded current per AMD-57 (RATIFIED 2026-06-05).** `HealthDetail detail` is inserted immediately after `state` (record is now 14 components, incl. the pre-existing `plannedRestart` flag shown above). The 12-value enum is **transition-trigger-oriented** — `NONE, HEARTBEAT_TIMEOUT, KEEPALIVE_TIMEOUT, ERROR_RATE_EXCEEDED, TIMEOUT_RATE_EXCEEDED, SLOW_CALL_RATE_EXCEEDED, PROBE_FAILED, RESTART_LIMIT_EXCEEDED, SUSPENSION_LIMIT_EXCEEDED, RESOURCE_QUOTA_EXCEEDED, AUTH_FAILURE, PERMANENT_FAILURE` — each value maps 1:1 to a supervisor transition trigger (AMD-57-INV-02; taxonomy arbitrated A1: a metrics-aggregating FSM emits trigger vocabulary truthfully, unlike OpenHAB's self-reported detail matrix). `detail` is never null; supervisor-internal (AMD-57-INV-01). Human-readable narrative stays on the lifecycle-event `reason` (INV-HO-04).
 
 ### 4.4 Integration Lifecycle Events
 
@@ -535,8 +551,17 @@ The Integration Runtime produces the following domain events via `EventPublisher
 | `integration_health_changed` | NORMAL (DEGRADED), CRITICAL (SUSPENDED, FAILED) | integration entity | Health state transition |
 | `integration_restarted` | NORMAL | integration entity | Adapter restarted after failure |
 | `integration_resource_exceeded` | CRITICAL | integration entity | Adapter exceeded resource quota |
+| `integration.config.updated` | NORMAL | integration entity | `onConfigUpdated` hook flow completed (carries `ConfigUpdateOutcome`) — AMD-58 |
+| `integration.options.updated` | NORMAL | integration entity | `onOptionsUpdated` hook flow completed (carries `ConfigUpdateOutcome`) — AMD-58 |
+| `integration.reauth.required` | NORMAL | integration entity | Supervisor detected AUTH_FAILED and invoked `onReauthRequired` — AMD-58 |
+| `integration.reauth.completed` | NORMAL | integration entity | Adapter signaled reauth completion (carries `boolean succeeded`) — AMD-58 |
+| `integration.migration.completed` | NORMAL | integration entity | `migrate` flow completed (carries from/to pairs + `MigrationOutcome`) — AMD-58 |
+| `capability.added` | NORMAL | entity | Adapter published a post-adoption capability addition (full `CapabilityInstance` — replay self-sufficient) — AMD-59 |
+| `capability.removed` | NORMAL | entity | Adapter published a capability removal (carries `CapabilityRemovalReason`, descriptive-only) — AMD-59 |
 
-All events carry `EventOrigin.SYSTEM` and include the integration type, previous state, new state, and a human-readable reason in the payload (INV-HO-04).
+All lifecycle events carry `EventOrigin.SYSTEM` and include the integration type, previous state, new state, and a human-readable reason in the payload (INV-HO-04).
+
+> **Folded current per AMD-58/AMD-59 (RATIFIED 2026-06-05).** The sealed `IntegrationLifecycleEvent` hierarchy is now **10 permits** (the five originals + `IntegrationConfigUpdated`, `IntegrationOptionsUpdated`, `IntegrationReauthRequired`, `IntegrationReauthCompleted`, `IntegrationMigrationCompleted`); all five new permits are **observability-only** (AMD-58-INV-03) and carry no payload timestamps (envelope owns time). New event-type strings are dot-namespaced; **the legacy snake_case five are frozen forever** (AMD-58-INV-02); registration is three-way lockstep (AMD-58-INV-01). A failed migration deliberately emits **no** migration event — the FAILED transition is the signal (E7 ruling; asymmetry principle in AMD-58 §2.1). The two `capability.*` events form a separate sealed `CapabilityEvent` hierarchy (AMD-59) — **state-changing** via the entity-registry projection into `Entity.capabilities` (no capability SQLite table — NQ-4; the only post-adoption mutation path — AMD-59-INV-01), published through `CapabilityPublisher` (`DiscoveryServices`, §3.8).
 
 ---
 
@@ -698,10 +723,22 @@ The fix is a code change in the adapter: either change the descriptor to `IoType
 | `HealthState` | Enum | HEALTHY, DEGRADED, SUSPENDED, FAILED |
 | `HealthParameters` | Record | Per-integration health thresholds and restart limits |
 | `IntegrationHealthRecord` | Record | Current health state, scores, and counters for one integration |
-| `RequiredService` | Enum | HTTP_CLIENT, SCHEDULER, TELEMETRY_WRITER |
+| `RequiredService` | Enum | HTTP_CLIENT, SCHEDULER, TELEMETRY_WRITER, DISCOVERY, SECURITY (3→5 per AMD-59/60, append-only) |
 | `DataPath` | Enum | DOMAIN, TELEMETRY |
-| `PermanentIntegrationException` | Exception | Adapter signals an unrecoverable failure with a user-readable message |
-| `IntegrationLifecycleEvent` | Sealed interface | Payload types for `integration_started`, `integration_stopped`, `integration_health_changed`, `integration_restarted`, `integration_resource_exceeded` |
+| `PermanentIntegrationException` | Exception | Adapter signals an unrecoverable failure with a user-readable message. Code-bearing constructor pair per AMD-56 (`integration.auth_failed` routes to AUTH_FAILED); no-code constructors yield `integration.permanent_failure` |
+| `IntegrationLifecycleEvent` | Sealed interface | 10 permits per AMD-58: the five snake_case originals + `IntegrationConfigUpdated`, `IntegrationOptionsUpdated`, `IntegrationReauthRequired`, `IntegrationReauthCompleted`, `IntegrationMigrationCompleted` (dot-namespaced, observability-only) |
+| `ConfigUpdateOutcome` | Enum (AMD-55) | APPLIED, RESTART_REQUIRED, REJECTED — hook result for config/options updates; REJECTED ⇒ supervisor restores the prior config (AMD-55-INV-04) |
+| `MigrationOutcome` | Enum (AMD-55) | MIGRATED, NOT_REQUIRED — `migrate` result; failure is `PermanentIntegrationException` → FAILED, no FAILED enum value (E7 asymmetry) |
+| `ReauthOutcome` | Enum (AMD-55) | INITIATED, UNSUPPORTED — `onReauthRequired` result; UNSUPPORTED ⇒ standard suspension policy |
+| `HealthDetail` | Enum (AMD-57) | 12-value machine-readable cause on `IntegrationHealthRecord` (transition-trigger taxonomy, §4.3) |
+| `BackoffParameters` | Record (AMD-62) | `(initialDelay, multiplier, maxDelay)`; `defaults()` = 5/10/20/40/80s; deterministic retry schedule, distinct from probe backoff |
+| `IsolationLevel` | Enum (AMD-63) | IN_JVM, RESERVED_SUBPROCESS (reservation — supervisor rejects RESERVED_SUBPROCESS) |
+| `SecurityServices` | Record (AMD-60) | Aggregator: `CredentialRotator credentialRotator` (non-null inside the aggregator) |
+| `DiscoveryServices` | Record (AMD-59) | Aggregator: `CapabilityPublisher capabilityPublisher` |
+| `CredentialRotator` | Interface (AMD-60) | `rotate(Map<String,String>)` atomic + durable-before-return; `default` single-key convenience |
+| `CapabilityPublisher` | Interface (AMD-59) | Integration-scoped publisher for `capability.added`/`capability.removed` |
+| `CapabilityEvent` | Sealed interface (AMD-59) | `CapabilityAdded` (full `CapabilityInstance`), `CapabilityRemoved` (identity + `CapabilityRemovalReason`) — entity-targeted, state-changing |
+| `CapabilityRemovalReason` | Enum (AMD-59) | FIRMWARE_DOWNGRADE, DEVICE_REPLACED, TRANSIENT_LOSS, UNREGISTERED — descriptive-only (AMD-59-INV-06) |
 
 ### 8.3 IntegrationFactory Method Summary
 
@@ -716,6 +753,18 @@ The fix is a code change in the adapter: either change the descriptor to `IoType
 `run()` — The adapter's main loop. For network adapters, this method blocks on socket I/O. For serial adapters, this method drains the inbound `BlockingQueue` and processes events. The method returns normally when the adapter is signaled to stop (via interrupt or queue poison pill). Throwing from `run()` triggers the exception classification and restart logic (§3.7).
 
 `close()` — Releases resources: close protocol connections, flush buffers, cancel timers. Called after `run()` returns (normal or exceptional). Must complete within the shutdown grace period. Idempotent — safe to call multiple times.
+
+`commandHandler()` — Returns the adapter's `CommandHandler` implementation (see §8.6).
+
+**Post-setup lifecycle hooks (AMD-55, RATIFIED 2026-06-05 — all `default`, sequential on the adapter's thread, never concurrent with another lifecycle method):**
+
+`onConfigUpdated(ConfigChangeSet changes)` — Config changed at runtime; per-key old/new values arrive in the change set. Returns `ConfigUpdateOutcome`. Default: `RESTART_REQUIRED` (conservative restart-to-apply).
+
+`onOptionsUpdated(ConfigChangeSet changes)` — Runtime-tunable options changed (the additive/minor subset of config; partition semantics defined at M6/M9). Returns `ConfigUpdateOutcome`. Default: `RESTART_REQUIRED`.
+
+`onReauthRequired()` — Supervisor detected AUTH_FAILED (§3.7). Returns `ReauthOutcome`: `INITIATED` (async reauth begun; completion signaled via `integration.reauth.completed`) or `UNSUPPORTED` (default — supervisor falls back to the standard restart/suspension policy).
+
+`migrate(int fromMajor, int fromMinor)` — Stored config schema (AMD-54 pair) is older than the adapter declares. Invoked BEFORE `initialize()`; the adapter migrates its config section via `ConfigurationAccess`. Returns `MigrationOutcome`; `PermanentIntegrationException` → FAILED without retry (AMD-55-INV-03). Default: `NOT_REQUIRED`.
 
 ### 8.5 HealthReporter Method Summary
 

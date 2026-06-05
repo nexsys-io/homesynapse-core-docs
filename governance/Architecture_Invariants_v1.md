@@ -54,8 +54,19 @@ The complete set of category prefixes currently in use is:
 | `AMD-51-INV` | State-Store Typed Change-Detection Comparator (AMD-51) | §21 |
 | `AMD-52-INV` | Typed `StateChangedEvent` Payload / Serializer / Replay (AMD-52) | §22 |
 | `AMD-53-INV` | Timestamp-Model Unifier — Event-Time Activity Timestamps (AMD-53) | §23 |
+| `AMD-54-INV` | IntegrationDescriptor Config-Schema Versioning (AMD-54) | §24 |
+| `AMD-55-INV` | IntegrationAdapter Post-Setup Lifecycle Hooks (AMD-55) | §25 |
+| `AMD-56-INV` | ExceptionClassification `AUTH_FAILED` (AMD-56) | §26 |
+| `AMD-57-INV` | `HealthDetail` on `IntegrationHealthRecord` (AMD-57) | §27 |
+| `AMD-58-INV` | IntegrationLifecycleEvent Expansion 5→10 (AMD-58) | §28 |
+| `AMD-59-INV` | Capability Events, Publisher & DiscoveryServices (AMD-59) | §29 |
+| `AMD-60-INV` | SecurityServices Aggregator & CredentialRotator (AMD-60) | §30 |
+| `AMD-61-INV` | Descriptor Soft Dependencies (AMD-61) | §31 |
+| `AMD-62-INV` | Descriptor BackoffParameters (AMD-62) | §32 |
+| `AMD-63-INV` | IsolationLevel Reservation (AMD-63) | §33 |
+| `AMD-64-INV` | Per-Descriptor Planned-Restart Timeout (AMD-64) | §34 |
 
-The §17 Invariant Index provides the canonical per-identifier lookup; the §18 Traceability Matrix maps each category to failure modes and opportunities. The BUS / PROJ / WRITER / SUB-ISO categories were added by Phase 3 governance work (AMD-41, AMD-42, AMD-43, applied 2026-05-16); their canonical definitions live in §19. The `AMD-47-INV-NN` identifiers are **amendment-scoped** contract-level invariants (the convention introduced by the projection block's `AMD-50-INV-NN`); their canonical definitions live in §20 and they trace 1:1 to AMD-47 (RATIFIED 2026-05-30).
+The §17 Invariant Index provides the canonical per-identifier lookup; the §18 Traceability Matrix maps each category to failure modes and opportunities. The BUS / PROJ / WRITER / SUB-ISO categories were added by Phase 3 governance work (AMD-41, AMD-42, AMD-43, applied 2026-05-16); their canonical definitions live in §19. The `AMD-47-INV-NN` identifiers are **amendment-scoped** contract-level invariants (the convention introduced by the projection block's `AMD-50-INV-NN`); their canonical definitions live in §20 and they trace 1:1 to AMD-47 (RATIFIED 2026-05-30). The `AMD-54-INV` … `AMD-64-INV` categories (§24–§34) were registered together at the Workstream C integration-block ratification (2026-06-05, single review return) and trace 1:1 to AMD-54..64.
 
 ### 0.4 Relationship to Other Artifacts
 
@@ -986,8 +997,37 @@ Complete index of all invariants for reference from subsystem design documents.
 | **AMD-52-INV-07** | `projectionVersion` 3→4 on Frozen AMD-50 Backfill | §22 |
 | **AMD-53-INV-01** | Event-Time Activity-Timestamp Determinism (extends AMD-50-INV-03) | §23 |
 | **AMD-53-INV-02** | Real-Time Freshness Carve-Out (`staleAfter`/`stale`) | §23 |
+| **AMD-54-INV-01** | Two Distinct Compatibility Surfaces (descriptor vs config schema) | §24 |
+| **AMD-54-INV-02** | Major Triggers Migration, Minor Never | §24 |
+| **AMD-55-INV-01** | All Hooks `default`; Pre-AMD-55 Adapters Unchanged | §25 |
+| **AMD-55-INV-02** | Sequential Hook Execution on the Adapter Thread | §25 |
+| **AMD-55-INV-03** | `migrate` Before `initialize`; Migrate-Failure → FAILED | §25 |
+| **AMD-55-INV-04** | `REJECTED` Apply Never Leaves the Rejected Config Active | §25 |
+| **AMD-56-INV-01** | `AUTH_FAILED` Never Routes to Transient Backoff | §26 |
+| **AMD-56-INV-02** | `ExceptionClassification` Append-Only, Order Frozen | §26 |
+| **AMD-56-INV-03** | `PermanentIntegrationException` Constructors Append-Only; Well-Known Codes Documented | §26 |
+| **AMD-57-INV-01** | `detail` Never Null; `NONE` Is the Explicit No-Cause Value | §27 |
+| **AMD-57-INV-02** | `HealthDetail` Append-Only; 1:1 Transition-Trigger Mapping | §27 |
+| **AMD-58-INV-01** | Three-Way Registration Lockstep, No Partial Registration | §28 |
+| **AMD-58-INV-02** | Persisted Event-Type Strings Immutable; Dot-Namespace for New; Legacy Five Frozen | §28 |
+| **AMD-58-INV-03** | The Five New Permits Are Observability-Only | §28 |
+| **AMD-59-INV-01** | Capability Events Are the Only Post-Adoption Mutation Path; No Capability Table | §29 |
+| **AMD-59-INV-02** | `CapabilityAdded` Carries the Complete Instance (Replay Self-Sufficiency) | §29 |
+| **AMD-59-INV-03** | No `CapabilityId` Wrapper; Permit Class + String Identity | §29 |
+| **AMD-59-INV-04** | `EntityId` Stable Across Capability Add/Remove | §29 |
+| **AMD-59-INV-05** | `CapabilityPublisher` Integration-Scoped (LTD-17) | §29 |
+| **AMD-59-INV-06** | `CapabilityRemovalReason` Descriptive-Only, Never Behavioral | §29 |
+| **AMD-60-INV-01** | Context Grows Only by Service-Family Aggregators (NQ-1 Doctrine) | §30 |
+| **AMD-60-INV-02** | `SecurityServices` Nullable, `RequiredService.SECURITY`-Gated; Non-Null Inside | §30 |
+| **AMD-60-INV-03** | `rotate` Integration-Scoped, Atomic Across Entries, Durable-Before-Return | §30 |
+| **AMD-61-INV-01** | Soft Dependency Never Blocks Startup; Hard Always Does | §31 |
+| **AMD-61-INV-02** | `dependsOn ∩ softDependencies = ∅` at Construction | §31 |
+| **AMD-62-INV-01** | Retry Schedule Is a Pure Function of `BackoffParameters` + Attempt Count | §32 |
+| **AMD-62-INV-02** | Retry Backoff and Recovery Probing Are Distinct Mechanisms | §32 |
+| **AMD-63-INV-01** | `RESERVED_SUBPROCESS` Rejected Until Activated by Amendment | §33 |
+| **AMD-64-INV-01** | Null ⇒ Global §3.14 Default; Present Value Positive and Fully Replacing | §34 |
 
-**Total: 104 invariants across 21 categories.**
+**Total: 133 invariants across 32 categories.**
 
 ---
 
@@ -1016,6 +1056,17 @@ This section maps each invariant category to the competitive failure modes and s
 | §21 State-Store Typed Change-Detection Comparator (AMD-51) | String-based change detection conflating typed values (`21.0` vs `21.00`, `0.1+0.2` vs `0.3`) into phantom-change event storms that inflate `stateVersion` and spuriously wake automation triggers; float FP-noise indistinguishable from real change; physical quantities reported in different units (`21.0 °C` vs `294.15 K`) comparing unequal as raw strings; list-valued attributes with no element-wise comparison; an un-reconstructable inbound silently overwriting good canonical state; a non-total comparator letting a future `AttributeValue` permit slip through a `default` arm; a typed-compare rule change silently no-op'ing on historical data across a version transition | An external `AttributeValueComparator` in `com.homesynapse.state` carrying a `ComparisonPolicy` keeps epsilon/deadband policy out of the device-model data layer (AMD-51-INV-04, DEC-M3-16 gateway). An exhaustive no-`default` switch over the 8-variant sealed hierarchy makes a future permit a compile error (AMD-51-INV-01); D-01 is event-type-scoped so this is permitted. A pinned total-form epsilon `|a−b| > max(absEps, relEps·max(|a|,|b|))` with explicit IEEE-754 totality answers "did the number actually change" deterministically (AMD-51-INV-02); `QuantityValue` canonicalize-at-construction (AMD-47-INV-03) makes the comparator do zero unit work — no JSR-385/LTD-10. HA-mirrored Degraded semantics (never-emit-on-inbound, emit-on-recovery) keep degraded values out of canonical state (AMD-51-INV-03, with AMD-47-INV-04). Schema-driven inbound reconstruction (distinct from the `AttributeValueUpcaster` stored-value-migration SPI) feeds the typed compare and rides AMD-50's frozen 2→3 reconciliation-backfill + supersession unchanged (AMD-51-INV-05) | AMD-51 (RATIFIED 2026-05-30); Research 10 PM Assessment (v1 §7 source-corrections + v2 ratification) REC-90/92/93/94/95 + the four ratified strategic calls; design-track map NQ-10-1/5/6; builds on AMD-47 (typed hierarchy + canonicalize-at-construction) and AMD-50 (N→M backfill/supersession, scenario 3.3 = the 2→3 case). Implemented by **M4.0b-3** (contract registered at ratification; comparator + reconstruction + §5 tests land at M4.0b-3) |
 | §22 Typed `StateChangedEvent` Payload / Serializer / Replay (AMD-52) | A typed payload re-introducing format fragility if serialized by reflection (`@JsonTypeInfo`, banned) or by a non-deterministic float renderer (`Double.toString` changed at JDK 18→19 / Schubfach — silent break of forensic equality and the reserved `chain_hash`); `NaN`/`±Inf` having no JSON representation and being emitted as non-standard bare tokens that break the forward-compat reader; the typed payload forcing an event-store row migration or a normalized columnar explosion under the 256 MiB heap; replaying a typed regime mutating historical String-payload events in place (the cardinal event-sourcing anti-pattern) or lossily upcasting them; a 9th `AttributeValue` permit silently lossy-encoding through a `default` arm | A custom `JsonSerializer`/`JsonDeserializer` pair in `com.homesynapse.persistence` keyed by an explicit `AttributeType` tag in a compact `{"t":…,"v":…}` envelope, exhaustive no-`default` switch over the 8 variants, no `@JsonTypeInfo`/Jackson annotation on `AttributeValue`/`StateChangedEvent` (AMD-52-INV-02; Rule 7 for the event host + the Jackson-isolation HARD RULE for the device-resident type), no new module edge (`persistence → transitive state → transitive device`) or Jackson artifact. Bit-anchored float identity (`Double.doubleToLongBits` after AMD-51 §2.3 canonicalization; stored text only round-trippable, never byte-frozen; `chain_hash` stays the inert AMD-37 zero-reservation — AMD-52-INV-03) dissolves the Schubfach instability; JSON-valid non-finite sentinels with `ALLOW_NON_NUMERIC_NUMBERS` disabled (AMD-52-INV-04). The typed payload stays in-BLOB on both surfaces with the per-event `schema_version` 1→2 as the string↔typed discriminator — no `events`/`view_checkpoints` row migration (AMD-52-INV-01/-06, G5). Replay: Path A re-derives all state from the immutable `state_reported` log (authoritative, rides AMD-50/AMD-51 unchanged), Path B legacy reads → a defined `DegradedEvent` (raw preserved, version-gated in `EventPayloadCodec.decode`, no upcaster pushed into the codec), no event ever mutated (AMD-52-INV-05). `projectionVersion` 3→4 rides AMD-50's frozen backfill (AMD-52-INV-07) | AMD-52 (RATIFIED 2026-05-31); OQ-05-08 design beat; Research 11 PM Assessment (A−, §7 source-verified) REC-100..105; the four PM-under-delegation fork calls (Nick + external review, 2026-05-31 — F1 bit-anchored identity, F2 `DegradedEvent` legacy contract); builds on AMD-47 (typed hierarchy), AMD-50 (frozen N→M backfill), AMD-51 (transient typed reconstruction + the String-payload staging this amendment cashes out). Implemented by **M4.0b-4b** (committed `72596cb`; codec + typed emit + checkpoint envelope + §5 tests) |
 | §23 Timestamp-Model Unifier — Event-Time Activity Timestamps (AMD-53) | `EntityState.lastChanged`/`lastUpdated`/`lastReported` stamped from the projection wall-clock (`clock.instant()`) in LIVE `applyToState` and in entity-adoption seeding while the AMD-50 reconciliation backfill stamps `lastChanged` from event-time — so the same observable fields diverge across every `projectionVersion` bump (a replay-determinism gap AMD-52's live 3→4 path exposed) and contradict the Doc 03 §4.1 contract that already specifies `event_time ?? ingest_time`; a never-changed entity persisting a wall-clock adoption seed in `lastChanged` (a latent determinism hole); the unifier being misread as "no wall-clock anywhere," wrongly de-realtiming `staleAfter`/`stale` | Source `lastChanged`/`lastUpdated`/`lastReported` from the causing envelope's `eventTime ?? ingestTime` (the existing `backfillTimestamp` rule) in every `applyToState` branch and in `initialEntityState` adoption seeding (AMD-53-INV-01) — making the materialized timestamps a pure function of the immutable log (INV-ES-01/-08), extending AMD-50-INV-03 from the `DerivationRule` to the materialization and bringing LIVE into compliance with Doc 03 §4.1. `staleAfter`/`stale` are the sole real-time-clock fields and are explicitly carved out (AMD-53-INV-02). `projectionVersion` 4→5 rides AMD-50's frozen backfill, healing legacy wall-clock timestamps on the upgrade boot | AMD-53 (RATIFIED 2026-05-31); the timestamp-model-unifier design beat + Nick's four ratification-fork calls; every source line Read-verified at HEAD `72596cb`; builds on AMD-50 (frozen N→M backfill + the AMD-50-INV-03 determinism precedent it extends), Doc 01 INV-ES-08 (`event_time`/`ingest_time`). Implemented by **M4.0b-5** (the timestamp-unifier `core/state-store` WU; instruction issued) |
+| §24 IntegrationDescriptor Config-Schema Versioning (AMD-54) | One integer conflating two unrelated compatibility surfaces — a config-layout change forcing a descriptor-contract bump and vice versa; HA separates entry `version`/`minor_version` from the manifest contract | Independent evolution of the descriptor parsing contract and per-adapter config schemas; the pair `migrate(...)` consumes (AMD-55) | AMD-54 (RATIFIED 2026-06-05); Research 6 REC-41 (schema half); NQ-2. Implemented by **M4.C** |
+| §25 IntegrationAdapter Post-Setup Lifecycle Hooks (AMD-55) | Hookless adapter interfaces forcing full stop/start for config reload, options tuning, reauth, and schema migration (the retroactive-amendment tax every surveyed platform paid — HA, OpenHAB, Kura `@Modified`, OTP `code_change`); a void reauth hook making non-implementation undetectable; failed in-place applies with no outcome vocabulary | Four `default` hooks freeze the surface pre-M4 with zero adapter breakage; outcome enums (`ConfigUpdateOutcome` incl. `REJECTED`, `MigrationOutcome`, `ReauthOutcome`) give the supervisor truthful, exception-free signals with defined recovery semantics | AMD-55 (RATIFIED 2026-06-05); Research 6 REC-41 + §1 Verdict 2; review E1/E2/E3 + arbitration A3. Implemented by **M4.C**; supervisor flows M9 |
+| §26 ExceptionClassification `AUTH_FAILED` (AMD-56) | Auth failures conflated with generic permanent failures — backoff retry on a dead token (pointless) or FAILED (wrong: user-fixable); HA's `ConfigEntryAuthFailed` reauth storm history shows the class needs its own route | A fourth classification routing to reauth-or-suspend, never transient retry; the append-only code-bearing `PermanentIntegrationException` surface makes the trigger implementable without a new type | AMD-56 (RATIFIED 2026-06-05); Research 6 REC-43; review E4 + arbitration A4. Implemented by **M4.C**; classifier M9 |
+| §27 `HealthDetail` on `IntegrationHealthRecord` (AMD-57) | "DEGRADED" with no machine-readable cause — operators reverse-engineering causes from window snapshots (the OpenHAB `ThingStatusDetail` lesson, re-grounded for a metrics-aggregating FSM) | A 12-value transition-trigger vocabulary mapping 1:1 to the `HealthParameters` surface; truthful by construction for a metrics-driven FSM (arbitration A1) | AMD-57 (RATIFIED 2026-06-05); Research 6 REC-42; arbitration A1. Implemented by **M4.C**; population M9 |
+| §28 IntegrationLifecycleEvent Expansion (AMD-58) | Hook flows invisible to the event log, automations, WS stream, and audit narrative; re-opening a sealed hierarchy post-freeze; event-type string drift breaking persisted logs | Five observability-only permits frozen now with three-way registration lockstep; dot-namespaced `integration.*` strings with the legacy snake_case five frozen forever | AMD-58 (RATIFIED 2026-06-05); Research 6 REC-44/§7.3; arbitration A2 + E7 ruling. Implemented by **M4.C**; producer M9 |
+| §29 Capability Events, Publisher & DiscoveryServices (AMD-59) | `Entity.capabilities` set at adoption with no mutation vocabulary — firmware-added features invisible to log/replay/automations; `Class<?>` in persisted payloads (reflective serde liability); device-keyed events unable to deterministically target multi-endpoint entities; transient mesh drops indistinguishable from deliberate unregistration (Research 12 Aqara evidence — the strip-automations-on-transient-drop HA failure mode) | Event-sourced capability mutation as the only path (entity-registry projection, no new table — NQ-4); replay self-sufficiency via the full embedded `CapabilityInstance`; descriptive-only `CapabilityRemovalReason`; integration-scoped publisher (LTD-17); `DiscoveryServices` aggregator (NQ-1) | AMD-59 (RATIFIED 2026-06-05); Research 6 REC-47; NQ-3/NQ-4; R6 co-sign + E8 ruling. Implemented by **M4.C**; projection at the registry milestone |
+| §30 SecurityServices Aggregator & CredentialRotator (AMD-60) | Reauth flows ending with fresh credentials and no sanctioned write path (LTD-17 forbids direct config writes); torn OAuth token+refresh pairs under per-key rotation; context field-per-service growth | One aggregator field (NQ-1 doctrine frozen as AMD-60-INV-01); atomic multi-entry `rotate(Map)` durable-before-return (arbitration A5); SecretEntry vocabulary reused, no bundle type | AMD-60 (RATIFIED 2026-06-05); Research 6 REC-45; NQ-1; R7 co-sign + arbitration A5. Implemented by **M4.C**; rotator impl M9 |
+| §31 Descriptor Soft Dependencies (AMD-61) | Hard-only dependency graphs forcing authors to abuse `dependsOn`, creating spurious startup failures for optional peers (HA solved this with `after_dependencies`) | A soft tier that orders when present and never blocks when absent (INFO, not WARN); uniform cycle detection; construction-time overlap guard | AMD-61 (RATIFIED 2026-06-05); Research 6 REC-46. Implemented by **M4.C**; Kahn semantics M9 |
+| §32 Descriptor BackoffParameters (AMD-62) | "Retry with backoff" with no declared shape; one global schedule forcing cloud-API worst cases onto local serial adapters; restart-intensity duplication (REC-49 lesson) | A deterministic, testable `(initialDelay, multiplier, maxDelay)` record reproducing HA's empirically validated 5/10/20/40/80s schedule as the default; jitter stays supervisor policy; suspend thresholds stay on `HealthParameters` | AMD-62 (RATIFIED 2026-06-05); Research 6 REC-48; NQ-5/NQ-6; review E10. Implemented by **M4.C**; consumption M9 |
+| §33 IsolationLevel Reservation (AMD-63) | JNI/native adapter failures with no isolation escape hatch — and retrofitting a descriptor field across every published adapter post-MVP | A one-field reservation (AMD-34 cheap-insurance pattern): `RESERVED_SUBPROCESS` exists but is rejected at startup until a future amendment activates it | AMD-63 (RATIFIED 2026-06-05); Research 6 REC-50 as corrected by the v2 plan [VR §B F-C]. Implemented by **M4.C** |
+| §34 Per-Descriptor Planned-Restart Timeout (AMD-64) | One global 60s planned-restart grace forcing the Zigbee radio-re-init worst case onto stateless cloud pollers, or false-positive failures on slow adapters | Nullable per-descriptor override with the global §3.14 default as fallback; present values fully replace, never combine | AMD-64 (RATIFIED 2026-06-05); Research 6 REC-51. Implemented by **M4.C**; enforcement M9 |
 
 ---
 
@@ -1192,6 +1243,188 @@ Typed materialization + typed payload is a materialized-output change → `proje
 ### AMD-53-INV-02: Real-Time Freshness Carve-Out
 
 `staleAfter` and `stale` are the **only** real-time-clock-dependent fields on `EntityState`: `stale` is derived at read time from `Instant.now()` vs `staleAfter`, and `staleAfter` (when resolved) is `eventTime + threshold` — a target for real-time comparison, not an activity timestamp. They are explicitly **excluded** from AMD-53-INV-01 and retain the Doc 03 §3.8 / §4.1 freshness semantics. (Guards against the unifier being misread as "no wall-clock anywhere on `EntityState`.")
+
+---
+
+## 24. IntegrationDescriptor Config-Schema Versioning (AMD-54)
+
+§24 opens the eleven-section Workstream C integration block (§24–§34), registered together at the block ratification of AMD-54..64 (RATIFIED 2026-06-05 — single DOCS-Project review return, nexsys-hivemind `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md`, plus Nick arbitrations A1–A5 and the E3/E7/E8 rulings), following the §20–§23 precedent: each section registered here (plus §0.3, the §17 Invariant Index, and the §18 Traceability Matrix) in the same commit. Contracts are registered at ratification; the **M4.C** integration-api freeze WU implements the types, guards, and shape tests; supervisor behavior lands at **M9**. Identifiers use the amendment-scoped `AMD-NN-INV-NN` form. Each AMD remains the implementing-policy source-of-truth. The statements below are verbatim from AMD-54 §7.
+
+### AMD-54-INV-01: Two Distinct Compatibility Surfaces
+
+`descriptorSchemaVersion` (descriptor contract) and `(configSchemaMajor, configSchemaMinor)` (config-document schema) are distinct compatibility surfaces; no code path may derive one from the other.
+
+### AMD-54-INV-02: Major Triggers Migration, Minor Never
+
+Minor-only config mismatch never triggers migration; major mismatch always does (enforced at M9, contract frozen here).
+
+---
+
+## 25. IntegrationAdapter Post-Setup Lifecycle Hooks (AMD-55)
+
+§25 registers the invariant category added by AMD-55, RATIFIED 2026-06-05 as part of the Workstream C block (see §24 preamble). The statements below are verbatim from AMD-55 §7.
+
+### AMD-55-INV-01: All Hooks `default`; Pre-AMD-55 Adapters Unchanged
+
+All four hooks are `default`; a pre-AMD-55 adapter remains source- and binary-compatible, with behavior identical to today.
+
+### AMD-55-INV-02: Sequential Hook Execution on the Adapter Thread
+
+Hooks execute sequentially on the adapter's thread; the supervisor never invokes a hook concurrently with another lifecycle method.
+
+### AMD-55-INV-03: `migrate` Before `initialize`; Migrate-Failure → FAILED
+
+`migrate` runs before `initialize` on schema mismatch; `PermanentIntegrationException` from `migrate` → FAILED without retry (Doc 05 §3.7 extension).
+
+### AMD-55-INV-04: `REJECTED` Apply Never Leaves the Rejected Config Active
+
+A `REJECTED` config/options apply never leaves the rejected config active — the supervisor restores the prior config section (planned restart on it); the prior config remains the valid running config. (M9 behavioral test; contract frozen here per the E3 ruling.)
+
+---
+
+## 26. ExceptionClassification `AUTH_FAILED` (AMD-56)
+
+§26 registers the invariant category added by AMD-56, RATIFIED 2026-06-05 as part of the Workstream C block (see §24 preamble). The statements below are verbatim from AMD-56 §6.
+
+### AMD-56-INV-01: `AUTH_FAILED` Never Routes to Transient Backoff
+
+`AUTH_FAILED` never routes to transient backoff retry; its remediation path is reauth-or-suspend. (M9 behavioral test; contract frozen here.)
+
+### AMD-56-INV-02: `ExceptionClassification` Append-Only, Order Frozen
+
+The enum is append-only; existing declaration order frozen.
+
+### AMD-56-INV-03: `PermanentIntegrationException` Constructors Append-Only; Well-Known Codes Documented
+
+`PermanentIntegrationException` constructors are append-only; the no-code constructors permanently yield `integration.permanent_failure`; well-known codes (`integration.auth_failed`) are documented in AMD-56 before use.
+
+---
+
+## 27. `HealthDetail` on `IntegrationHealthRecord` (AMD-57)
+
+§27 registers the invariant category added by AMD-57, RATIFIED 2026-06-05 as part of the Workstream C block (see §24 preamble; taxonomy arbitrated by A1 — PM transition-trigger vocabulary). The statements below are verbatim from AMD-57 §6.
+
+### AMD-57-INV-01: `detail` Never Null; `NONE` Is the Explicit No-Cause Value
+
+`detail` is never null; `NONE` is the explicit no-cause value. Supervisor-internal — adapters never set it (they have no write path to the record).
+
+### AMD-57-INV-02: `HealthDetail` Append-Only; 1:1 Transition-Trigger Mapping
+
+The enum is append-only once ratified; values map 1:1 to supervisor transition triggers.
+
+---
+
+## 28. IntegrationLifecycleEvent Expansion 5→10 (AMD-58)
+
+§28 registers the invariant category added by AMD-58, RATIFIED 2026-06-05 as part of the Workstream C block (see §24 preamble). The statements below are verbatim from AMD-58 §6.
+
+### AMD-58-INV-01: Three-Way Registration Lockstep
+
+Every `IntegrationLifecycleEvent` permit is registered in `IntegrationEvents.LIFECYCLE_EVENT_CLASSES`, `EXPECTED_SUBTYPES`, and `EventTypes` in the same commit — three-way lockstep, no partial registration.
+
+### AMD-58-INV-02: Persisted Event-Type Strings Immutable; Dot-Namespace for New; Legacy Five Frozen
+
+Persisted event-type strings are immutable; new strings are dot-namespaced `integration.`; the legacy snake_case five are frozen.
+
+### AMD-58-INV-03: The Five New Permits Are Observability-Only
+
+The five new permits are observability-only — they never mutate projection state.
+
+---
+
+## 29. Capability Events, Publisher & DiscoveryServices (AMD-59)
+
+§29 registers the invariant category added by AMD-59, RATIFIED 2026-06-05 as part of the Workstream C block (see §24 preamble; R6 payload refinement co-signed; `CapabilityRemovalReason` restored per the E8 ruling). The statements below are verbatim from AMD-59 §6.
+
+### AMD-59-INV-01: Capability Events Are the Only Post-Adoption Mutation Path; No Capability Table
+
+Capability events are the only post-adoption mutation path for `Entity.capabilities`; no API or registry method mutates the list outside the event-sourced path. No capability SQLite table exists.
+
+### AMD-59-INV-02: `CapabilityAdded` Carries the Complete Instance (Replay Self-Sufficiency)
+
+`CapabilityAdded` carries the complete `CapabilityInstance` — replay reconstructs `Entity.capabilities` from the log alone (replay self-sufficiency).
+
+### AMD-59-INV-03: No `CapabilityId` Wrapper; Permit Class + String Identity
+
+No `CapabilityId` wrapper type exists; capability type identity is the permit class (in-JVM) and `String capabilityId` (persisted).
+
+### AMD-59-INV-04: `EntityId` Stable Across Capability Add/Remove
+
+`EntityId` is stable across capability add/remove (no identity churn).
+
+### AMD-59-INV-05: `CapabilityPublisher` Integration-Scoped (LTD-17)
+
+`CapabilityPublisher` is integration-scoped (LTD-17): publishes only for entities owned by the calling adapter's integration.
+
+### AMD-59-INV-06: `CapabilityRemovalReason` Descriptive-Only, Never Behavioral
+
+`CapabilityRemovalReason` is descriptive diagnostics only — no supervisor, projection, or registry behavior branches on it (orphan detection unchanged). Consumers (M8 automations, UI) may branch on it; the core never does.
+
+---
+
+## 30. SecurityServices Aggregator & CredentialRotator (AMD-60)
+
+§30 registers the invariant category added by AMD-60, RATIFIED 2026-06-05 as part of the Workstream C block (see §24 preamble; R7 narrowing co-signed; `rotate(Map)` widened per arbitration A5). The statements below are verbatim from AMD-60 §6.
+
+### AMD-60-INV-01: Context Grows Only by Service-Family Aggregators (NQ-1 Doctrine)
+
+`IntegrationContext` grows only by service-family aggregator fields; individual services join their family's aggregator record. (The NQ-1 doctrine, frozen.)
+
+### AMD-60-INV-02: `SecurityServices` Nullable, `RequiredService.SECURITY`-Gated; Non-Null Inside
+
+`SecurityServices` is nullable on the context, gated by `RequiredService.SECURITY`; inside the aggregator, declared services are non-null.
+
+### AMD-60-INV-03: `rotate` Integration-Scoped, Atomic Across Entries, Durable-Before-Return
+
+`CredentialRotator.rotate` is integration-scoped (LTD-17), atomic across all entries of a single call (all-or-nothing — a token+refresh-token pair can never be torn), and durable-before-return.
+
+---
+
+## 31. Descriptor Soft Dependencies (AMD-61)
+
+§31 registers the invariant category added by AMD-61, RATIFIED 2026-06-05 as part of the Workstream C block (see §24 preamble). The statements below are verbatim from AMD-61 §5.
+
+### AMD-61-INV-01: Soft Dependency Never Blocks Startup; Hard Always Does
+
+A missing/failed soft dependency never blocks startup (INFO log only); a missing hard dependency always does.
+
+### AMD-61-INV-02: `dependsOn ∩ softDependencies = ∅` at Construction
+
+`dependsOn ∩ softDependencies = ∅`, enforced at construction.
+
+---
+
+## 32. Descriptor BackoffParameters (AMD-62)
+
+§32 registers the invariant category added by AMD-62, RATIFIED 2026-06-05 as part of the Workstream C block (see §24 preamble). The statements below are verbatim from AMD-62 §5.
+
+### AMD-62-INV-01: Retry Schedule Is a Pure Function
+
+The retry schedule is a pure function of `BackoffParameters` and the attempt count — deterministic, no hidden state.
+
+### AMD-62-INV-02: Retry Backoff and Recovery Probing Are Distinct Mechanisms
+
+Retry backoff (`BackoffParameters`) and recovery probing (`HealthParameters.probe*`) are distinct mechanisms; neither reuses the other's parameters.
+
+---
+
+## 33. IsolationLevel Reservation (AMD-63)
+
+§33 registers the invariant category added by AMD-63, RATIFIED 2026-06-05 as part of the Workstream C block (see §24 preamble). The statement below is verbatim from AMD-63 §5.
+
+### AMD-63-INV-01: `RESERVED_SUBPROCESS` Rejected Until Activated by Amendment
+
+`RESERVED_SUBPROCESS` is rejected at supervisor startup until a future amendment activates it; no code path may treat it as runnable.
+
+---
+
+## 34. Per-Descriptor Planned-Restart Timeout (AMD-64)
+
+§34 closes the Workstream C block (see §24 preamble), registering the invariant category added by AMD-64, RATIFIED 2026-06-05. The statement below is verbatim from AMD-64 §5.
+
+### AMD-64-INV-01: Null ⇒ Global Default; Present Value Positive and Fully Replacing
+
+`plannedRestartTimeout == null` ⇒ the global Doc 05 §3.14 default governs; a present value must be positive and fully replaces (never combines with) the global.
 
 ---
 

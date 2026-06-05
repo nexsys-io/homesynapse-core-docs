@@ -2,7 +2,7 @@
 file: design/amendments/AMD-60_Security_Services_Aggregator.md
 purpose: AMD-60 — SecurityServices aggregator on IntegrationContext + CredentialRotator service (REC-45 per ratified NQ-1).
 audience: Nick (ratify), PM, Coder
-status: PROPOSED — pending DOCS-Project review + Nick ratification (Workstream C block, AMD-54..64)
+status: RATIFIED 2026-06-05 — DOCS-Project review (RATIFY-WITH-EDITS; E9 folded per arbitration A5) + R7 co-sign formalized; review return: nexsys-hivemind `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md`
 source: Research 6 REC-45 ACCEPT(MODIFY) + NQ-1 (RESOLVED: aggregator, not field-per-service) + F4 (module is com.homesynapse.config, not .configuration)
 baseline: homesynapse-core HEAD `e76b925` — IntegrationContext source-verified: 10 components; config module SecretEntry(key, value, createdAt, updatedAt) source-verified
 -->
@@ -20,18 +20,25 @@ The AMD-55/56 reauth flow ends with the adapter holding fresh credentials (new O
 ```java
 public interface CredentialRotator {
     /**
-     * Atomically replace the secret stored under {@code secretKey} for this
-     * integration's config section. The write is durable before return.
+     * Atomically replace the secrets stored under the given keys for this
+     * integration's config section — all entries land in one durable,
+     * all-or-nothing write (an OAuth access+refresh token pair can never be
+     * torn). Durable before return.
      * Scoped: an adapter can rotate only its own integration's secrets (LTD-17).
      *
-     * @throws IllegalArgumentException if secretKey is unknown to this
-     *         integration's declared config schema
+     * @throws IllegalArgumentException if {@code secrets} is empty or any key
+     *         is unknown to this integration's declared config schema
      */
-    void rotate(String secretKey, String newSecretValue);
+    void rotate(Map<String, String> secrets);
+
+    /** Single-secret convenience; delegates to {@link #rotate(Map)}. */
+    default void rotate(String secretKey, String newSecretValue) {
+        rotate(Map.of(secretKey, newSecretValue));
+    }
 }
 ```
 
-> **[REVIEW-FLAG R7 — PM narrowing.]** The research proposed a `SecureCredentialBundle` carrier in `com.homesynapse.config`. Source verification at `e76b925` found the config module already has `SecretEntry(String key, String value, Instant createdAt, Instant updatedAt)` for the secret-read vocabulary. Introducing a second bundle type duplicates it (the REC-49 lesson: check existing fields before adding). PM narrows to a string-based `rotate` — the rotator is a write-only seam; timestamps are the store's concern. If the review finds the research's bundle carried load-bearing extra fields (e.g., multi-secret atomic rotation for token+refresh-token pairs), widen to `void rotate(Map<String, String> secrets)` — flagged for Nick.
+> **[REVIEW-FLAG R7 — RESOLVED (review 2026-06-05 + Nick arbitration A5).]** The research proposed a `SecureCredentialBundle` carrier in `com.homesynapse.config`. Source verification at `e76b925` found the config module already has `SecretEntry(String key, String value, Instant createdAt, Instant updatedAt)` for the secret-read vocabulary; introducing a second bundle type duplicates it (the REC-49 lesson). **Review finding:** the inline return never enumerates bundle fields (the strict widen-trigger was not met — `rotate(IntegrationId id, SecureCredentialBundle bundle)` / `current(IntegrationId id)` are its only appearances), but the bundle's *atomicity* is load-bearing for the OAuth adapters the return names (§1 Verdict 5): single-key rotate with per-call durability can tear an access+refresh token pair. **Arbitration A5: widened to `rotate(Map<String,String>)` as the primary signature** with a `default` single-key convenience delegating to it. The SecretEntry-reuse narrowing itself stands as pre-co-signed: no bundle type; the `current(...)` read path stays on `ConfigurationAccess`; timestamps are the store's concern. (`Map` is `java.base` — no JPMS impact.)
 
 ### 2.2 `SecurityServices` aggregator (new record, `com.homesynapse.integration`)
 
@@ -62,6 +69,7 @@ Future security services (e.g., certificate provisioning) become components of t
 | `IntegrationContextTest` (extended) | 12 components; `security`/`discovery` nullable; convenience ctor defaults both null |
 | `SecurityServicesTest` (new) | null `credentialRotator` → NPE at construction |
 | `RequiredServiceTest` (extended) | 5 values, declaration order pinned (append-only) |
+| `CredentialRotatorDefaultTest` (new) | single-key `rotate` delegates to `rotate(Map.of(k, v))` (recording stub) |
 | `StubIntegrationContextTest` (extended) | defaults null; builder overrides apply |
 
 ## 5. Scope Fences / Deferred
@@ -72,7 +80,7 @@ NO rotator implementation (M9). NO secret-store changes (M6). NO reauth orchestr
 
 - **AMD-60-INV-01:** `IntegrationContext` grows only by service-family aggregator fields; individual services join their family's aggregator record. (The NQ-1 doctrine, frozen.)
 - **AMD-60-INV-02:** `SecurityServices` is nullable on the context, gated by `RequiredService.SECURITY`; inside the aggregator, declared services are non-null.
-- **AMD-60-INV-03:** `CredentialRotator.rotate` is integration-scoped (LTD-17) and durable-before-return.
+- **AMD-60-INV-03:** `CredentialRotator.rotate` is integration-scoped (LTD-17), atomic across all entries of a single call (all-or-nothing — a token+refresh-token pair can never be torn), and durable-before-return.
 - Cites: NQ-1 (RESOLVED); LTD-17; INV-CE-02 (configAccess always provided — unchanged); F4 (module naming).
 
 Module-info: unchanged — see AMD-54 §7 verbatim embed.
@@ -83,10 +91,15 @@ Module-info: unchanged — see AMD-54 §7 verbatim embed.
 
 ## 8. Ratification Checklist
 
-- [ ] DOCS-Project review (**R7: SecretEntry-reuse narrowing vs the research's SecureCredentialBundle — soundness verification; PRE-CO-SIGNED by Nick 2026-06-05** [the reuse-existing-types lesson applied]. The widen-to-`rotate(Map<String,String>)` fallback in §2.1 remains live only if the review surfaces load-bearing bundle fields. Formal co-sign at ratification.)
-- [ ] Nick ratification (formalizes the R7 pre-co-sign)
-- [ ] Invariants registered
+- [x] DOCS-Project review (R7 verified; widen adopted per arbitration A5 — see §2.1) — 2026-06-05
+- [x] Nick ratification — R7 co-sign FORMALIZED 2026-06-05
+- [x] Invariants registered (`Architecture_Invariants_v1.md` §30)
 
 ## 9. Review Disposition
 
-*(populated at ratification)*
+**DOCS-Project review (2026-06-05): RATIFY-WITH-EDITS — E9 folded per arbitration A5; R7 co-sign formalized.** Return: nexsys-hivemind `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md`.
+
+- **R7 (G2 soundness):** the inline return never enumerates `SecureCredentialBundle` fields — the strict widen-trigger was not met — but the review surfaced the bundle's implied atomicity as load-bearing for the return's named OAuth use cases (token+refresh-token pairs; torn-write risk under per-call durability). **Arbitration A5: `rotate(Map<String,String>)` adopted as primary** with a `default` single-key convenience. SecretEntry-reuse narrowing (no bundle type; read path on `ConfigurationAccess`) stands as pre-co-signed. AMD-60-INV-03 strengthened to atomic-across-entries.
+- Deviation recorded: the return's `CompletableFuture<Void>` async rotate → synchronous durable-before-return (sound under the one-virtual-thread-per-adapter model).
+
+Ratified by Nick 2026-06-05.

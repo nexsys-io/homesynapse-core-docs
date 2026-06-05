@@ -2,7 +2,7 @@
 file: design/amendments/AMD-54_Integration_Descriptor_Config_Schema_Versioning.md
 purpose: AMD-54 — split descriptor forward-compat versioning from config-document schema versioning on IntegrationDescriptor (REC-41 schema half, NQ-2).
 audience: Nick (ratify), PM, Coder
-status: PROPOSED — pending DOCS-Project review + Nick ratification (Workstream C block, AMD-54..64)
+status: RATIFIED 2026-06-05 — DOCS-Project review (RATIFY-AS-IS) + Nick ratification; review return: nexsys-hivemind `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md`
 source: Research 6 REC-41 (schema half) + NQ-2 (RESOLVED 2026-06-04: keep both, rename existing) + P2 AMD Renumbering Decision §4/§8
 baseline: homesynapse-core HEAD `e76b925` (2026-06-05) — every shape below source-verified at this commit
 -->
@@ -93,11 +93,11 @@ module com.homesynapse.integration {
 
 ## 9. Ratification Checklist
 
-- [ ] DOCS-Project review returned; deltas folded
-- [ ] Nick ratification
-- [ ] Invariants registered in `Architecture_Invariants_v1.md`
-- [ ] Watermark raised at block ratification (AMD-53 → AMD-64)
+- [x] DOCS-Project review returned; deltas folded — 2026-06-05
+- [x] Nick ratification — 2026-06-05
+- [x] Invariants registered in `Architecture_Invariants_v1.md` (§24)
+- [x] Watermark raised at block ratification (AMD-53 → AMD-64) — 2026-06-05
 
 ## 10. Review Disposition
 
-*(populated at ratification)*
+**DOCS-Project review (2026-06-05): RATIFY-AS-IS — no edits.** Return: nexsys-hivemind `context/audits/2026-06-05_AMD-54-64_DOCS_Review_Return.md`. All source-shape claims independently re-derived at `e76b925` (8 components, `schemaVersion` last at line 80; module-info character-for-character); NQ-2 rendering verified; the 8→14 convenience-ctor default story verified complete and consistent across AMD-54/61/62/63/64 (G4). Block-level note adopted at ratification: the final 14-component declaration order is append-in-AMD-number-order — `integrationType, displayName, ioType, requiredServices, dataPaths, healthParameters, dependsOn, descriptorSchemaVersion, configSchemaMajor, configSchemaMinor, softDependencies, backoffParameters, isolationLevel, plannedRestartTimeout`. Ratified by Nick 2026-06-05.
