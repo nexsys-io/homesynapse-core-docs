@@ -8,6 +8,8 @@
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-06
 
+> **⚠ CURRENCY NOTE (2026-06-05 — Workstream C briefing).** The integration-api surface this document specifies is amended by the **PROPOSED AMD-54..64 block** (`design/amendments/`, authored 2026-06-05 against `e76b925`, pending DOCS-Project review + Nick ratification): descriptor config-schema versioning + rename (AMD-54), four adapter lifecycle hooks (AMD-55), `AUTH_FAILED` (AMD-56), `HealthDetail` (AMD-57), five new lifecycle event permits (AMD-58), capability events + `CapabilityPublisher` + `DiscoveryServices` (AMD-59), `SecurityServices`/`CredentialRotator` (AMD-60), `softDependencies` (AMD-61), `BackoffParameters` (AMD-62), `IsolationLevel` (AMD-63), `plannedRestartTimeout` (AMD-64). Body-fold of §3.7/§3.8/§3.14/§4.1–§4.4/§8 happens at block ratification mechanics. Until then, the AMD files govern where they differ from this body. One B-adjacent note already in force: AMD-44 Stage 1 changed `hardwareIdentifiers` `List`→`Set` (the §"Dependencies" Device-Model §8.2 reference is unaffected — this doc describes the boundary, not the collection type).
+
 ---
 
 ## 0. Purpose
