@@ -2,7 +2,7 @@
 file: design/amendments/AMD-86_INV-PD-07_Crypto-Shred-MVP-Scope_and_INV-PD-03_At-Rest-Posture.md
 purpose: AMD-86 — narrow INV-PD-07's MVP mandate (operational crypto-shredding → post-MVP) and state the INV-PD-03 at-rest posture, reconciling both privacy invariants with Doc 15 (Cryptographic Architecture) in one pass. Codifies decision D2.
 audience: Nick (ratify), PM, DOCS-Project review
-status: PROPOSED 2026-06-06 — awaiting FULL DOCS-Project review (NOT the P4 lightweight block-track: this narrows a constitutional privacy invariant the trust brand rests on)
+status: **RATIFIED 2026-06-07** — FULL DOCS-Project review **RATIFY-WITH-EDITS**; **AMD-86 itself reviewed clean** (the two required edits, E1 schema naming + E2 §3.8 wiring, are **Doc 15** edits — see J2/J6). J1/F-A at-rest threat model PASS ("most honestly stated… no overstated security claim"), J3 D2 line PASS, J4 minimality + AMD-86-INV-01 PASS, J5 Doc 06/AMD-60 shared-root PASS, m1 PASS, m2 `[BLOCKING-for-M6-impl]`. Co-ratified with AMD-87 + Doc 15 Lock; on-disk watermark → AMD-87. Review: `nexsys-hivemind/context/audits/2026-06-06_Doc15_AMD-86_DOCS_Review_Return.md`.
 source: decision D2 (nexsys-hivemind/context/decisions/2026-06-06_post-M4_M5-window_decisions.md); Doc 15 §2.3/§3.4/§3.5/§3.6 (the owner-doc this amendment codifies); foundation-readiness assessment §2.1/§2.2/§5 (INV-PD-07 MVP-mandate unmet); the 2026-03-22 crypto research (superseded by Doc 15)
 baseline: homesynapse-core HEAD `8ef9e9f`; Architecture_Invariants_v1.md §6 INV-PD-03 (`:389`) / INV-PD-07 (`:405-427`, MVP-scope clause at `:427`)
 amd-number-rationale: assigned at authoring per P2. AMD-65 = Expectation codec (M5-A); AMD-66–71 reserved = M6 config amendments (Research 5); AMD-72–85 reserved = Research 7 (REST/WS, M10/M11). AMD-86 is the next clean, collision-free number.
@@ -75,10 +75,10 @@ This is a governance/invariant amendment; its acceptance is the **contract-freez
 
 ## 8. Ratification Checklist
 
-- [ ] **FULL DOCS-Project review** (NOT the P4 lightweight block-track — narrows a constitutional privacy invariant).
-- [ ] Nick ratification.
-- [ ] On ratification: apply the §2.1 text change to `Architecture_Invariants_v1.md` INV-PD-07 and the §2.2 posture note to INV-PD-03; register AMD-86-INV-01; raise the on-disk amendment watermark to 86; add the nav-index row; mark Doc 15 reviewed.
+- [x] **FULL DOCS-Project review** (NOT the P4 lightweight block-track — narrows a constitutional privacy invariant) — RETURNED **RATIFY-WITH-EDITS** 2026-06-06 (`context/audits/2026-06-06_Doc15_AMD-86_DOCS_Review_Return.md`); AMD-86 itself clean.
+- [x] Nick ratification — **2026-06-07** (co-ratified with AMD-87 + Doc 15 Lock).
+- [x] On ratification (2026-06-07): applied the §2.1 text change to `Architecture_Invariants_v1.md` INV-PD-07 and the §2.2 posture note to INV-PD-03; registered AMD-86-INV-01; raised the on-disk amendment watermark to **87** (co-ratified with AMD-87, the higher number); added the nav-index row; Doc 15 **Locked**.
 
 ## 9. Review Disposition
 
-**PROPOSED** — pending full DOCS-Project review. No prior disposition. (Open for review alongside Doc 15.)
+**RATIFIED 2026-06-07** — FULL DOCS-Project review RATIFY-WITH-EDITS (the two required edits are Doc 15's E1/E2; AMD-86 clean). Co-ratified with AMD-87 + Doc 15 Lock.
