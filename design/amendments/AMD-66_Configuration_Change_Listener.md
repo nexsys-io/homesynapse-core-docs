@@ -2,7 +2,7 @@
 file: design/amendments/AMD-66_Configuration_Change_Listener.md
 purpose: AMD-66 — public ConfigurationChangeListener interface for per-section reload reaction (REC-55, corrected shape).
 audience: Nick (ratify), PM, Coder
-status: PROPOSED 2026-06-08 — M6 config block (AMD-66..71); awaits DOCS-Project review + Nick ratification
+status: RATIFY-AS-IS (DOCS-Project review RETURNED 2026-06-09 — `context/audits/2026-06-09_AMD-66-71_DOCS_Review_Return.md`; [AMD-66-A] PROCESS_RESTART fallback ENDORSED; F7 shape confirmed) — AWAITS NICK RATIFICATION
 source: Research 5 REC-55 (PM Assessment v2 FINAL: ACCEPTED IN PRINCIPLE — shape corrected, F7) + Doc 06 §3.3/§4.3
 baseline: homesynapse-core HEAD `6c6dd33` (2026-06-08) — every config shape below source-verified at this commit
 -->

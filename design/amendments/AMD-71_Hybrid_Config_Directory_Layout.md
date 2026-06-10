@@ -1,8 +1,8 @@
 <!--
 file: design/amendments/AMD-71_Hybrid_Config_Directory_Layout.md
-purpose: AMD-71 — hybrid config directory layout (root + integrations/ + secrets.yaml.enc + schemas/) on PlatformPaths.configDir(), one-level !include, path-traversal protection (REC-60).
+purpose: AMD-71 — hybrid config directory layout (root + integrations/ + secrets.enc + schemas/) on PlatformPaths.configDir(), one-level !include, path-traversal protection (REC-60).
 audience: Nick (ratify), PM, Coder
-status: PROPOSED 2026-06-08 — M6 config block (AMD-66..71); awaits DOCS-Project review + Nick ratification
+status: RATIFY-WITH-EDITS (DOCS review RETURNED 2026-06-09; E71-1 secrets.enc + E71-2 [AMD-71-A]→Path-injection resolution FOLDED 2026-06-09) — AWAITS NICK RATIFICATION
 source: Research 5 REC-60 (PM Assessment v2: ACCEPTED IN PRINCIPLE — AMD deferred to M6 planning, which is now) + Doc 06 §3.1 + Doc 15 §9 (${config_dir})
 baseline: homesynapse-core HEAD `6c6dd33`; PlatformPaths.configDir() shipped M5-A (LinuxSystemPaths/LocalPaths)
 -->
@@ -26,7 +26,7 @@ ${config_dir}/
   homesynapse.yaml          # root document (system config)
   integrations/             # one file per integration instance
     <integration>.yaml
-  secrets.yaml.enc          # AES-256-GCM encrypted secret store (SecretStore; AMD-68 setAll)
+  secrets.enc               # AES-256-GCM encrypted secret store, encrypted JSON (SecretStore; AMD-68 setAll). E71-1: the name both Locked docs use — Doc 06 §3.4/§4.8 + Doc 15 §3.8
   schemas/                  # composed JSON-Schema cache (regenerated; not authoritative)
   signing-key.pub           # Ed25519 package-signing public key (Doc 15 §9)
 ```
@@ -46,8 +46,8 @@ The `SchemaRegistry` composes the full JSON Schema **after** the included files 
 ## 3. Downstream Impact
 
 - **`ConfigurationService.load()` / the loading pipeline (M6.1):** implements the layout, the one-level include, the traversal guard, and compose-after-merge.
-- **`SecretStore` (AMD-68):** its file is `${config_dir}/secrets.yaml.enc` — the layout names the path; AMD-68 owns the atomic write to it.
-- **No JPMS change**, no public-type change. `PlatformPaths` (platform-api, M5-A) is already a dependency-resolvable path source; the config loader consumes `configDir()`. The §7 verbatim `module-info.java` is unchanged. **(Note for M6.1: `com.homesynapse.config` does not yet `requires com.homesynapse.platform`; if the loader resolves `configDir()` directly, M6.1 adds that `requires` — a JPMS change the M6.1 consumer/pin survey must surface and the embedded module-info must reflect. Alternatively the resolved config-dir `Path` is injected from the composition root. Flag `[REVIEW-FLAG AMD-71-A]`.)**
+- **`SecretStore` (AMD-68):** its file is `${config_dir}/secrets.enc` — the layout names the path; AMD-68 owns the atomic write to it.
+- **No JPMS change**, no public-type change. **`[AMD-71-A] RESOLVED (E71-2) — composition-root `Path` injection (Option b):** the resolved config-dir `Path` is **injected into `StandardConfigurationService` from the composition root** (`com.homesynapse.app`, which `requires` both `config` and `platform` — module-info-verified); `com.homesynapse.config` takes **NO** `requires com.homesynapse.platform`, so the §7 verbatim `module-info.java` stays true permanently and the **zero-new-edge property the Doc 15 §3.8 E2 bridge / M6.2 CARRY 1 treat as load-bearing is preserved.** (A direct `config → platform` edge would be acyclic — `platform` requires nothing — but Option (a) would either lean on implied readability for a direct dependency, poor JPMS hygiene, or add an explicit edge that falsifies every embedded module-info; rejected.) **This is the M6.1 instruction's DP-3, now ratified into the AMD.** `PlatformPaths.configDir()` (platform-api, M5-A) is the composition-root's source for the `Path`.
 
 ## 4. Implementation Notes
 
@@ -73,7 +73,7 @@ NO multi-level include. NO config outside `${config_dir}`. NO change to `ConfigV
 - **AMD-71-INV-02:** `!include` is one level deep; a nested include is a structural FATAL error.
 - Cites: Doc 06 §3.1 (loading pipeline); Doc 15 §9 (`${config_dir}`, `signing-key.pub`); `PlatformPaths.configDir()` (M5-A); `ConfigValidator` `String`-schema contract (source-verified); REC-60.
 
-**Verbatim `module-info.java` (`com.homesynapse.config`, at `6c6dd33`) — unchanged by this AMD** (see `[REVIEW-FLAG AMD-71-A]` for the possible M6.1 `requires com.homesynapse.platform` addition):
+**Verbatim `module-info.java` (`com.homesynapse.config`, at `6c6dd33`) — unchanged by this AMD, permanently** (`[AMD-71-A]` RESOLVED per E71-2, §3: composition-root `Path` injection; NO `requires com.homesynapse.platform` is added for the config-dir):
 
 ```java
 module com.homesynapse.config {

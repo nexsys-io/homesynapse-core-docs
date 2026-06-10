@@ -2,7 +2,7 @@
 file: design/amendments/AMD-69_Passphrase_Root_KDF_Deferred_Tier2.md
 purpose: AMD-69 — RECONCILE Research 5 REC-58 (Argon2id + BouncyCastle) against Locked Doc 15: the passphrase-root KDF is Tier-2/post-MVP and its provider is open (OQ-15-3). DEFERRED, not an active M6 contract.
 audience: Nick (ratify/confirm-deferral), PM, Coder
-status: PROPOSED-AS-DEFERRED 2026-06-08 — M6 config block (AMD-66..71); the number is reserved for the eventual Tier-2 passphrase-root-KDF amendment that resolves OQ-15-3
+status: CONFIRM-DEFERRAL (DOCS review RETURNED 2026-06-09 — all 3 Doc-15 conflicts re-verified verbatim; ruling: ratify as DEFERRED, Option (a); do NOT re-open OQ-15-3) — AWAITS NICK's deferral confirmation. The number is reserved for the eventual Tier-2 passphrase-root-KDF amendment that resolves OQ-15-3.
 source: Research 5 REC-58 (PM Assessment v2: ACTIVE) — SUPERSEDED for MVP by Locked Doc 15 §2.3/§3.5/§3.8 + OQ-15-3 (this AMD records the reconciliation)
 baseline: homesynapse-core HEAD `6c6dd33`; Doc 15 LOCKED (watermark AMD-87)
 -->

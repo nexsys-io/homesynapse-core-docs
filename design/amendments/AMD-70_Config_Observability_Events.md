@@ -2,7 +2,7 @@
 file: design/amendments/AMD-70_Config_Observability_Events.md
 purpose: AMD-70 — config.validation_completed + config.section_reloaded observability events in com.homesynapse.event (REC-59 + REC-61 folded).
 audience: Nick (ratify), PM, Coder
-status: PROPOSED 2026-06-08 — M6 config block (AMD-66..71); awaits DOCS-Project review + Nick ratification
+status: RATIFY-WITH-EDITS (DOCS review RETURNED 2026-06-09; **E70-1 load-bearing JPMS-cycle fix** — payloads flattened to event-resident types + type-residency rule — and E70-2 FOLDED 2026-06-09) — AWAITS NICK RATIFICATION (E70-1 must be folded before the M6.1 gate lifts — done)
 source: Research 5 REC-59 (PM Assessment v2: ACTIVE) + REC-61 (MERGED into REC-59) + NQ-5 (RESOLVED — com.homesynapse.event flat, AMD-52 precedent)
 baseline: homesynapse-core HEAD `6c6dd33`; event-model manifest pattern source-verified at M3.6c / M4.C (EventTypes, EventCategoryMapping, EventTypeRegistry, JacksonWarmup)
 -->
@@ -19,12 +19,14 @@ Doc 06's reload/validation pipeline produces a `ReloadResult` (source-verified: 
 
 ### 2.1 Two new event records (`com.homesynapse.event` — flat package, AMD-52 precedent)
 
-Per NQ-5 (RESOLVED) and the AMD-52 precedent, new domain event records land in **`com.homesynapse.event`** (the flat event package), **not** in `com.homesynapse.config`. The legacy `config_changed` / `secret_added` / `secret_removed` events already live there — these join them.
+Per NQ-5 (RESOLVED) and the AMD-52 precedent, new domain event records land in **`com.homesynapse.event`** (the flat event package), **not** in `com.homesynapse.config`. The legacy `config_changed` / `config_error` events (`ConfigChangedEvent`, `ConfigErrorEvent`) already live there — these join them. _(E70-2: corrected from `secret_added`/`secret_removed`, which do **not** exist in source at `6c6dd33` — that claim was propagated unverified from the Research 5 return; `EventTypes` carries `CONFIG_CHANGED` + `CONFIG_ERROR` only.)_
 
-- **`config.validation_completed`** — emitted after a load/reload validation pass. Payload (contingent on AMD-67): `(int configSchemaMajor, int configSchemaMinor, int issueCount, Map<Severity,Integer> severityCounts)`. If AMD-67 is **not** ratified, the payload reverts to a single `int schemaVersion`.
-- **`config.section_reloaded`** — emitted per section actually changed by a reload. Payload: the section path + a `ReloadResult` breakdown (REC-61 — pure additive consumption of the existing 3-field `ReloadResult`; the record is not modified) + the section's applied `ReloadClassification` (from AMD-66's listener, or the property-default fallback).
+**Type-residency rule (E70-1 — load-bearing, JPMS-cycle avoidance).** Event records in `com.homesynapse.event` **must not reference `com.homesynapse.config` types** — `config` already `requires transitive com.homesynapse.event`, so a config type in an event record would force the reverse `event → config` edge: a **JPMS cycle, the exact AMD-52 `event↔device` class** (Doc 15 §3.8). The payloads are therefore **flattened to event-module-resident / `java.base` types only**, matching the existing all-String `ConfigChangedEvent` precedent (source-verified `(String configPath, String previousValue, String newValue)`). `Severity`, `ReloadResult`, and `ReloadClassification` are **consumed to derive the flattened components, never referenced as types** in the event record.
 
-Exact record component lists are Phase-2-frozen at M6.1 implementation against the then-current `ReloadResult`/`Severity`/`ReloadClassification` shapes (source-verified, no fabrication); the **contract** here is the event names, package, payload semantics, and observability-only classification.
+- **`config.validation_completed`** — emitted after a load/reload validation pass. Payload (contingent on AMD-67): `(int configSchemaMajor, int configSchemaMinor, int issueCount, Map<String,Integer> severityCounts)` — `severityCounts` keys are `Severity.name()`. If AMD-67 is **not** ratified, the schema component reverts to a single `int schemaVersion`.
+- **`config.section_reloaded`** — emitted per section actually changed by a reload. Payload: `(String sectionPath, int changeCount, int issueCount, String appliedClassification)` — `appliedClassification` = `ReloadClassification.name()` (from AMD-66's listener, or the property-default fallback); the `ReloadResult` (REC-61) is *consumed* to derive `changeCount`/`issueCount`, never referenced as a type.
+
+Exact flattened component lists are Phase-2-frozen at M6.1 implementation; the **contract** here is the event names, package, the **type-residency rule above**, the flattened-payload semantics, and observability-only classification. _(Alternative — landing the records in `com.homesynapse.config` behind a `ConfigEvents` manifest, the IntegrationEvents/M3.6c pattern — was considered and rejected: it contradicts the Nick-resolved NQ-5 and adds a manifest + composition-root aggregation site for two observability events.)_
 
 ### 2.2 Manifest registration (the M3.6c / M4.C consumer-pin discipline)
 

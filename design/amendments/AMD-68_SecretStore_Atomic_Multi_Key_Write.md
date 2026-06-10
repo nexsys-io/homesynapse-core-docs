@@ -2,7 +2,7 @@
 file: design/amendments/AMD-68_SecretStore_Atomic_Multi_Key_Write.md
 purpose: AMD-68 — SecretStore.setAll(Map) atomic, durable, all-or-nothing multi-key write beneath AMD-60 CredentialRotator. Reconciles Doc 06 §8.5 with Doc 15 §7.3. (Doc 06 currency amendment.)
 audience: Nick (ratify), PM, Coder
-status: PROPOSED 2026-06-08 — M6 config block (AMD-66..71); awaits DOCS-Project review + Nick ratification
+status: RATIFY-WITH-EDITS (DOCS review RETURNED 2026-06-09; [AMD-68-A] bundle/credentialsFor retirement VERIFIED — no orphaned consumer; E68-1 secrets.enc edit FOLDED 2026-06-09) — AWAITS NICK RATIFICATION
 source: Doc 15 §7.3 (the SecretStore currency requirement) + AMD-60-INV-03 (CredentialRotator atomic+durable) + Research 5 REC-57 (bundle/read half RETIRED by ratified AMD-60 — see §1.2)
 baseline: homesynapse-core HEAD `6c6dd33` (2026-06-08) — SecretStore (4 methods) source-verified at this commit
 -->
@@ -46,7 +46,7 @@ void setAll(Map<String, String> secrets);
 
 ### 2.2 Atomicity + durability contract (M6 implementation obligation)
 
-The implementation persists the encrypted secrets file via the **write-temp-then-atomic-rename** pattern (the same fsync-before-rename discipline the config write path uses for the YAML file): encrypt all entries, write the complete updated `secrets.yaml.enc` to a temp file, `fsync`, atomically `rename` over the live file, `fsync` the directory. A crash before the rename leaves the prior file intact (all-or-nothing); after the rename, all entries are durable (durable-before-return). This satisfies AMD-60-INV-03 at the store layer so the M9 `CredentialRotator` impl inherits it by calling `setAll`.
+The implementation persists the encrypted secrets file via the **write-temp-then-atomic-rename** pattern (the same fsync-before-rename discipline the config write path uses for the YAML file): encrypt all entries, write the complete updated `secrets.enc` to a temp file, `fsync`, atomically `rename` over the live file, `fsync` the directory. (E68-1: `secrets.enc` — the name both Locked docs use, Doc 06 §3.4/§4.8 + Doc 15 §3.8; the content is encrypted JSON, not YAML.) A crash before the rename leaves the prior file intact (all-or-nothing); after the rename, all entries are durable (durable-before-return). This satisfies AMD-60-INV-03 at the store layer so the M9 `CredentialRotator` impl inherits it by calling `setAll`.
 
 ## 3. Downstream Impact
 
