@@ -78,6 +78,8 @@ NO `SecureCredentialBundle` type (retired, §1.2). NO `credentialsFor` read acce
 - **AMD-68-INV-01:** `SecretStore.setAll(Map)` is all-or-nothing and durable-before-return — it is the store-layer guarantee beneath AMD-60-INV-03; a multi-secret set can never be torn by a crash.
 - Cites: Doc 15 §7.3 (the requirement, verbatim); AMD-60 §2.1/§9 R7/A5 + AMD-60-INV-03 (the consumer + the retired bundle); Doc 06 §3.4/§8.5 (`SecretStore`); LTD-17 (integration-scoped rotation).
 
+**Ruling correction (2026-06-10, Nick — M6.1a module-info escalation):** "unchanged" is scoped to the **HomeSynapse-module edge set** (`requires transitive com.homesynapse.event` only). M6.1a adds the five **third-party, non-transitive** `requires` directives ruled physically necessary (full text in the AMD-66 §7 ruling-correction note); the embed below remains the M6.1b-era baseline (`6c6dd33`).
+
 **Verbatim `module-info.java` (`com.homesynapse.config`, at `6c6dd33`) — unchanged by this AMD:**
 
 ```java

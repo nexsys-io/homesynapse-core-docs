@@ -86,6 +86,8 @@ NO migration *execution* beyond the chain contract (the actual migrators are aut
 - **AMD-67-INV-02:** a minor-only config-document mismatch never triggers migration; a major mismatch always does (adopted from AMD-54-INV-02 for the system-config surface).
 - Cites: Doc 06 §3.7/§4.1; AMD-54 (REC-41 schema half, RATIFIED — the cleared blocker) §2/§3/INV-01/INV-02; Research 5 v2 (REC-56 deferred-then-cleared); P2 §8.1 (two integers).
 
+**Ruling correction (2026-06-10, Nick — M6.1a module-info escalation):** "unchanged" is scoped to the **HomeSynapse-module edge set** (`requires transitive com.homesynapse.event` only). M6.1a adds the five **third-party, non-transitive** `requires` directives ruled physically necessary (full text in the AMD-66 §7 ruling-correction note); the embed below remains the M6.1b-era baseline (`6c6dd33`).
+
 **Verbatim `module-info.java` (`com.homesynapse.config`, at `6c6dd33`) — unchanged by this AMD:**
 
 ```java

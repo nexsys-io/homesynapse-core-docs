@@ -67,6 +67,8 @@ NO change to `ReloadResult` (additive consumption only — REC-61). NO state-der
 - **AMD-70-INV-01:** `config.validation_completed` and `config.section_reloaded` are observability-only — no state projection consumes them; the config file remains the sole source of truth (INV-CE-01).
 - Cites: Doc 06 §3.3/§4.3 (`ReloadResult`); AMD-52 / NQ-5 (event package landing, flat `com.homesynapse.event`); M3.6c manifest pattern; M4.C consumer/pin-survey lesson; AMD-66 (classification source); AMD-67 (payload pair).
 
+**Ruling correction (2026-06-10, Nick — M6.1a module-info escalation):** "unchanged" is scoped to the **HomeSynapse-module edge set** (`requires transitive com.homesynapse.event` only). M6.1a adds the five **third-party, non-transitive** `requires` directives ruled physically necessary (full text in the AMD-66 §7 ruling-correction note); the embed below remains the M6.1b-era baseline (`6c6dd33`).
+
 **Verbatim `module-info.java` (`com.homesynapse.config`, at `6c6dd33`) — unchanged by this AMD** (events land in `com.homesynapse.event`, already `requires transitive`):
 
 ```java

@@ -53,7 +53,9 @@ When **no** `ConfigurationChangeListener` is registered for a changed section, t
 
 ### 2.4 Registration
 
-Listeners are registered with `ConfigurationService` at composition time (constructor-injected map keyed by `sectionPath()`, no `ServiceLoader` — consistent with the DEC-M3-16 / REC-28 no-`ServiceLoader` discipline). At most one listener per section path; a duplicate registration is a construction-time error.
+Listeners are registered with `ConfigurationService` at composition time (constructor-injected, no `ServiceLoader` — consistent with the DEC-M3-16 / REC-28 no-`ServiceLoader` discipline). At most one listener per section path; a duplicate registration is a construction-time error.
+
+**Correction (2026-06-10, ruled at the M6.1b review — Coder `[REVIEW]` accepted):** the constructor parameter is a **`List<ConfigurationChangeListener>`**, not a `Map` keyed by `sectionPath()` — the service builds the internal map and throws `IllegalArgumentException` on a duplicate section path at construction. (The originally specified `Map` parameter could never carry a duplicate, making this section's own duplicate-rejection contract unenforceable in the service.) Substance unchanged: composition-time registration, no `ServiceLoader`, at most one listener per section path.
 
 ## 3. Downstream Impact
 
@@ -84,6 +86,8 @@ NO change to `ReloadClassification` (the 3 values are locked). NO hot-swap *mech
 - **AMD-66-INV-01:** a `ConfigurationChangeListener` classifies a section change and is forbidden from mutating the `ConfigModel` (INV-CE-01 — the YAML file is the sole source of truth).
 - **AMD-66-INV-02:** classification is synchronous and completes before the reload observability event is published (Doc 06 §3.3 ordering).
 - Cites: Doc 06 §3.3/§4.3; `ReloadClassification` (locked, 3 values); INV-CE-01; PM Assessment v2 F7 (corrected shape); DEC-M3-16 (no `ServiceLoader`).
+
+**Ruling correction (2026-06-10, Nick — M6.1a module-info escalation):** "unchanged" is scoped to the **HomeSynapse-module edge set** (`requires transitive com.homesynapse.event` only; no `config→platform`/`config→persistence` edge — the [AMD-71-A] zero-new-edge property is preserved). M6.1a adds **third-party, non-transitive** directives ruled physically necessary (snakeyaml-engine 2.9 and json-schema-validator 1.5.6 are explicit JPMS modules resolving on the module path; Gradle `implementation` scope does not exempt JPMS): `requires org.snakeyaml.engine.v2; requires com.networknt.schema; requires com.fasterxml.jackson.core; requires com.fasterxml.jackson.databind; requires org.slf4j;` — consumed only by package-private pipeline classes. The embed below remains the M6.1b-era baseline (`6c6dd33`).
 
 **Verbatim `module-info.java` (`com.homesynapse.config`, at `6c6dd33`) — unchanged by this AMD:**
 

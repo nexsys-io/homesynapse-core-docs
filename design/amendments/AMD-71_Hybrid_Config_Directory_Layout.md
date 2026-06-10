@@ -73,6 +73,8 @@ NO multi-level include. NO config outside `${config_dir}`. NO change to `ConfigV
 - **AMD-71-INV-02:** `!include` is one level deep; a nested include is a structural FATAL error.
 - Cites: Doc 06 §3.1 (loading pipeline); Doc 15 §9 (`${config_dir}`, `signing-key.pub`); `PlatformPaths.configDir()` (M5-A); `ConfigValidator` `String`-schema contract (source-verified); REC-60.
 
+**Ruling correction (2026-06-10, Nick — M6.1a module-info escalation):** "unchanged permanently" is scoped to the **HomeSynapse-module edge set** — the [AMD-71-A] substance (NO `config→platform` edge; composition-root `Path` injection; zero-new-HomeSynapse-edge) is untouched and remains permanent. M6.1a adds the five **third-party, non-transitive** `requires` directives ruled physically necessary (see AMD-66 §7 ruling-correction note for the full text); the embed below remains the M6.1b-era baseline (`6c6dd33`).
+
 **Verbatim `module-info.java` (`com.homesynapse.config`, at `6c6dd33`) — unchanged by this AMD, permanently** (`[AMD-71-A]` RESOLVED per E71-2, §3: composition-root `Path` injection; NO `requires com.homesynapse.platform` is added for the config-dir):
 
 ```java
