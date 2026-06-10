@@ -2,7 +2,7 @@
 file: design/amendments/AMD-68_SecretStore_Atomic_Multi_Key_Write.md
 purpose: AMD-68 — SecretStore.setAll(Map) atomic, durable, all-or-nothing multi-key write beneath AMD-60 CredentialRotator. Reconciles Doc 06 §8.5 with Doc 15 §7.3. (Doc 06 currency amendment.)
 audience: Nick (ratify), PM, Coder
-status: RATIFY-WITH-EDITS (DOCS review RETURNED 2026-06-09; [AMD-68-A] bundle/credentialsFor retirement VERIFIED — no orphaned consumer; E68-1 secrets.enc edit FOLDED 2026-06-09) — AWAITS NICK RATIFICATION
+status: RATIFIED 2026-06-09 (Nick) — DOCS review RATIFY-WITH-EDITS, edit E68-1 folded `aedff55` ([AMD-68-A] bundle/credentialsFor retirement VERIFIED — no orphaned consumer); return: nexsys-hivemind `context/audits/2026-06-09_AMD-66-71_DOCS_Review_Return.md`
 source: Doc 15 §7.3 (the SecretStore currency requirement) + AMD-60-INV-03 (CredentialRotator atomic+durable) + Research 5 REC-57 (bundle/read half RETIRED by ratified AMD-60 — see §1.2)
 baseline: homesynapse-core HEAD `6c6dd33` (2026-06-08) — SecretStore (4 methods) source-verified at this commit
 -->
@@ -94,11 +94,11 @@ module com.homesynapse.config {
 
 ## 9. Ratification Checklist
 
-- [ ] DOCS-Project review returned; deltas folded (esp. `[REVIEW-FLAG AMD-68-A]` — bundle/`credentialsFor` retirement vs AMD-60)
-- [ ] Nick ratification
-- [ ] AMD-68-INV-01 registered in `Architecture_Invariants_v1.md`
-- [ ] Navigation-index amendments row added (watermark unchanged — 68 < 87)
+- [x] DOCS-Project review returned; deltas folded — 2026-06-09 (E68-1 folded, commit `aedff55`; `[AMD-68-A]` retirement VERIFIED)
+- [x] Nick ratification — 2026-06-09
+- [x] AMD-68-INV-01 registered in `Architecture_Invariants_v1.md` (§39) — 2026-06-09
+- [x] Navigation-index amendments row added (watermark unchanged — 68 < 87) — 2026-06-09
 
 ## 10. Review Disposition
 
-_Pending DOCS-Project review (M6 config block AMD-66..71)._ Key review item: the §1.2 cross-amendment reconciliation (Research 5 REC-57 bundle/read half retired by ratified AMD-60); the §2.2 atomic-rename durability mechanism satisfying AMD-60-INV-03.
+**DOCS-Project review (2026-06-09): RATIFY-WITH-EDITS — E68-1 (`secrets.yaml.enc` → `secrets.enc`, the name both Locked docs use), folded by the PM 2026-06-09 and committed at docs `aedff55`.** Return: nexsys-hivemind `context/audits/2026-06-09_AMD-66-71_DOCS_Review_Return.md` (block verdict RATIFY-WITH-EDITS; source baseline re-derived independently at `6c6dd33`). `[AMD-68-A]` **VERIFIED, stands:** ratified AMD-60 §2.1/§9 (R7/A5) rejected the `SecureCredentialBundle` carrier and kept reads on `ConfigurationAccess`; `SecureCredentialBundle`/`credentialsFor` have zero references in core source — no orphaned consumer. The review confirmed `setAll(Map)` is the correct and sufficient store-layer discharge of AMD-60-INV-03 (the write-temp → fsync → atomic-rename → fsync-dir mechanism in §2.2). The §7 verbatim `module-info.java` embed source-verified at `6c6dd33`. Ratified by Nick 2026-06-09 at the M6 config-block ratification (watermark unchanged at AMD-87). Implementing WU M6.2's gate is now half-satisfied (AMD-68 ratified; still gated on M6.1 landing).

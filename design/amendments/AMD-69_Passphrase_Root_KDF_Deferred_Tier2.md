@@ -2,7 +2,7 @@
 file: design/amendments/AMD-69_Passphrase_Root_KDF_Deferred_Tier2.md
 purpose: AMD-69 — RECONCILE Research 5 REC-58 (Argon2id + BouncyCastle) against Locked Doc 15: the passphrase-root KDF is Tier-2/post-MVP and its provider is open (OQ-15-3). DEFERRED, not an active M6 contract.
 audience: Nick (ratify/confirm-deferral), PM, Coder
-status: CONFIRM-DEFERRAL (DOCS review RETURNED 2026-06-09 — all 3 Doc-15 conflicts re-verified verbatim; ruling: ratify as DEFERRED, Option (a); do NOT re-open OQ-15-3) — AWAITS NICK's deferral confirmation. The number is reserved for the eventual Tier-2 passphrase-root-KDF amendment that resolves OQ-15-3.
+status: DEFERRED — Nick confirmed Option (a) at the 2026-06-09 block ratification; reserved for the Tier-2/OQ-15-3 passphrase-root-KDF amendment. (DOCS review 2026-06-09 ruling CONFIRM-DEFERRAL — all 3 Doc-15 conflicts re-verified verbatim; do NOT re-open OQ-15-3; return: nexsys-hivemind `context/audits/2026-06-09_AMD-66-71_DOCS_Review_Return.md`)
 source: Research 5 REC-58 (PM Assessment v2: ACTIVE) — SUPERSEDED for MVP by Locked Doc 15 §2.3/§3.5/§3.8 + OQ-15-3 (this AMD records the reconciliation)
 baseline: homesynapse-core HEAD `6c6dd33`; Doc 15 LOCKED (watermark AMD-87)
 -->
@@ -63,10 +63,10 @@ Blocking: NO — M6.1/M6.2/M6.3 do not depend on the passphrase root; the MVP ma
 
 ## 7. Ratification Checklist
 
-- [ ] Nick **confirms the deferral** (Option (a)) — this is the ratification act for a deferred amendment
-- [ ] DOCS-Project review notes the Research-5/Doc-15 reconciliation (no contract frozen)
-- [ ] Navigation-index records AMD-69 as RESERVED/DEFERRED (Tier-2, OQ-15-3); watermark unchanged
+- [x] Nick **confirms the deferral** (Option (a)) — this is the ratification act for a deferred amendment — 2026-06-09
+- [x] DOCS-Project review notes the Research-5/Doc-15 reconciliation (no contract frozen) — 2026-06-09 (ruling CONFIRM-DEFERRAL)
+- [x] Navigation-index records AMD-69 as RESERVED/DEFERRED (Tier-2, OQ-15-3); watermark unchanged — 2026-06-09
 
 ## 8. Review Disposition
 
-_Pending Nick's deferral confirmation + DOCS-Project review note._ This is the M6 block's **key cross-document reconciliation** — Locked Doc 15 governs the encryption domain and reclassifies REC-58 to Tier-2.
+**CLOSED — DOCS-Project review (2026-06-09): CONFIRM-DEFERRAL; Nick confirmed Option (a) at the 2026-06-09 block ratification.** Return: nexsys-hivemind `context/audits/2026-06-09_AMD-66-71_DOCS_Review_Return.md`. The review independently re-verified all three Doc 15 conflicts verbatim (§2.3 passphrase root post-MVP; §3.5/§7.3 machine-local MVP root; §3.8 zero-MVP-deps + open OQ-15-3) and ruled that committing `bcprov-jdk18on` at M6 would be a 3-count Locked-doc violation; it further ruled **do NOT re-open OQ-15-3 now** (Tier-2 has no MVP consumer; the GraalVM closed-world input is not yet in). The §4 escalation is RESOLVED. **The number AMD-69 stays reserved** for the eventual Tier-2 passphrase-root-KDF amendment that resolves OQ-15-3; OQ-15-3 stays closed-as-open-question, owned by Doc 15. The active M6 config block is AMD-66/67/68/70/71 (all RATIFIED 2026-06-09); no invariant registers from this AMD (deferral record); watermark unchanged at AMD-87.

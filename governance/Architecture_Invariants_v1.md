@@ -67,8 +67,13 @@ The complete set of category prefixes currently in use is:
 | `AMD-64-INV` | Per-Descriptor Planned-Restart Timeout (AMD-64) | §34 |
 | `AMD-86-INV` | INV-PD-07 Crypto-Shred MVP-Scope Narrow + INV-PD-03 At-Rest Posture (AMD-86) | §35 |
 | `AMD-87-INV` | `Expectation` Persisted Sealed-Type Codec (AMD-87) | §36 |
+| `AMD-66-INV` | `ConfigurationChangeListener` — Per-Section Reload Reaction (AMD-66) | §37 |
+| `AMD-67-INV` | Config-Document Schema Versioning `(major, minor)` (AMD-67) | §38 |
+| `AMD-68-INV` | `SecretStore` Atomic Multi-Key Durable Write (AMD-68) | §39 |
+| `AMD-70-INV` | Configuration Observability Events (AMD-70) | §40 |
+| `AMD-71-INV` | Hybrid Configuration Directory Layout (AMD-71) | §41 |
 
-The §17 Invariant Index provides the canonical per-identifier lookup; the §18 Traceability Matrix maps each category to failure modes and opportunities. The BUS / PROJ / WRITER / SUB-ISO categories were added by Phase 3 governance work (AMD-41, AMD-42, AMD-43, applied 2026-05-16); their canonical definitions live in §19. The `AMD-47-INV-NN` identifiers are **amendment-scoped** contract-level invariants (the convention introduced by the projection block's `AMD-50-INV-NN`); their canonical definitions live in §20 and they trace 1:1 to AMD-47 (RATIFIED 2026-05-30). The `AMD-54-INV` … `AMD-64-INV` categories (§24–§34) were registered together at the Workstream C integration-block ratification (2026-06-05, single review return) and trace 1:1 to AMD-54..64.
+The §17 Invariant Index provides the canonical per-identifier lookup; the §18 Traceability Matrix maps each category to failure modes and opportunities. The BUS / PROJ / WRITER / SUB-ISO categories were added by Phase 3 governance work (AMD-41, AMD-42, AMD-43, applied 2026-05-16); their canonical definitions live in §19. The `AMD-47-INV-NN` identifiers are **amendment-scoped** contract-level invariants (the convention introduced by the projection block's `AMD-50-INV-NN`); their canonical definitions live in §20 and they trace 1:1 to AMD-47 (RATIFIED 2026-05-30). The `AMD-54-INV` … `AMD-64-INV` categories (§24–§34) were registered together at the Workstream C integration-block ratification (2026-06-05, single review return) and trace 1:1 to AMD-54..64. The `AMD-66-INV` … `AMD-71-INV` categories (§37–§41) were registered together at the M6 configuration-block ratification (2026-06-09, single review return) and trace 1:1 to AMD-66/67/68/70/71; **AMD-69 is DEFERRED (Tier-2/OQ-15-3) and registers no invariant — the number stays reserved.** The sections are numbered by AMD order (66, 67, 68, 70, 71 → §37–§41); the section count is five because the deferred AMD-69 contributes none.
 
 ### 0.4 Relationship to Other Artifacts
 
@@ -1032,8 +1037,16 @@ Complete index of all invariants for reference from subsystem design documents.
 | **AMD-64-INV-01** | Null ⇒ Global §3.14 Default; Present Value Positive and Fully Replacing | §34 |
 | **AMD-86-INV-01** | Encrypt-on-Write Is Irreversible; the Shred Operation Is Deferrable | §35 |
 | **AMD-87-INV-01** | Every `Expectation` Permit Round-Trips Losslessly (AMD-52 Float Discipline) | §36 |
+| **AMD-66-INV-01** | Listeners Classify; They Never Mutate the `ConfigModel` | §37 |
+| **AMD-66-INV-02** | Classification Is Synchronous, Before the Reload Event Publishes | §37 |
+| **AMD-67-INV-01** | System-Config and Adapter-Config Schemas Are Distinct Surfaces | §38 |
+| **AMD-67-INV-02** | Major Triggers Migration, Minor Never (System-Config Surface) | §38 |
+| **AMD-68-INV-01** | `setAll(Map)` Is All-or-Nothing and Durable-Before-Return | §39 |
+| **AMD-70-INV-01** | Config Events Are Observability-Only | §40 |
+| **AMD-71-INV-01** | The Loader Reads Only Within the Canonicalized Config Tree | §41 |
+| **AMD-71-INV-02** | `!include` Is One Level Deep | §41 |
 
-**Total: 135 invariants across 34 categories.**
+**Total: 152 invariants across 41 identifier categories (§0.3).** _Regenerated from this table at the 2026-06-09 M6-block registration (+8 rows): the table holds 152 identifier rows and §0.3 holds 41 prefix categories. The previously stated "135 invariants across 34 categories" was a copied-forward running count that had drifted 9 below the table (the same −9 offset traces back through the "133" and "104" statements); per the Check-11 source-round-trip rule the count is now derived from the table, not carried forward. Flagged in pm-handoff 2026-06-09._
 
 ---
 
@@ -1075,6 +1088,11 @@ This section maps each invariant category to the competitive failure modes and s
 | §34 Per-Descriptor Planned-Restart Timeout (AMD-64) | One global 60s planned-restart grace forcing the Zigbee radio-re-init worst case onto stateless cloud pollers, or false-positive failures on slow adapters | Nullable per-descriptor override with the global §3.14 default as fallback; present values fully replace, never combine | AMD-64 (RATIFIED 2026-06-05); Research 6 REC-51. Implemented by **M4.C**; enforcement M9 |
 | §35 INV-PD-07 Crypto-Shred MVP-Scope Narrow + INV-PD-03 At-Rest Posture (AMD-86) | A ratified constitutional privacy invariant (INV-PD-07) mandating *operational* crypto-shredding at MVP that has no MVP consumer (a local single-home install deletes via whole-install reset; the immutability-vs-erasure conflict only bites with post-MVP audit-retention or off-device data) — and, conversely, the research deferring *all* at-rest encryption to Tier-2, leaving plaintext sensitive-PII on a removable SD card (a live INV-PD-03 exfiltration hole); an at-rest claim overstated as "safe if stolen" when a machine-local key shares the medium | Narrow INV-PD-07's MVP clause to encrypt-on-write-now / shred-operation-post-MVP (decision D2), preserving the `scope_keys` schema seam so the deferred operation is a clean later-add over the already-encrypted corpus (AMD-86-INV-01: encrypt-on-write irreversible, shred deferrable). State the INV-PD-03 at-rest posture precisely — partial MVP satisfaction (machine-local root protects key-excluding copies + less-privileged reads, NOT medium theft / on-device root; user-owned-key + media-theft resistance = Tier-2 via passphrase/TPM) — so the trust-brand claim is honest by construction | AMD-86 (RATIFIED 2026-06-07); decision D2; Doc 15 §3.4/§3.5/§3.6 (owner doc, Locked 2026-06-07); full DOCS review `2026-06-06_Doc15_AMD-86_DOCS_Review_Return.md` (J1/F-A threat-model PASS). Implemented by **M6** (MVP at-rest encryption + key infra); shred operation post-MVP |
 | §36 `Expectation` Persisted Sealed-Type Codec (AMD-87) | A command-bearing `CapabilityAdded` carrying `CommandDefinition → ExpectedOutcome → Expectation` decoding to `DegradedEvent` because the sealed `Expectation` device type has no persistence codec — blocking M9 from publishing command-bearing capability events; a future 5th permit silently lossy-encoding through a `default` arm; float tolerances breaking forensic bit-identity | A hand-rolled tagged-union `Expectation` (de)serializer in `core/persistence` (no `@JsonTypeInfo`; exhaustive no-`default` switch over the 4 permits → a new permit is a compile break; AMD-52 bit-anchored-float discipline for `WithinTolerance`) so every permit round-trips losslessly (AMD-87-INV-01); the lone JPMS change `persistence requires com.homesynapse.device` is verified acyclic | AMD-87 (RATIFIED 2026-06-07, lightweight P4); reassigned from retired AMD-65 per the P2 ledger; AMD-52 codec precedent; lightweight review `2026-06-06_AMD-87_DOCS_Review_Return.md`. Implemented by **M5-A Part 2** (un-gated 2026-06-07) |
+| §37 `ConfigurationChangeListener` — Per-Section Reload Reaction (AMD-66) | A reload pipeline with no consumer-facing seam — subsystems unable to declare how their section's change applies at runtime; a listener mutating the model out from under the file (violating the file-as-sole-source-of-truth); classification racing the published reload event so observers see an unclassified change | A plain, non-generic listener interface (the F7-corrected shape — the v1 sealed-generic bound was unsatisfiable on a final record) registered at composition time (no `ServiceLoader`, DEC-M3-16), classifying synchronously before the reload event publishes (AMD-66-INV-01/02); no-listener fallback = the locked per-property `x-reload` default (`PROCESS_RESTART`, [AMD-66-A] ENDORSED) | AMD-66 (RATIFIED 2026-06-09); Research 5 REC-55 (F7-corrected); Doc 06 §3.3/§4.3; review return `2026-06-09_AMD-66-71_DOCS_Review_Return.md`. Implemented by **M6.1**; exercised under the swap at **M6.4** |
+| §38 Config-Document Schema Versioning `(major, minor)` (AMD-67) | A single `int schemaVersion` conflating breaking and additive config-document evolution (no way to say "additive, no migration needed"); the system-config and adapter-config version surfaces silently conflated (the confusion AMD-54 §3 warned of) | The `(configSchemaMajor, configSchemaMinor)` pair on `ConfigModel`/`ConfigMigrator`/`MigrationPreview`, the same idiom AMD-54 froze for adapter configs, on an explicitly distinct surface (AMD-67-INV-01); minor-only never migrates, major always does (AMD-67-INV-02, the AMD-54-INV-02 transplant); zero blast radius (no production migrator; no cross-module `ConfigModel` consumer) | AMD-67 (RATIFIED 2026-06-09); Research 5 REC-56 (REC-41 blocker cleared by ratified AMD-54 §1.1); review return `2026-06-09_AMD-66-71_DOCS_Review_Return.md` (E67-1/2 folded). Implemented by **M6.1** |
+| §39 `SecretStore` Atomic Multi-Key Durable Write (AMD-68) | A loop of single-key `set()` calls tearing an OAuth access+refresh-token pair on crash — a credential left half-rotated and unusable; the ratified AMD-60-INV-03 (rotate atomic-across-entries, durable-before-return) having no store-layer write that can satisfy it; Doc 06 §8.5 stale vs the Locked Doc 15 §7.3 requirement | `SecretStore.setAll(Map)` — all-or-nothing, durable-before-return via write-temp → fsync → atomic-rename → fsync-dir on `secrets.enc` (AMD-68-INV-01), the store-layer guarantee beneath the M9 `CredentialRotator`; the REC-57 bundle/`credentialsFor` half retired by ratified AMD-60 ([AMD-68-A] VERIFIED — no orphaned consumer), keeping reads on `ConfigurationAccess` | AMD-68 (RATIFIED 2026-06-09 — the Doc 06 currency amendment); Doc 15 §7.3 (verbatim requirement); AMD-60-INV-03; review return `2026-06-09_AMD-66-71_DOCS_Review_Return.md` (E68-1 folded). Implemented by **M6.2** (interface may freeze at M6.1) |
+| §40 Configuration Observability Events (AMD-70) | Validation passes and section reloads invisible to the event log, dashboard, and audit narrative; config-module types specified inside event-resident records forcing an `event→config` JPMS cycle (the AMD-52 `event↔device` class — the review's load-bearing E70-1 catch); new event types missing manifest/pin sites and failing `encode()` in production (the M4.C lesson) | Two observability-only dot-namespaced events (`config.validation_completed`, `config.section_reloaded`) that never participate in state projection (AMD-70-INV-01, INV-CE-01); payloads flattened to event-resident/`java.base` types under the **type-residency rule** (config types consumed, never referenced — now standing in the P2 consumer/pin survey as the JPMS contract-direction check); full manifest registration enumerated for the M6.1 survey | AMD-70 (RATIFIED 2026-06-09); Research 5 REC-59+REC-61; NQ-5 (flat `com.homesynapse.event`, AMD-52 precedent); review return `2026-06-09_AMD-66-71_DOCS_Review_Return.md` (E70-1 LOAD-BEARING + E70-2 folded). Implemented by **M6.1** (`validation_completed`) + **M6.4** (`section_reloaded`, survey re-run) |
+| §41 Hybrid Configuration Directory Layout (AMD-71) | No fixed on-disk layout contract for the loader; unconstrained `!include` inviting the Home-Assistant chained-include footgun and path-traversal reads (`../`, absolute, symlink escape); a `config → platform` JPMS edge (or implied readability) falsifying every embedded module-info just to resolve the config dir | The hybrid layout rooted at `PlatformPaths.configDir()` (root doc + `integrations/` + `secrets.enc` + regenerable `schemas/` + `signing-key.pub`); canonicalization-based fail-closed containment (AMD-71-INV-01) and one-level-deep `!include` (AMD-71-INV-02); the config-dir `Path` injected from the composition root ([AMD-71-A]/E71-2 ruling = M6.1 DP-3) preserving the zero-new-edge property the Doc 15 §3.8 E2 bridge depends on | AMD-71 (RATIFIED 2026-06-09); Research 5 REC-60; Doc 06 §3.1; Doc 15 §9 (`${config_dir}`); review return `2026-06-09_AMD-66-71_DOCS_Review_Return.md` (E71-1/2 folded). Implemented by **M6.1** |
 
 ---
 
@@ -1453,6 +1471,68 @@ Retry backoff (`BackoffParameters`) and recovery probing (`HealthParameters.prob
 ### AMD-87-INV-01: Every `Expectation` Permit Round-Trips Losslessly
 
 Every `Expectation` permit round-trips losslessly through `EventPayloadCodec`; `WithinTolerance`'s two doubles use the AMD-52 bit-anchored-float / non-finite-sentinel determinism (so a tolerance of `0.1` or a `NaN` sentinel survives encode→decode bit-identically). Cites: AMD-52 (float determinism), AMD-59-INV-02 (`CapabilityAdded` carries the full instance), the `NO_JACKSON_IN_DOMAIN_MODEL` rule.
+
+---
+
+## 37. `ConfigurationChangeListener` — Per-Section Reload Reaction (AMD-66)
+
+§37 opens the five-section M6 configuration block (§37–§41), registered together at the block ratification of AMD-66..71 (66/67/68/70/71 **RATIFIED 2026-06-09** — single DOCS-Project review return, nexsys-hivemind `context/audits/2026-06-09_AMD-66-71_DOCS_Review_Return.md`; block verdict RATIFY-WITH-EDITS, all seven edits E67-1/2, E68-1, E70-1/2, E71-1/2 folded at docs `aedff55`), following the §24-block precedent: each section registered here (plus §0.3, the §17 Invariant Index, and the §18 Traceability Matrix) in the same commit. **AMD-69 is DEFERRED (Nick confirmed Option (a) at this ratification) — it registers no invariant; the number stays reserved for the Tier-2/OQ-15-3 passphrase-root-KDF amendment.** All six numbers sit below the AMD-87 watermark in the reserved range — ratification fills reserved slots, it does not raise the ceiling. Contracts are registered at ratification; **M6.1** (config pipeline) implements the listener interface and registration, **M6.4** (hot-reload atomic swap) exercises it under the swap. Identifiers use the amendment-scoped `AMD-NN-INV-NN` form. Each AMD remains the implementing-policy source-of-truth. The statements below are verbatim from AMD-66 §7.
+
+### AMD-66-INV-01: Listeners Classify; They Never Mutate the `ConfigModel`
+
+A `ConfigurationChangeListener` classifies a section change and is forbidden from mutating the `ConfigModel` (INV-CE-01 — the YAML file is the sole source of truth).
+
+### AMD-66-INV-02: Classification Is Synchronous, Before the Reload Event Publishes
+
+Classification is synchronous and completes before the reload observability event is published (Doc 06 §3.3 ordering).
+
+---
+
+## 38. Config-Document Schema Versioning `(major, minor)` (AMD-67)
+
+§38 registers the invariant category added by AMD-67, RATIFIED 2026-06-09 as part of the M6 config block (see §37 preamble). Implementing WU: **M6.1** (config pipeline — loader/migrator). The statements below are verbatim from AMD-67 §7.
+
+### AMD-67-INV-01: System-Config and Adapter-Config Schemas Are Distinct Surfaces
+
+The system config-document schema `(configSchemaMajor, configSchemaMinor)` and the adapter-config schema `(IntegrationDescriptor.configSchemaMajor, …Minor)` are **distinct compatibility surfaces**; no code path derives one from the other.
+
+### AMD-67-INV-02: Major Triggers Migration, Minor Never (System-Config Surface)
+
+A minor-only config-document mismatch never triggers migration; a major mismatch always does (adopted from AMD-54-INV-02 for the system-config surface).
+
+---
+
+## 39. `SecretStore` Atomic Multi-Key Durable Write (AMD-68)
+
+§39 registers the invariant category added by AMD-68 (the Doc 06 `SecretStore.setAll(Map)` currency amendment required by Locked Doc 15 §7.3), RATIFIED 2026-06-09 as part of the M6 config block (see §37 preamble). Implementing WU: **M6.2** (secret store + per-scope key-management; the interface addition may freeze at M6.1). The statement below is verbatim from AMD-68 §7.
+
+### AMD-68-INV-01: `setAll(Map)` Is All-or-Nothing and Durable-Before-Return
+
+`SecretStore.setAll(Map)` is all-or-nothing and durable-before-return — it is the store-layer guarantee beneath AMD-60-INV-03; a multi-secret set can never be torn by a crash.
+
+---
+
+## 40. Configuration Observability Events (AMD-70)
+
+§40 registers the invariant category added by AMD-70 (`config.validation_completed` + `config.section_reloaded`), RATIFIED 2026-06-09 as part of the M6 config block (see §37 preamble; the review's load-bearing E70-1 fold — event payloads flattened to event-resident/`java.base` types under the type-residency rule, avoiding the `event→config` JPMS cycle — is part of the ratified text). Implementing WU: **M6.1** (`config.validation_completed`); **M6.4** publishes `config.section_reloaded` and must re-run the P2 consumer/pin survey for it. The statement below is verbatim from AMD-70 §7.
+
+### AMD-70-INV-01: Config Events Are Observability-Only
+
+`config.validation_completed` and `config.section_reloaded` are observability-only — no state projection consumes them; the config file remains the sole source of truth (INV-CE-01).
+
+---
+
+## 41. Hybrid Configuration Directory Layout (AMD-71)
+
+§41 closes the M6 config block, registering the invariant category added by AMD-71 (hybrid layout rooted at `PlatformPaths.configDir()`, resolved via composition-root `Path` injection per the [AMD-71-A]/E71-2 ruling — no `config → platform` edge), RATIFIED 2026-06-09 (see §37 preamble). Implementing WU: **M6.1** (config pipeline — layout, one-level include, traversal guard). The statements below are verbatim from AMD-71 §7.
+
+### AMD-71-INV-01: The Loader Reads Only Within the Canonicalized Config Tree
+
+The configuration loader reads only files contained within `PlatformPaths.configDir()` after canonicalization; an `!include` escaping the config tree is rejected fail-closed (no path-traversal read).
+
+### AMD-71-INV-02: `!include` Is One Level Deep
+
+`!include` is one level deep; a nested include is a structural FATAL error.
 
 ---
 

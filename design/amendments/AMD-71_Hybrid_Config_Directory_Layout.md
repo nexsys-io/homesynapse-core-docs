@@ -2,7 +2,7 @@
 file: design/amendments/AMD-71_Hybrid_Config_Directory_Layout.md
 purpose: AMD-71 — hybrid config directory layout (root + integrations/ + secrets.enc + schemas/) on PlatformPaths.configDir(), one-level !include, path-traversal protection (REC-60).
 audience: Nick (ratify), PM, Coder
-status: RATIFY-WITH-EDITS (DOCS review RETURNED 2026-06-09; E71-1 secrets.enc + E71-2 [AMD-71-A]→Path-injection resolution FOLDED 2026-06-09) — AWAITS NICK RATIFICATION
+status: RATIFIED 2026-06-09 (Nick) — DOCS review RATIFY-WITH-EDITS, edits E71-1 (`secrets.enc`) + E71-2 ([AMD-71-A] → composition-root Path injection) folded `aedff55`; return: nexsys-hivemind `context/audits/2026-06-09_AMD-66-71_DOCS_Review_Return.md`
 source: Research 5 REC-60 (PM Assessment v2: ACCEPTED IN PRINCIPLE — AMD deferred to M6 planning, which is now) + Doc 06 §3.1 + Doc 15 §9 (${config_dir})
 baseline: homesynapse-core HEAD `6c6dd33`; PlatformPaths.configDir() shipped M5-A (LinuxSystemPaths/LocalPaths)
 -->
@@ -89,11 +89,11 @@ module com.homesynapse.config {
 
 ## 9. Ratification Checklist
 
-- [ ] DOCS-Project review returned; deltas folded (esp. `[REVIEW-FLAG AMD-71-A]` — config→platform JPMS edge vs path injection)
-- [ ] Nick ratification
-- [ ] AMD-71-INV-01/02 registered in `Architecture_Invariants_v1.md`
-- [ ] Navigation-index amendments row added (watermark unchanged — 71 < 87)
+- [x] DOCS-Project review returned; deltas folded — 2026-06-09 (E71-1 + E71-2 folded, commit `aedff55`; `[AMD-71-A]` RULED — Path injection)
+- [x] Nick ratification — 2026-06-09
+- [x] AMD-71-INV-01/02 registered in `Architecture_Invariants_v1.md` (§41) — 2026-06-09
+- [x] Navigation-index amendments row added (watermark unchanged — 71 < 87) — 2026-06-09
 
 ## 10. Review Disposition
 
-_Pending DOCS-Project review (M6 config block AMD-66..71)._ Review note: the §2.3 path-traversal guard is the security-load-bearing item; `[REVIEW-FLAG AMD-71-A]` (the config-dir resolution: `requires com.homesynapse.platform` vs composition-root `Path` injection).
+**DOCS-Project review (2026-06-09): RATIFY-WITH-EDITS — E71-1 + E71-2, folded by the PM 2026-06-09 and committed at docs `aedff55`.** Return: nexsys-hivemind `context/audits/2026-06-09_AMD-66-71_DOCS_Review_Return.md` (block verdict RATIFY-WITH-EDITS; source baseline re-derived independently at `6c6dd33`). **`[AMD-71-A]` RULED: composition-root `Path` injection (Option b)** — the `config → platform` edge is avoided, every embedded `module-info.java` stays true permanently, and the zero-new-edge property the Doc 15 §3.8 E2 bridge / M6.2 CARRY 1 treat as load-bearing is preserved; the ruling **confirms the M6.1 instruction's DP-3**. The §2.3 canonicalization-based path-traversal guard and the §2.2 one-level include were verified sound (the security-load-bearing items). E71-1: `secrets.yaml.enc` → `secrets.enc` (the name both Locked docs use; encrypted JSON). The §7 verbatim `module-info.java` embed source-verified at `6c6dd33`. Ratified by Nick 2026-06-09 at the M6 config-block ratification (watermark unchanged at AMD-87).

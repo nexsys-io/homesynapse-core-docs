@@ -2,7 +2,7 @@
 file: design/amendments/AMD-66_Configuration_Change_Listener.md
 purpose: AMD-66 — public ConfigurationChangeListener interface for per-section reload reaction (REC-55, corrected shape).
 audience: Nick (ratify), PM, Coder
-status: RATIFY-AS-IS (DOCS-Project review RETURNED 2026-06-09 — `context/audits/2026-06-09_AMD-66-71_DOCS_Review_Return.md`; [AMD-66-A] PROCESS_RESTART fallback ENDORSED; F7 shape confirmed) — AWAITS NICK RATIFICATION
+status: RATIFIED 2026-06-09 (Nick) — DOCS review RATIFY-AS-IS ([AMD-66-A] `PROCESS_RESTART` fallback ENDORSED; F7 shape confirmed); return: nexsys-hivemind `context/audits/2026-06-09_AMD-66-71_DOCS_Review_Return.md`
 source: Research 5 REC-55 (PM Assessment v2 FINAL: ACCEPTED IN PRINCIPLE — shape corrected, F7) + Doc 06 §3.3/§4.3
 baseline: homesynapse-core HEAD `6c6dd33` (2026-06-08) — every config shape below source-verified at this commit
 -->
@@ -101,11 +101,11 @@ module com.homesynapse.config {
 
 ## 9. Ratification Checklist
 
-- [ ] DOCS-Project review returned; deltas folded
-- [ ] Nick ratification
-- [ ] AMD-66-INV-01/02 registered in `Architecture_Invariants_v1.md`
-- [ ] Navigation-index amendments row added (watermark unchanged — 66 < 87)
+- [x] DOCS-Project review returned; deltas folded — 2026-06-09 (RATIFY-AS-IS, no edits)
+- [x] Nick ratification — 2026-06-09
+- [x] AMD-66-INV-01/02 registered in `Architecture_Invariants_v1.md` (§37) — 2026-06-09
+- [x] Navigation-index amendments row added (watermark unchanged — 66 < 87) — 2026-06-09
 
 ## 10. Review Disposition
 
-_Pending DOCS-Project review (M6 config block AMD-66..71)._ Open flag for review: `[REVIEW-FLAG AMD-66-A]` — the §2.3 no-listener default (`PROCESS_RESTART`, not REC-55's `INTEGRATION_RESTART`).
+**DOCS-Project review (2026-06-09): RATIFY-AS-IS — no edits.** Return: nexsys-hivemind `context/audits/2026-06-09_AMD-66-71_DOCS_Review_Return.md` (block verdict RATIFY-WITH-EDITS; source baseline re-derived independently at `6c6dd33`). `[AMD-66-A]` resolved in the PM's favor — the review **ENDORSED** the §2.3 `PROCESS_RESTART` correction: there is no independent "listener-absent default"; absence falls back to the locked per-property `x-reload` mechanism (unannotated → `PROCESS_RESTART`), and a blanket `INTEGRATION_RESTART` would be wrong for non-integration sections and could under-apply a `process-restart` property. F7 corrected shape confirmed (`ConfigSection` is a final record; the v1 sealed-generic bound is unsatisfiable). The §7 verbatim `module-info.java` embed source-verified character-for-character at `6c6dd33`. Ratified by Nick 2026-06-09 at the M6 config-block ratification (66/67/68/70/71 RATIFIED; AMD-69 deferral confirmed, Option (a); watermark unchanged at AMD-87 — ratification fills reserved slots, it does not raise the ceiling).

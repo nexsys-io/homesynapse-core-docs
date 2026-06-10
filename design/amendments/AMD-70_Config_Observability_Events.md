@@ -2,7 +2,7 @@
 file: design/amendments/AMD-70_Config_Observability_Events.md
 purpose: AMD-70 — config.validation_completed + config.section_reloaded observability events in com.homesynapse.event (REC-59 + REC-61 folded).
 audience: Nick (ratify), PM, Coder
-status: RATIFY-WITH-EDITS (DOCS review RETURNED 2026-06-09; **E70-1 load-bearing JPMS-cycle fix** — payloads flattened to event-resident types + type-residency rule — and E70-2 FOLDED 2026-06-09) — AWAITS NICK RATIFICATION (E70-1 must be folded before the M6.1 gate lifts — done)
+status: RATIFIED 2026-06-09 (Nick) — DOCS review RATIFY-WITH-EDITS, edits E70-1 (**load-bearing JPMS-cycle fix** — payloads flattened to event-resident types + type-residency rule) + E70-2 folded `aedff55`; return: nexsys-hivemind `context/audits/2026-06-09_AMD-66-71_DOCS_Review_Return.md`
 source: Research 5 REC-59 (PM Assessment v2: ACTIVE) + REC-61 (MERGED into REC-59) + NQ-5 (RESOLVED — com.homesynapse.event flat, AMD-52 precedent)
 baseline: homesynapse-core HEAD `6c6dd33`; event-model manifest pattern source-verified at M3.6c / M4.C (EventTypes, EventCategoryMapping, EventTypeRegistry, JacksonWarmup)
 -->
@@ -83,12 +83,12 @@ module com.homesynapse.config {
 
 ## 9. Ratification Checklist
 
-- [ ] DOCS-Project review returned; deltas folded
-- [ ] Nick ratification
-- [ ] AMD-70-INV-01 registered in `Architecture_Invariants_v1.md`
-- [ ] Navigation-index amendments row added (watermark unchanged — 70 < 87)
-- [ ] M6.1 consumer/pin survey enumerates the exact manifest set before issue (P2)
+- [x] DOCS-Project review returned; deltas folded — 2026-06-09 (E70-1 + E70-2 folded, commit `aedff55`)
+- [x] Nick ratification — 2026-06-09
+- [x] AMD-70-INV-01 registered in `Architecture_Invariants_v1.md` (§40) — 2026-06-09
+- [x] Navigation-index amendments row added (watermark unchanged — 70 < 87) — 2026-06-09
+- [x] M6.1 consumer/pin survey enumerates the exact manifest set before issue (P2) — VERIFIED complete by the review 2026-06-09 (§2.2 set correctly enumerated; **M6.4 must re-run the survey for `config.section_reloaded`**)
 
 ## 10. Review Disposition
 
-_Pending DOCS-Project review (M6 config block AMD-66..71)._ Review note: payload `(major, minor)` is contingent on AMD-67; category mapping `[SYSTEM]` is PM-confirmable at review (derived lookup).
+**DOCS-Project review (2026-06-09): RATIFY-WITH-EDITS — E70-1 (load-bearing) + E70-2, folded by the PM 2026-06-09 and committed at docs `aedff55`.** Return: nexsys-hivemind `context/audits/2026-06-09_AMD-66-71_DOCS_Review_Return.md` (block verdict RATIFY-WITH-EDITS; source baseline re-derived independently at `6c6dd33`). **E70-1 was the block's load-bearing catch:** the originally-specified payload types (`Map<Severity,Integer>`, `ReloadResult` breakdown, `ReloadClassification`) are config-module types inside event-resident records → an `event→config` JPMS cycle, the exact AMD-52 `event↔device` class. Folded as the §2.1 flattening (`Map<String,Integer>` keyed by `Severity.name()`; `String appliedClassification`) + the **type-residency rule** (config types are *consumed* to derive flattened components, never *referenced* in event records) — the rule now also stands in the P2 consumer/pin survey and the pm-/coder-lessons as the standing JPMS contract-direction discipline. E70-2: the `secret_added`/`secret_removed` claim was propagated unverified from Research 5 — source carries `CONFIG_CHANGED`/`CONFIG_ERROR` only; corrected. Payload `(major, minor)` contingency resolved — AMD-67 RATIFIED same block, the pair stands. `[SYSTEM]` category confirmed (consistent with `CONFIG_CHANGED → [SYSTEM]`). The §7 verbatim `module-info.java` embed source-verified at `6c6dd33`. Ratified by Nick 2026-06-09 at the M6 config-block ratification (watermark unchanged at AMD-87).
