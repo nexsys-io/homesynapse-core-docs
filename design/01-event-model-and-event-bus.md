@@ -606,6 +606,7 @@ The `event_category` field classifies every event into one or more consent-scope
 | `automation_triggered`, `automation_completed`, `automation_conflict_detected`, `automation_disabled`, `automation_run_skipped`, `automation_run_cancelled` | `automation` |
 | `presence_signal`, `presence_changed` | `presence` |
 | `config_changed`, `config_error` | `system` |
+| `config.validation_completed` *(row added 2026-06-10 — AMD-70 RATIFIED 2026-06-09; shipped M6.1b `b7bc65c` as the 35th `EventCategoryMapping` entry, `[SYSTEM]`, sibling-consistent with the two config rows above; `config.section_reloaded` follows at M6.4)* | `system` |
 | `integration_started`, `integration_stopped`, `integration_health_changed`, `integration_restarted` | `system` |
 | `system_starting`, `system_ready`, `system_stopping`, `system_stopped`, `unclean_shutdown_detected` | `system` |
 

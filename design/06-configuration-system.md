@@ -126,6 +126,8 @@ The Configuration System manages two categories of schema:
 
 Schema composition occurs once during startup, after integration registration and before configuration validation. If a new integration is registered at runtime (future consideration, not MVP), the schema must be recomposed.
 
+> **[CORRECTION NOTE — 2026-06-10, per ratified AMD-71 §2.1]:** Step 4's directory is stale. The ratified hybrid layout uses **`schemas/`** (plural): the composed schema is written to `/etc/homesynapse/schemas/config.schema.json`. M6.1a implements the ratified path (the on-disk cache is regenerable; write failure is WARN-not-fatal). The §9 example block's `schema_output_path` value below carries the same stale singular path. AMD-71 governs where this Locked body conflicts; the body text is preserved per the correction-note convention.
+
 ### 3.3 Reload Mechanism
 
 Configuration reload is triggered explicitly. There is no filesystem watching in MVP. Three triggers are supported:
@@ -229,6 +231,8 @@ Validation produces a list of `ConfigIssue` records (§4.5), each classified int
 **CLI behavior.** `homesynapse validate-config` loads and validates the configuration without starting the system. It reports all issues grouped by severity, with file path, YAML line number (where determinable from SnakeYAML Engine's marks), JSON Schema validation path, and a human-readable explanation. Exit codes: 0 (no issues or only warnings), 1 (errors present — system would start but with defaults applied), 2 (fatal issues — system would refuse to start).
 
 ### 3.7 Configuration Migration Framework (AMD-13)
+
+> **[AMENDMENTS IN FORCE — banner added 2026-06-10]:** The embedded code and prose below predate **AMD-67 (RATIFIED 2026-06-09)** and are retained as the Locked baseline only. The ratified, shipped shapes (M6.1, committed `b7bc65c`/`9035110`) are: the schema version is the **`(configSchemaMajor, configSchemaMinor)` pair** (on-disk object form `schema_version: { major: N, minor: M }`), not a single int; **`ConfigMigrator` is 5-method** (`fromMajor`/`fromMinor`/`toMajor`/`toMinor` + `migrate`) — `fromVersion()`/`toVersion()` below are superseded; the migration chain triggers on **major** mismatch only (AMD-67-INV-02); **`MigrationPreview` is 6-component**, carrying both `(major,minor)` pairs; `MigrationResult` is deliberately unchanged (E67-1); and the migration record shown below as `ConfigChange` is **`MigrationChange`** in source (the Doc-06 name collision resolved by rename — `ConfigChange`/`ConfigChangeSet` are the *reload-diff* types). Additionally, step 7's migrated-config disk write-back and the pre-migration backup are **deferred to the milestone that owns atomic writes** (M6.4 seam; R2 ruling 2026-06-10) — migration currently applies in-memory per load, which is safe because migrations are idempotent over the chain contract (AMD-67 §6). AMD-67 governs wherever this section conflicts.
 
 When HomeSynapse upgrades introduce configuration schema changes (new keys, renamed keys, removed keys, restructured sections), the Configuration Migration Framework ensures that existing user configurations are automatically migrated to the new schema without data loss and without requiring manual editing.
 
