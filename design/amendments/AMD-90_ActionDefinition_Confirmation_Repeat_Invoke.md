@@ -2,7 +2,7 @@
 file: design/amendments/AMD-90_ActionDefinition_Confirmation_Repeat_Invoke.md
 purpose: AMD-90 — ActionDefinition M7 expansion: ConfirmationPolicy opt-in surface (the merged 33⊕143⊕144⊕161 item: named default + existing confirmation_timeout_ms key binding + Pi-4 calibration spike), RepeatAction permit, ActivateSceneAction→InvokeAutomationAction rename+promotion (DQ-2).
 audience: Nick (ratify), PM, Coder, independent DOCS-Project reviewer
-status: PROPOSED 2026-06-13 — awaits the bundled DOCS review (M7 block + B2 C8/C9) + Nick ratification
+status: RATIFIED 2026-06-12 (Nick) — bundled DOCS review RATIFY-AS-IS per §10 (zero edits); mechanics applied 2026-06-12 (invariants §44; nav-index row; Doc 07 banner)
 source: Research 4 REC-33/37/40 ⊕ R14-A REC-143/144 ⊕ R14-B REC-161 (the merged disposition §1.1 collision adjudication; evidence-grade rule: R14-A community evidence prioritizes, R14-B prior art constrains) via merged disposition §2a-F3
 baseline: homesynapse-core HEAD `e5ea76f` (substantive `7c73c91`); ActionDefinition 8 permits (5 Tier 1 + 3 Tier 2) + `automation.command_pipeline.default_confirmation_timeout_ms` (Doc 07 §9, default 30000, range 5000–120000) source-verified at this baseline
 -->
@@ -90,13 +90,13 @@ NO per-action timeout field (config-key + capability layering suffices; demand-g
 
 ## 9. Ratification Checklist
 
-- [ ] Bundled DOCS-Project review returned; deltas folded (R90-1 default + R90-2 snapshot stance adjudicated)
-- [ ] Nick ratification
-- [ ] AMD-90-INV-01/02 registered in `Architecture_Invariants_v1.md`
-- [ ] Navigation-index amendments row added
-- [ ] Doc 07 §3.9/§3.11.2/§8.2/§16 currency edits applied
+- [x] Bundled DOCS-Project review returned 2026-06-12 (RATIFY-AS-IS; R90-1/R90-2 CONFIRMED)
+- [x] Nick ratification — 2026-06-12
+- [x] AMD-90-INV-01/02 registered (§44) — 2026-06-12
+- [x] Navigation-index row added — 2026-06-12
+- [x] Doc 07 currency edits applied (amendments-in-force banner) — 2026-06-12
 - [ ] Pi-4 confirmation-timeout calibration spike scheduled (Nick) — result folded before M7.3 pin-freeze
 
 ## 10. Review Disposition
 
-PENDING — rides the bundled M7-block + B2 C8/C9 DOCS review.
+**DOCS-Project review (2026-06-12): RATIFY-AS-IS — zero edits.** Return §A.6. R90-1 (BEST_EFFORT-as-default) CONFIRMED — the disposition's parenthetical describes BEST_EFFORT's semantics verbatim; OPTIMISTIC-as-default would silently regress Locked §3.11.2's implicit posture. R90-2 (AMD-03 inviolate; state-based WHILE degenerate → load-time WARNING) CONFIRMED — per-iteration re-snapshot is supersession territory. The two-layer default (interface OPTIMISTIC / CommandAction YAML-load BEST_EFFORT mirroring `onUnavailable`) ruled coherent. **RATIFIED by Nick 2026-06-12.** Open residue: the Pi-4 calibration spike (REC-161) remains Nick-paced, pre-M7.3 pin-freeze.

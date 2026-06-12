@@ -2,7 +2,7 @@
 file: design/amendments/AMD-89_Selector_SemanticTag_IncludedRoles.md
 purpose: AMD-89 — Selector M7 expansion: SemanticTagSelector permit + role-based default exclusion (includedRoles) on group-resolving permits — BREAKING to existing permit constructors; construction-site sweep mandated (REC-34/35 per the merged disposition §2a-F2).
 audience: Nick (ratify), PM, Coder, independent DOCS-Project reviewer
-status: PROPOSED 2026-06-13 — awaits the bundled DOCS review (M7 block + B2 C8/C9) + Nick ratification
+status: RATIFIED 2026-06-12 (Nick) — bundled DOCS review RATIFY-WITH-EDITS per §10, E89-1 folded same-day; mechanics applied 2026-06-12 (invariants §43; nav-index row; Doc 07 banner)
 source: Research 4 REC-34/35 (PM Assessment v3 source-verified) via merged disposition §2a-F2; W0 §2.3 (AMD-routing sharpened: breaking permit change = block item, never instruction-level)
 baseline: homesynapse-core HEAD `e5ea76f` (substantive `7c73c91`); Selector 6 permits (all Tier 1) + Entity 12 fields incl. `labels: List<String>` + `entityRole: EntityRole` source-verified at this baseline
 -->
@@ -47,7 +47,7 @@ The three existing group-resolving permits each gain a **non-null `Set<EntityRol
 
 ## 4. Implementation Notes
 
-YAML keys: `semantic_tag: {namespace:, value:, match_mode:, included_roles:}`, `included_roles: [primary, diagnostic, config]` (lower-case wire forms mapped at load). Role filtering applies at RESOLUTION time only — identity-model §7.2/§7.3 dedup and tombstone-chain rules are untouched. The compact constructors null-guard + `Set.copyOf()`; empty `includedRoles` is rejected at YAML load (an automation that can never resolve anything is a misconfiguration — WARNING-class per the §6.1 path).
+YAML keys: `semantic_tag: {namespace:, value:, match_mode:, included_roles:}`, `included_roles: [primary, diagnostic, config]` (lower-case wire forms mapped at load). Role filtering applies at RESOLUTION time only — identity-model §7.2/§7.3 dedup and tombstone-chain rules are untouched. The compact constructors null-guard + `Set.copyOf()`; **empty `includedRoles` is a per-definition validation FAILURE on the §6.1 path (E89-1)** — the definition is rejected and not loaded, valid definitions in the same file load normally, `config_error` carries the detail (an automation whose selector can never resolve anything is exactly the silently-never-fires misconfiguration class; Locked §6.1 makes rejected-at-load the failure class, and AMD-93-INV-02's spirit applies).
 
 ## 5. Tests (M7 scope)
 
@@ -74,13 +74,13 @@ NO `EntityCategory` type mint (the shipped `EntityRole` is the substrate). NO de
 
 ## 9. Ratification Checklist
 
-- [ ] Bundled DOCS-Project review returned; deltas folded (R89-1 naming + R89-2 grounding adjudicated)
-- [ ] Nick ratification
-- [ ] AMD-89-INV-01 registered in `Architecture_Invariants_v1.md`
-- [ ] Navigation-index amendments row added
-- [ ] Doc 07 §3.12/§8.2 currency edits applied
+- [x] Bundled DOCS-Project review returned 2026-06-12 (RATIFY-WITH-EDITS; R89-1/R89-2 CONFIRMED); E89-1 folded
+- [x] Nick ratification — 2026-06-12
+- [x] AMD-89-INV-01 registered (§43) — 2026-06-12
+- [x] Navigation-index row added — 2026-06-12
+- [x] Doc 07 currency edits applied (amendments-in-force banner) — 2026-06-12
 - [ ] M7.1 P2 survey enumerates the construction-site sweep set before issue
 
 ## 10. Review Disposition
 
-PENDING — rides the bundled M7-block + B2 C8/C9 DOCS review.
+**DOCS-Project review (2026-06-12): RATIFY-WITH-EDITS — E89-1 (required, the §4 WARNING-vs-failure internal inconsistency) FOLDED by the PM 2026-06-12 as the §6.1 FAILURE class.** Return §A.4/§A.11. R89-1 (the `includedRoles`/`EntityRole` rename over the disposition's `includedCategories` label) CONFIRMED — `EntityCategory` does not exist in source; Glossary-over-label is the standing rule. R89-2 (labels-as-namespaced-tags convention) CONFIRMED; the literal-`:`-in-plain-labels note rides the M7.1 instruction's authoring guidance. **RATIFIED by Nick 2026-06-12.**

@@ -2,7 +2,7 @@
 file: design/amendments/AMD-93_Automation_Definition_Schema_Posture.md
 purpose: AMD-93 — automations.yaml definition-schema posture: (major,minor) schema_version on the AMD-67 substrate + forward-only idempotent migration guarantee + dangling-reference load validation; Doc 07 §3.3 ↔ AMD-66/71 reconciliation stated (REC-150 ⊕ 153a⊕136 per merged disposition §2a-F6; W0 §4.2).
 audience: Nick (ratify), PM, Coder, independent DOCS-Project reviewer
-status: PROPOSED 2026-06-13 — awaits the bundled DOCS review (M7 block + B2 C8/C9) + Nick ratification
+status: RATIFIED 2026-06-12 (Nick) — bundled DOCS review RATIFY-AS-IS per §10 (zero edits); mechanics applied 2026-06-12 (invariants §47; nav-index row; Doc 07 banner)
 source: R14-A REC-150 (ACCEPT lightened — posture statement) + REC-153a (M7 half of the split; co-anchored with the queued REC-136 family) via merged disposition §2a-F6; W0 §4.2 (the config-substrate reconciliation obligation)
 baseline: homesynapse-core HEAD `e5ea76f` (substantive `7c73c91`) — the shipped AMD-66..71 config pipeline (M6.1/M6.4/M6.2) is the loading substrate; docs `ed5cf91`. Doc 07 §4.1 :584 (secondary-doc registration) source-verified.
 -->
@@ -84,13 +84,13 @@ NO migrator implementation (none needed at (1,0) — the posture binds future on
 
 ## 9. Ratification Checklist
 
-- [ ] Bundled DOCS-Project review returned; deltas folded (R93-1 adjudicated)
-- [ ] Nick ratification
-- [ ] AMD-93-INV-01/02 registered in `Architecture_Invariants_v1.md`
-- [ ] Navigation-index amendments row added (block watermark AMD-87 → 93)
-- [ ] Doc 07 §3.3/§4.1/§6.1 currency edits applied
-- [ ] REC-136 FUTURE-AMD queue annotation confirmed (automation half discharged; config half remains)
+- [x] Bundled DOCS-Project review returned 2026-06-12 (RATIFY-AS-IS; R93-1 CONFIRMED w/ both carve-outs)
+- [x] Nick ratification — 2026-06-12
+- [x] AMD-93-INV-01/02 registered (§47) — 2026-06-12
+- [x] Navigation-index row added; watermark AMD-87 → 93 — 2026-06-12
+- [x] Doc 07 currency edits applied (amendments-in-force banner) — 2026-06-12
+- [x] REC-136 FUTURE-AMD queue annotation confirmed (applied at the 2026-06-12 merged disposition) — 2026-06-12
 
 ## 10. Review Disposition
 
-PENDING — rides the bundled M7-block + B2 C8/C9 DOCS review.
+**DOCS-Project review (2026-06-12): RATIFY-AS-IS — zero edits.** Return §A.8. R93-1 (failure-over-warning) CONFIRMED — anchored on Locked §6.1's existing unknown-slug failure class; both carve-outs (tombstone redirects valid-with-DIAGNOSTIC; same-file forward refs resolved post-parse) ruled correct. The §2.3 reconciliation VERIFIED in full. The (major,minor)/forward-only posture and the falsifiable migration-guarantee attestation test ruled sound. **RATIFIED by Nick 2026-06-12.**

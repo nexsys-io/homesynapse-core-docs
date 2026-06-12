@@ -239,6 +239,8 @@ AutomationRun context and passed to every condition evaluator.
 
 ### AMD-04: Automation Cascade Detection and Depth Limiting
 
+> **SUPERSEDED by AMD-91 (`design/amendments/AMD-91_RunCausalChain_Supersedes_AMD-04.md`), ratified 2026-06-12.** Element-by-element disposition ledger at AMD-91 §2.4: depth counter CARRIED (re-typed `RunCausalChain.depth()`); config keys/diagnostics CARRIED as Doc-07-folded; duplicate suppression CARRIED with the mechanism UPGRADED to chain-membership; **the cascade rate-limiting clause (50/s, queue 100, `cascade_rate_exceeded`) was NEVER body-folded into Locked Doc 07 and is formally NOT ADOPTED** (Doc 07 §6.7 + the parked REC-168 FUTURE-AMD own that space); the Doc 01 §4.5 derived view CARRIED. Governing text = Doc 07 §3.7.1 (as amended) + AMD-91.
+
 **Affected docs:** Doc 07 (Automation Engine), Doc 01 (Event Model)
 **Section(s):** Doc 07 new §3.x (cascade handling), Doc 01 §4.4 (causal chain)
 **Classification:** BLOCKING

@@ -10,6 +10,8 @@
 
 ---
 
+> **Amendments in force (M7 automation block, ratified 2026-06-12 — AMD-88..93; full text in `design/amendments/`):** AMD-88 expands §3.4's trigger vocabulary (12 permits: +Calendar/Reachability/Manual, Webhook promoted, `triggerId` on Tier-1 permits; PresenceTrigger promotion-designated, fields M8). AMD-89 expands §3.12 (7 selector permits: +`SemanticTagSelector`; `includedRoles` PRIMARY-only default on group permits). AMD-90 amends §3.9/§3.11.2 (9 action permits: +`RepeatAction`; `ActivateSceneAction`→`InvokeAutomationAction`; per-action `ConfirmationPolicy`, named default BEST_EFFORT, never blocks Runs, never retries). AMD-91 amends §3.7.1 (supersedes AMD-04 — see the section note). AMD-92 registers the full §3.7/§3.4/§3.7.1 event inventory in `com.homesynapse.event` (+`automation_invoked`, a §3.7 table addition; `automation_disabled` priority = NORMAL per §3.7, the §6.2 occurrences corrected). AMD-93 amends §3.3/§4.1/§6.1 (`schema_version (major, minor)`; forward-only non-destructive migrations; dangling-reference load validation). §8.2's type table is amended in part by all of the above.
+
 ## 0. Purpose
 
 The Automation Engine subsystem implements the Trigger-Condition-Action (TCA) model that transforms HomeSynapse from a passive device monitoring system into an active automation platform. It is the subsystem that answers the question "what should happen when X occurs?" — evaluating triggers against incoming events, checking conditions against current state, executing actions that issue commands to devices, and recording every step as an immutable event in the log.
@@ -325,7 +327,9 @@ If an automation is removed from `automations.yaml` during a reload, all pending
 
 `automation_disabled` is NORMAL priority (not DIAGNOSTIC) because it represents a significant operational state change that affects system behavior and should survive the 7-day DIAGNOSTIC retention window. The user needs to know an automation was disabled even if they do not check the system for several weeks.
 
-#### 3.7.1 Cascade Governance (AMD-04)
+#### 3.7.1 Cascade Governance (AMD-04 — superseded by AMD-91, ratified 2026-06-12)
+
+> **AMD-91 note:** `cascadeDepth: int` → `causalChain: RunCausalChain` on `RunContext`; the duplicate-suppression authority below (the windowed `(correlation_id, automation_id)` set) is REPLACED by deterministic chain-membership (AMD-91-INV-01); the depth limit, config keys, diagnostics, and natural termination stand unchanged. The §4.5 windowed map remains for trace queries only.
 
 When an automation's action produces a state change that triggers another automation, and that automation in turn triggers another, the result is a cascade chain. Without governance, circular or deep cascades can produce unbounded event and command production — a known failure mode in Home Assistant, SmartThings, and Node-RED where users create A→B→C→...→A loops that saturate the event bus and issue conflicting commands.
 
@@ -706,9 +710,9 @@ record PendingCommand(
 
 **Impact:** The current action step fails. The Run transitions to `FAILED` status. Subsequent actions in the Run are not executed.
 
-**Recovery:** An `automation_action_completed` event is produced with outcome `error` and the exception detail. An `automation_completed` event is produced with `final_status: failed`. The automation remains active for future triggers — a single Run failure does not disable the automation. If Run failures exceed a configurable threshold within a time window (default: 5 failures in 10 minutes), the automation is automatically disabled and an `automation_disabled` CRITICAL event is produced.
+**Recovery:** An `automation_action_completed` event is produced with outcome `error` and the exception detail. An `automation_completed` event is produced with `final_status: failed`. The automation remains active for future triggers — a single Run failure does not disable the automation. If Run failures exceed a configurable threshold within a time window (default: 5 failures in 10 minutes), the automation is automatically disabled and an `automation_disabled` NORMAL event is produced. _[Corrected CRITICAL→NORMAL 2026-06-12 per AMD-92 (review ruling R92-3): the §3.7 lifecycle table's reasoned NORMAL governs.]_
 
-**Events produced:** `automation_action_completed` (DIAGNOSTIC, outcome: error), `automation_completed` (NORMAL, status: failed), optionally `automation_disabled` (CRITICAL).
+**Events produced:** `automation_action_completed` (DIAGNOSTIC, outcome: error), `automation_completed` (NORMAL, status: failed), optionally `automation_disabled` (NORMAL — corrected from CRITICAL 2026-06-12 per AMD-92/R92-3).
 
 ### 6.3 Command Dispatch Routing Failure
 
@@ -803,7 +807,7 @@ record PendingCommand(
 | `ActionDefinition` | Sealed interface | Root of action type hierarchy: `CommandAction`, `DelayAction`, `WaitForAction`, `ConditionBranchAction`, `EmitEventAction`, plus Tier 2 reserved: `ActivateSceneAction`, `InvokeIntegrationAction`, `ParallelAction`. |
 | `ConcurrencyMode` | Enum | `SINGLE`, `RESTART`, `QUEUED`, `PARALLEL`. |
 | `RunId` | Value (ULID wrapper) | Typed Run identity. |
-| `RunStatus` | Enum | `EVALUATING`, `RUNNING`, `COMPLETED`, `FAILED`, `ABORTED`, `CONDITION_NOT_MET`. |
+| `RunStatus` | Enum | `EVALUATING`, `RUNNING`, `COMPLETED`, `FAILED`, `ABORTED`, `CONDITION_NOT_MET`. _(Currency note 2026-06-12: source carries a 7th value `INTERRUPTED` — §3.10 zombie-Run finalization; AMD-92 flattens `RunStatus.name()` on the wire precisely to insulate the contract from enum-membership drift.)_ |
 | `RunContext` | Record | Mutable context for an active Run: run_id, automation_id, triggering event, resolved targets, current action index. Carried on the Run's virtual thread. |
 | `PendingCommand` | Record | In-flight command tracking entry (§4.3). |
 | `PendingStatus` | Enum | `DISPATCHED`, `ACKNOWLEDGED`, `CONFIRMED`, `TIMED_OUT`, `EXPIRED`. |

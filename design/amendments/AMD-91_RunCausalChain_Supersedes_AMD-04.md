@@ -2,7 +2,7 @@
 file: design/amendments/AMD-91_RunCausalChain_Supersedes_AMD-04.md
 purpose: AMD-91 — RunContext cascadeDepth:int → causalChain:RunCausalChain; chain-membership cycle detection with a distinct diagnostic; FORMALLY SUPERSEDES AMD-04 (REC-36⊕158 per the merged disposition §1.2/§2a-F4).
 audience: Nick (ratify), PM, Coder, independent DOCS-Project reviewer
-status: PROPOSED 2026-06-13 — awaits the bundled DOCS review (M7 block + B2 C8/C9) + Nick ratification
+status: RATIFIED 2026-06-12 (Nick) — bundled DOCS review RATIFY-WITH-EDITS per §10, E91-1 folded same-day; mechanics applied 2026-06-12 (invariants §45; nav-index row; AMD-04 SUPERSEDED banner; Doc 07 §3.7.1 + Doc 01 §4.5 notes)
 source: Research 4 REC-36 (MODIFY+ACCEPT, v3-verified single-field swap) ⊕ R14-B REC-158 (same-automation cycle detection) via merged disposition §1.2/§2a-F4; W0 §2.4 (re-confirmed at 7c73c91)
 baseline: homesynapse-core HEAD `e5ea76f` (substantive `7c73c91`); RunContext 8 fields with `cascadeDepth` (int) at position 7 source-verified; `automation.max_cascade_depth` / `cascade_depth_health_threshold` config keys (Doc 07 §9) source-verified
 -->
@@ -45,7 +45,7 @@ public record RunCausalChain(List<ChainLink> ancestors) {
 1. **Depth limiting (UNCHANGED semantics, new accessor):** the governor compares `causalChain.depth()` against `automation.max_cascade_depth` (config key UNCHANGED — default 8, range 1–32; `cascade_depth_health_threshold` UNCHANGED; the §3.7.1 DEGRADED escalation UNCHANGED). Suppression emits `cascade_depth_exceeded` (payload per AMD-92 — unchanged field set incl. `cascade_depth`, now sourced from `depth()`).
 2. **Cycle detection (UPGRADED mechanism, distinct diagnostic):** at Run initiation the RunManager checks `candidateChain.containsAutomation(automationId)` — chain membership REPLACES the in-memory `(correlation_id, automation_id)` suppression set as the suppression AUTHORITY. Detection emits **`cascade_loop_detected`** (the F4 distinct diagnostic — distinct from the depth diagnostic; payload gains the cycle path: `List<AutomationId> chain`, per AMD-92). Deterministic: a function of the chain alone — no window, no eviction, no restart sensitivity; the same event stream + config yields the same suppressions (INV-TO-02 alignment). The §4.5-windowed correlation map REMAINS for trace queries and `causality_depth_warning` (Doc 01 — untouched, adjacent-not-colliding) but no longer participates in suppression decisions.
 3. **Natural termination (UNCHANGED):** the State Projection change-detection floor (§3.7.1 / Doc 03 §3.2) stands as the first defense layer.
-4. **Chain propagation across the event hop:** a cascade Run's chain is reconstructed from the parent's `automation_triggered` event — which (AMD-92 reshape) carries `cascade_depth` AND the parent chain's automation lineage is recoverable from the correlation chain's `automation_triggered`/`cascade` events; the in-process fast path passes the parent `RunContext` directly. REPLAY rebuild derives chains from the event log (re-derive-never-re-execute, §3.10) — the chain is event-derivable BY DESIGN, which is what makes detection replay-stable. `InvokeAutomationAction` invocations extend the chain identically (the `automation_invoked` hop is a chain edge like any cascade hop — AMD-90 §2.3).
+4. **Chain propagation across the event hop:** a cascade Run's chain is reconstructed from the parent's `automation_triggered` event — which (AMD-92 reshape) carries `cascade_depth` AND the parent chain's automation lineage is recoverable from the correlation chain's `automation_triggered`/`cascade` events; the in-process fast path passes the parent `RunContext` directly. REPLAY rebuild derives chains from the event log (re-derive-never-re-execute, §3.10) — the chain is event-derivable BY DESIGN, which is what makes detection replay-stable. **Reconstruction-source pin (E91-1):** cross-event-hop chain reconstruction reads the **immutable event log** (`EventStore.readByCorrelation`/`readFrom`) or the in-process parent `RunContext` — **NEVER the windowed Doc 01 §4.5 in-memory correlation map** (which remains for trace queries only); otherwise windowed/evictable state would re-enter the suppression decision through the reconstruction path and AMD-91-INV-01 would be breached in fact while honored in letter. `InvokeAutomationAction` invocations extend the chain identically (the `automation_invoked` hop is a chain edge like any cascade hop — AMD-90 §2.3).
 
 ### 2.4 AMD-04 supersession ledger (formal disposition of every AMD-04 element)
 
@@ -98,13 +98,13 @@ NO rate limiting (AMD-04's clause NOT adopted — REC-168 parks the redesigned f
 
 ## 9. Ratification Checklist
 
-- [ ] Bundled DOCS-Project review returned; deltas folded (R91-1 adjudicated)
-- [ ] Nick ratification
-- [ ] AMD-91-INV-01/02 registered in `Architecture_Invariants_v1.md`
-- [ ] Navigation-index amendments row added
-- [ ] AMD-04 SUPERSEDED banner applied in `Design_Review_Amendments_v1.md`; Doc 07 §3.7.1 + Doc 01 §4.5 currency edits applied
+- [x] Bundled DOCS-Project review returned 2026-06-12 (RATIFY-WITH-EDITS; R91-1 CONFIRMED; §2.4 ledger AUDITED, all six rows); E91-1 folded
+- [x] Nick ratification — 2026-06-12
+- [x] AMD-91-INV-01/02 registered (§45) — 2026-06-12
+- [x] Navigation-index row added — 2026-06-12
+- [x] AMD-04 SUPERSEDED banner applied; Doc 07 §3.7.1 note + Doc 01 §4.5 label applied — 2026-06-12
 - [ ] M7.2 survey enumerates `RunContext` construction sites before issue
 
 ## 10. Review Disposition
 
-PENDING — rides the bundled M7-block + B2 C8/C9 DOCS review.
+**DOCS-Project review (2026-06-12): RATIFY-WITH-EDITS — E91-1 (required, the reconstruction-source pin) FOLDED by the PM 2026-06-12 into §2.3.4.** Return §A.7. R91-1 (derived `depth()` + `ChainLink` over REC-36's literal shape) CONFIRMED — the bare-`RunId`-list alternative re-introduces registry lookups into the suppression decision. **The §2.4 AMD-04 supersession ledger AUDITED element-by-element, all six rows VERIFIED — incl. rate-limiting NOT-ADOPTED** (Locked §3.7.1 enumerates exactly three mechanisms; §6.7 + parked REC-168 own the space). INV-TO-02/REPLAY determinism test PASS. The §D chain-narrowing note (intentional deep re-fire now deterministically suppressed within a chain) rides the M7.2 instruction's authoring guidance. **RATIFIED by Nick 2026-06-12.**

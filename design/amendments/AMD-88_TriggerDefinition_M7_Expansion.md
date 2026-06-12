@@ -2,14 +2,14 @@
 file: design/amendments/AMD-88_TriggerDefinition_M7_Expansion.md
 purpose: AMD-88 — TriggerDefinition M7 expansion: 3 new Tier-1 permits (Calendar/Reachability/Manual), the WebhookTrigger promotion, the PresenceTrigger promotion-designation (fields M8), and stable triggerId on every permit (REC-31/32/37/38 per the 2026-06-12 merged disposition §2a-F1).
 audience: Nick (ratify), PM, Coder, independent DOCS-Project reviewer
-status: PROPOSED 2026-06-13 — awaits the bundled DOCS review (M7 block + B2 C8/C9) + Nick ratification
+status: RATIFIED 2026-06-12 (Nick) — bundled DOCS review (w/ B2 C8/C9) RATIFY-WITH-EDITS per §10, E88-1/2/3 folded same-day; mechanics applied 2026-06-12 (invariants §42; nav-index row; watermark 87→93; Doc 07 banner)
 source: Research 4 REC-31/32/37/38 (PM Assessment v3 source-verified, v4 DQ-1/DQ-2/DQ-5 Nick-resolved 2026-05-30) via context/planning/2026-06-12_M7-blueprint_merged-disposition.md §2a-F1; W0 currency delta §2.1 (arithmetic re-verified at 7c73c91)
 baseline: homesynapse-core HEAD `e5ea76f` (substantive `7c73c91` — automation module last touched M4.0b-4a); TriggerDefinition 9 permits (5 Tier 1 + 4 Tier 2) source-verified at this baseline
 -->
 
 # AMD-88: TriggerDefinition M7 Expansion — New Permits, Promotions, `triggerId`
 
-**Block context:** First of the six-amendment M7 automation block (AMD-88..93). Expands the trigger hierarchy 9 → 12 permits and gives every trigger a stable identity. Breaking only in the additive-sealed sense (new permits add switch cases); promotions are field-additions and add **no** new switch cases.
+**Block context:** First of the six-amendment M7 automation block (AMD-88..93). Expands the trigger hierarchy 9 → 12 permits and gives every trigger a stable identity. **Breaking on two surfaces (E88-1):** (a) the three new permits add sealed-exhaustiveness switch cases; (b) §2.5's `triggerId` is a **breaking canonical-constructor change to all five existing non-empty Tier-1 permits** — the same class AMD-89 labels BREAKING, covered by the same construction-site sweep. Promotions themselves are field-additions to empty records and add **no** new switch cases.
 
 ## 1. Problem Statement
 
@@ -31,8 +31,8 @@ baseline: homesynapse-core HEAD `e5ea76f` (substantive `7c73c91` — automation 
 
 ### 2.2 New Tier-1 permits
 
-- **`CalendarTrigger(EntityId calendarEntityId, CalendarEventTransition transition, Duration offset)`** — fires when a calendar-integration entity's event starts/ends. `transition` is a new automation-resident enum `CalendarEventTransition { EVENT_START, EVENT_END }`; `offset` nullable (fire before/after by the offset; null = at transition). NO `forDuration` (inherently instantaneous — the AMD-25 `EventTrigger` class). No calendar integration ships in MVP; the permit freezes the shape regret-proof (the Tier-1-shape-now pattern), and evaluation activates when a calendar-capable integration produces the consumed events. [REVIEW-POINT R88-1: field set proposed by the PM from REC-31's `CalendarTrigger(EntityId, CalendarEventTransition, Duration)` — confirm or adjust.]
-- **`ReachabilityTrigger(DeviceId deviceId, Availability targetAvailability, Duration forDuration)`** — fires on **device-subject** `availability_changed` transitions (Doc 01 §4.3 lists `availability_changed` with Subject Entity/Device — the device-level event already exists in the taxonomy; **no new event type is minted**). `targetAvailability` reuses `com.homesynapse.state.Availability` exactly as `AvailabilityTrigger` does; `forDuration` nullable per AMD-25 (the standard temporal mechanism). **PM adjustment vs REC-32's letter:** the REC's `debounce` field (default 30 s) is REPLACED by `forDuration` — debounce IS sustained-predicate semantics and the AMD-25 duration-timer machinery already provides it; a parallel debounce concept would duplicate the mechanism. The REC's 30 s default becomes authoring guidance, not a field. REC-32's claimed dependency (`device.reachable_changed`, the Research-8 REC-25 event) never shipped — this permit binds to the shipped taxonomy instead. [REVIEW-POINT R88-2: confirm the availability_changed binding + the debounce→forDuration substitution.]
+- **`CalendarTrigger(EntityId calendarEntityId, CalendarEventTransition transition, Duration offset)`** — fires when a calendar-integration entity's event starts/ends. `transition` is a new automation-resident enum `CalendarEventTransition { EVENT_START, EVENT_END }`; `offset` nullable (null = fire at the transition; **sign convention (E88-2): negative = fire BEFORE the transition by |offset|, positive = fire AFTER** — REC-31's letter, now stated as the frozen YAML-visible contract). NO `forDuration` (inherently instantaneous — the AMD-25 `EventTrigger` class). No calendar integration ships in MVP; the permit freezes the shape regret-proof (the Tier-1-shape-now pattern), and evaluation activates when a calendar-capable integration produces the consumed events. [REVIEW-POINT R88-1: field set proposed by the PM from REC-31's `CalendarTrigger(EntityId, CalendarEventTransition, Duration)` — confirm or adjust.]
+- **`ReachabilityTrigger(DeviceId deviceId, Availability targetAvailability, Duration forDuration)`** — fires on **device-subject** `availability_changed` transitions (Doc 01 §4.3 lists `availability_changed` with Subject Entity/Device — the device-level event already exists in the taxonomy; **no new event type is minted**). `targetAvailability` reuses `com.homesynapse.state.Availability` exactly as `AvailabilityTrigger` does; `forDuration` nullable per AMD-25 (the standard temporal mechanism). **PM adjustments vs REC-32's letter (two documented deviations, E88-3):** (1) the REC's `debounce` field (default 30 s) is REPLACED by `forDuration` — debounce IS sustained-predicate semantics and the AMD-25 duration-timer machinery already provides it; a parallel debounce concept would duplicate the mechanism. The REC's 30 s default becomes authoring guidance, not a field. (2) The REC's `ReachabilityTransition {REACHABLE_TO_UNREACHABLE, UNREACHABLE_TO_REACHABLE, ANY}` enum is REPLACED by `Availability targetAvailability` — field-consistent with the existing `AvailabilityTrigger`; edge semantics preserved because evaluation is event-driven (the consumed `availability_changed` IS the transition); `ANY` remains expressible as two triggers. Review-endorsed. REC-32's claimed dependency (`device.reachable_changed`, the Research-8 REC-25 event) never shipped — this permit binds to the shipped taxonomy instead. [REVIEW-POINT R88-2: confirm the availability_changed binding + the debounce→forDuration substitution.]
 - **`ManualTrigger(String invocationContext)`** — fires on explicit invocation (REST `POST /automations/{id}/invoke` at M10, UI button, voice). `invocationContext` nullable (free-text origin note surfaced in the trace; the project convention is nullable-with-Javadoc, NOT `Optional` components — REC-37's `Optional<String>` is adjusted). An automation whose only trigger is `ManualTrigger` is what other platforms call a scene (REC-37; scenes-as-automations, the rejected-Scene-primitive decision). Invocation produces the **`automation_invoked`** event (minted in AMD-92 §2.2; subject Automation; the envelope's `actorRef` carries the invoker — the C8 seam, PROPOSED-pending). The trigger consumes that event; `RunContext.triggeringEventId` references it. NO `forDuration`.
 
 ### 2.3 WebhookTrigger promotion (Tier 2 → Tier 1)
@@ -106,13 +106,13 @@ module com.homesynapse.automation {
 
 ## 9. Ratification Checklist
 
-- [ ] Bundled DOCS-Project review returned; deltas folded
-- [ ] Nick ratification
-- [ ] AMD-88-INV-01/02 registered in `Architecture_Invariants_v1.md`
-- [ ] Navigation-index amendments row added (watermark AMD-87 → 93 at block ratification)
-- [ ] Doc 07 §3.4/§8.2 currency edits applied
+- [x] Bundled DOCS-Project review returned 2026-06-12 (RATIFY-WITH-EDITS); E88-1/E88-2/E88-3 folded
+- [x] Nick ratification — 2026-06-12
+- [x] AMD-88-INV-01/02 registered (§42; index 163/47 regenerated) — 2026-06-12
+- [x] Navigation-index row added; watermark AMD-87 → 93 — 2026-06-12
+- [x] Doc 07 currency edits applied (amendments-in-force banner + §8.2 RunStatus note) — 2026-06-12
 - [ ] M7.1 consumer/pin survey enumerates the construction-site sweep set before issue (P2)
 
 ## 10. Review Disposition
 
-PENDING — rides the bundled M7-block + B2 C8/C9 DOCS review.
+**DOCS-Project review (2026-06-12): RATIFY-WITH-EDITS — E88-1 (required, breaking-characterization fix) + E88-2/E88-3 (minor) FOLDED by the PM 2026-06-12.** Return: `nexsys-hivemind/context/audits/2026-06-12_AMD-88-93_C8-C9_DOCS_Review_Return.md` §A.5. R88-1 (CalendarTrigger shape) and R88-2 (availability_changed binding + debounce→forDuration) both CONFIRMED; permit arithmetic, DQ-1 honor, additive-identity, and the M10 webhook fence all PASS. **RATIFIED by Nick 2026-06-12.**

@@ -72,6 +72,12 @@ The complete set of category prefixes currently in use is:
 | `AMD-68-INV` | `SecretStore` Atomic Multi-Key Durable Write (AMD-68) | §39 |
 | `AMD-70-INV` | Configuration Observability Events (AMD-70) | §40 |
 | `AMD-71-INV` | Hybrid Configuration Directory Layout (AMD-71) | §41 |
+| `AMD-88-INV` | TriggerDefinition M7 Expansion (AMD-88) | §42 |
+| `AMD-89-INV` | Selector Semantic Tags + Role Exclusion (AMD-89) | §43 |
+| `AMD-90-INV` | Action Confirmation + Iteration Bounds (AMD-90) | §44 |
+| `AMD-91-INV` | Run Causal Chain + Cycle Suppression (AMD-91) | §45 |
+| `AMD-92-INV` | Automation Event Vocabulary (AMD-92) | §46 |
+| `AMD-93-INV` | Automation Definition Schema Posture (AMD-93) | §47 |
 
 The §17 Invariant Index provides the canonical per-identifier lookup; the §18 Traceability Matrix maps each category to failure modes and opportunities. The BUS / PROJ / WRITER / SUB-ISO categories were added by Phase 3 governance work (AMD-41, AMD-42, AMD-43, applied 2026-05-16); their canonical definitions live in §19. The `AMD-47-INV-NN` identifiers are **amendment-scoped** contract-level invariants (the convention introduced by the projection block's `AMD-50-INV-NN`); their canonical definitions live in §20 and they trace 1:1 to AMD-47 (RATIFIED 2026-05-30). The `AMD-54-INV` … `AMD-64-INV` categories (§24–§34) were registered together at the Workstream C integration-block ratification (2026-06-05, single review return) and trace 1:1 to AMD-54..64. The `AMD-66-INV` … `AMD-71-INV` categories (§37–§41) were registered together at the M6 configuration-block ratification (2026-06-09, single review return) and trace 1:1 to AMD-66/67/68/70/71; **AMD-69 is DEFERRED (Tier-2/OQ-15-3) and registers no invariant — the number stays reserved.** The sections are numbered by AMD order (66, 67, 68, 70, 71 → §37–§41); the section count is five because the deferred AMD-69 contributes none.
 
@@ -1045,8 +1051,19 @@ Complete index of all invariants for reference from subsystem design documents.
 | **AMD-70-INV-01** | Config Events Are Observability-Only | §40 |
 | **AMD-71-INV-01** | The Loader Reads Only Within the Canonicalized Config Tree | §41 |
 | **AMD-71-INV-02** | `!include` Is One Level Deep | §41 |
+| **AMD-88-INV-01** | Promotions Are Field-Additions Only | §42 |
+| **AMD-88-INV-02** | Stable Trigger Identity on User-Facing Surfaces | §42 |
+| **AMD-89-INV-01** | PRIMARY-Only Default for Group-Resolving Selectors | §43 |
+| **AMD-90-INV-01** | Confirmation Never Blocks Runs and Never Retries | §44 |
+| **AMD-90-INV-02** | Iteration Constructs Are Hard-Bounded | §44 |
+| **AMD-91-INV-01** | Deterministic Cycle Suppression | §45 |
+| **AMD-91-INV-02** | `RunCausalChain` Never Crosses the Event Boundary Unflattened | §45 |
+| **AMD-92-INV-01** | No Automation-Resident Types in Event Payloads | §46 |
+| **AMD-92-INV-02** | Full Manifest Registration Before First Publish | §46 |
+| **AMD-93-INV-01** | Forward-Only, Non-Destructive Definition Migrations | §47 |
+| **AMD-93-INV-02** | Fully-Resolvable References at Load Time | §47 |
 
-**Total: 152 invariants across 41 identifier categories (§0.3).** _Regenerated from this table at the 2026-06-09 M6-block registration (+8 rows): the table holds 152 identifier rows and §0.3 holds 41 prefix categories. The previously stated "135 invariants across 34 categories" was a copied-forward running count that had drifted 9 below the table (the same −9 offset traces back through the "133" and "104" statements); per the Check-11 source-round-trip rule the count is now derived from the table, not carried forward. Flagged in pm-handoff 2026-06-09._
+**Total: 163 invariants across 47 identifier categories (§0.3).** _Regenerated from this table at the 2026-06-12 M7-block registration (§42–§47, +11 — AMD-88..93 ratified 2026-06-12); prior regeneration 2026-06-09 (152/41, M6 block). Never propagate a stated total — re-derive from this table._
 
 ---
 
@@ -1093,6 +1110,12 @@ This section maps each invariant category to the competitive failure modes and s
 | §39 `SecretStore` Atomic Multi-Key Durable Write (AMD-68) | A loop of single-key `set()` calls tearing an OAuth access+refresh-token pair on crash — a credential left half-rotated and unusable; the ratified AMD-60-INV-03 (rotate atomic-across-entries, durable-before-return) having no store-layer write that can satisfy it; Doc 06 §8.5 stale vs the Locked Doc 15 §7.3 requirement | `SecretStore.setAll(Map)` — all-or-nothing, durable-before-return via write-temp → fsync → atomic-rename → fsync-dir on `secrets.enc` (AMD-68-INV-01), the store-layer guarantee beneath the M9 `CredentialRotator`; the REC-57 bundle/`credentialsFor` half retired by ratified AMD-60 ([AMD-68-A] VERIFIED — no orphaned consumer), keeping reads on `ConfigurationAccess` | AMD-68 (RATIFIED 2026-06-09 — the Doc 06 currency amendment); Doc 15 §7.3 (verbatim requirement); AMD-60-INV-03; review return `2026-06-09_AMD-66-71_DOCS_Review_Return.md` (E68-1 folded). Implemented by **M6.2** (interface may freeze at M6.1) |
 | §40 Configuration Observability Events (AMD-70) | Validation passes and section reloads invisible to the event log, dashboard, and audit narrative; config-module types specified inside event-resident records forcing an `event→config` JPMS cycle (the AMD-52 `event↔device` class — the review's load-bearing E70-1 catch); new event types missing manifest/pin sites and failing `encode()` in production (the M4.C lesson) | Two observability-only dot-namespaced events (`config.validation_completed`, `config.section_reloaded`) that never participate in state projection (AMD-70-INV-01, INV-CE-01); payloads flattened to event-resident/`java.base` types under the **type-residency rule** (config types consumed, never referenced — now standing in the P2 consumer/pin survey as the JPMS contract-direction check); full manifest registration enumerated for the M6.1 survey | AMD-70 (RATIFIED 2026-06-09); Research 5 REC-59+REC-61; NQ-5 (flat `com.homesynapse.event`, AMD-52 precedent); review return `2026-06-09_AMD-66-71_DOCS_Review_Return.md` (E70-1 LOAD-BEARING + E70-2 folded). Implemented by **M6.1** (`validation_completed`) + **M6.4** (`section_reloaded`, survey re-run) |
 | §41 Hybrid Configuration Directory Layout (AMD-71) | No fixed on-disk layout contract for the loader; unconstrained `!include` inviting the Home-Assistant chained-include footgun and path-traversal reads (`../`, absolute, symlink escape); a `config → platform` JPMS edge (or implied readability) falsifying every embedded module-info just to resolve the config dir | The hybrid layout rooted at `PlatformPaths.configDir()` (root doc + `integrations/` + `secrets.enc` + regenerable `schemas/` + `signing-key.pub`); canonicalization-based fail-closed containment (AMD-71-INV-01) and one-level-deep `!include` (AMD-71-INV-02); the config-dir `Path` injected from the composition root ([AMD-71-A]/E71-2 ruling = M6.1 DP-3) preserving the zero-new-edge property the Doc 15 §3.8 E2 bridge depends on | AMD-71 (RATIFIED 2026-06-09); Research 5 REC-60; Doc 06 §3.1; Doc 15 §9 (`${config_dir}`); review return `2026-06-09_AMD-66-71_DOCS_Review_Return.md` (E71-1/2 folded). Implemented by **M6.1** |
+| §42 TriggerDefinition M7 Expansion (AMD-88) | Promotion breaks switch exhaustiveness; trigger references rot across definition edits (index-keyed traces). |
+| §43 Selector Semantic Tags + Role Exclusion (AMD-89) | CONFIG/DIAGNOSTIC entities actuated by group automations — the HA voice-assistant exclusion class. |
+| §44 Action Confirmation + Iteration Bounds (AMD-90) | Surprise double-actuation via engine retry; unbounded repeat loops freezing Runs (HA #115042 class). |
+| §45 Run Causal Chain + Cycle Suppression (AMD-91) | Window-dependent loop suppression; replay-divergent cascade behavior (INV-TO-02 breach). |
+| §46 Automation Event Vocabulary (AMD-92) | JPMS cycle via payload types (the AMD-52/E70-1 class); unregistered types failing encode in production (the M4.C class). |
+| §47 Automation Definition Schema Posture (AMD-93) | Destructive definition migration (the Groovy/Rule-Machine corpus-loss class); silently-never-fires dangling references. |
 
 ---
 
@@ -1533,6 +1556,40 @@ The configuration loader reads only files contained within `PlatformPaths.config
 ### AMD-71-INV-02: `!include` Is One Level Deep
 
 `!include` is one level deep; a nested include is a structural FATAL error.
+
+### AMD-88-INV-01: Promotions Are Field-Additions Only
+A Tier-2→Tier-1 promotion is a field-addition to an existing permit — it never adds, removes, or renames a sealed permit. Sealed-exhaustiveness switch shape changes ONLY when a genuinely-new permit lands.
+
+### AMD-88-INV-02: Stable Trigger Identity on User-Facing Surfaces
+Every Tier-1 `TriggerDefinition` permit carries a `triggerId` that is stable across definition reloads once assigned; user-facing trace and event surfaces reference triggers by `triggerId`, never by raw index.
+
+### AMD-89-INV-01: PRIMARY-Only Default for Group-Resolving Selectors
+Group-resolving selectors (`AreaSelector`, `LabelSelector`, `TypeSelector`, `SemanticTagSelector`) resolve PRIMARY-role entities only unless the definition explicitly opts into DIAGNOSTIC/CONFIG via `includedRoles`. Explicit single-entity selectors are never role-filtered.
+
+### AMD-90-INV-01: Confirmation Never Blocks Runs and Never Retries
+Command confirmation is a per-action policy that never blocks Run completion and never triggers engine-level retry; at no policy value does the engine re-issue a command autonomously.
+
+### AMD-90-INV-02: Iteration Constructs Are Hard-Bounded
+Every iteration construct is hard-bounded (`maxIterations` ceiling enforced independent of mode); unbounded loops are unrepresentable in the action vocabulary.
+
+### AMD-91-INV-01: Deterministic Cycle Suppression
+Cascade-cycle suppression is a deterministic function of the Run's causal chain and configuration alone — no windowed, evictable, or restart-sensitive state participates in a suppression decision (INV-TO-02 corollary; INV-PR-03 boundedness preserved via the depth ceiling). Cross-event-hop chain reconstruction reads the immutable event log or the in-process parent `RunContext` — never the windowed Doc 01 §4.5 correlation map.
+
+### AMD-91-INV-02: `RunCausalChain` Never Crosses the Event Boundary Unflattened
+`RunCausalChain` is automation-internal — it never crosses the event boundary unflattened (AMD-92-INV-01's specific instance for this type).
+
+### AMD-92-INV-01: No Automation-Resident Types in Event Payloads
+Event records in `com.homesynapse.event` never reference automation-resident types; run/status identifiers cross the event boundary only as flattened `Ulid`/`String` components (the E70-1 rule, automation instance).
+
+### AMD-92-INV-02: Full Manifest Registration Before First Publish
+No automation event type reaches a production publish site before appearing in EVERY manifest/pin the P2 survey enumerates for its slice (the M4.C forcing-function, stated as invariant).
+
+### AMD-93-INV-01: Forward-Only, Non-Destructive Definition Migrations
+Automation-definition migrations are forward-only and idempotent, always preceded by a backup, and never destructively rewrite or drop a user definition — unconvertible definitions are excluded-and-reported, not modified (REC-151 structural).
+
+### AMD-93-INV-02: Fully-Resolvable References at Load Time
+Every loaded automation definition has fully-resolvable references at load time (post-tombstone-redirect); a definition with dangling references never enters the registry.
+
 
 ---
 

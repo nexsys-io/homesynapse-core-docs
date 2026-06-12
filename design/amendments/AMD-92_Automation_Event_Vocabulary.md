@@ -2,7 +2,7 @@
 file: design/amendments/AMD-92_Automation_Event_Vocabulary.md
 purpose: AMD-92 — the M7 automation event vocabulary in com.homesynapse.event (flat): full Doc-07 inventory enumerated with per-type registration deltas; the type-residency decision (FLATTEN run/status identifiers — PM default); per-slice manifest fan-out (55/24/36 → +n) + P2 survey incl. behavioral publish-count pins; C8 stamping via envelope only (REC-39 W0-re-anchored ⊕ 141 ⊕ 147 per merged disposition §2a-F5).
 audience: Nick (ratify), PM, Coder, independent DOCS-Project reviewer
-status: PROPOSED 2026-06-13 — awaits the bundled DOCS review (M7 block + B2 C8/C9) + Nick ratification. ⚠ C8 is cited PROPOSED-PENDING throughout — the bundled review resolves both together; nothing here silently assumes C8 ratified.
+status: RATIFIED 2026-06-12 (Nick) — bundled DOCS review RATIFY-WITH-EDITS per §10, E92-1/E92-2 folded same-day (E92-3 declined-with-citation); mechanics applied 2026-06-12 (invariants §46; nav-index row; Doc 07 banner incl. the invoked-row note + both §6.2 priority corrections; Doc 01 banner + §4.3 note). C8 was RATIFIED in the same bundle — the §2.4 stamping convention is now the ratified four-kind C8.
 source: Research 4 REC-39 (MODIFY+ACCEPT; the five W0 §2.5 re-anchored obligations ARE the MODIFY content) ⊕ R14-A REC-141/147 (inventory + drop-observability test-pins) via merged disposition §2a-F5; AMD-70 E70-1 (the type-residency precedent); AMD-52 (codec discipline)
 baseline: homesynapse-core HEAD `e5ea76f` (substantive `7c73c91`). Source-verified at this baseline: EventTypes 55 constants (incl. AUTOMATION_TRIGGERED/AUTOMATION_COMPLETED/AUTOMATION_CAPABILITY_MISMATCH); CORE_PRODUCTION_EVENT_CLASSES 24 records (incl. minimal-shape AutomationTriggeredEvent/AutomationCompletedEvent); EventCategoryMapping 36 entries (automation rows: triggered/completed only); both module-infos (§7 verbatim embeds).
 -->
@@ -49,8 +49,8 @@ Automation-resident enums/records are CONSUMED to derive flattened components, n
 | 12 | `trigger_duration_started` | — | MINT | DIAGNOSTIC | `AutomationId automationId`, `int triggerIndex`, `String triggerId`, `EventId startingEventId`, `EntityId entityRef`, `long forDurationMs` (§3.4 step 1) |
 | 13 | `trigger_duration_cancelled` | — | MINT | DIAGNOSTIC | `AutomationId automationId`, `int triggerIndex`, `String triggerId`, `EventId startingEventId`, `String reason` ("predicate_false"/"definition_changed"/"automation_removed") (§3.4 step 2, §3.7 reload) |
 | 14 | `trigger_duration_expired` | — | MINT | DIAGNOSTIC | `AutomationId automationId`, `int triggerIndex`, `String triggerId`, `EventId startingEventId` (§3.4 step 3) |
-| 15 | `trigger_duration_state_validated` | — | MINT | DIAGNOSTIC | `AutomationId automationId`, `int triggerIndex`, `EventId startingEventId`, `boolean predicateStillTrue` — published ONLY on validation-vs-expectation divergence (§3.4 step 4) |
-| 16 | `trigger_duration_limit_exceeded` | — | MINT | DIAGNOSTIC | `AutomationId automationId`, `int triggerIndex`, `int activeTimerCount`, `int maxConcurrentDurationTimers` (§9 :875) |
+| 15 | `trigger_duration_state_validated` | — | MINT | DIAGNOSTIC | `AutomationId automationId`, `int triggerIndex`, `String triggerId` (E92-1), `EventId startingEventId`, `boolean predicateStillTrue` — published ONLY on validation-vs-expectation divergence (§3.4 step 4) |
+| 16 | `trigger_duration_limit_exceeded` | — | MINT | DIAGNOSTIC | `AutomationId automationId`, `int triggerIndex`, `String triggerId` (E92-1 — added for `trigger_duration_*` family consistency; the limit event identifies a specific rejected trigger and the same index-fragility argument applies), `int activeTimerCount`, `int maxConcurrentDurationTimers` (§9 :875) |
 | 17 | `cascade_depth_exceeded` | — | MINT | DIAGNOSTIC | `AutomationId automationId`, `EventId triggeringEventId`, `int cascadeDepth`, `int maxCascadeDepth`, `Ulid correlationId` (§3.7.1 — field set unchanged from Locked) |
 | 18 | `cascade_loop_detected` | — | MINT | DIAGNOSTIC | `AutomationId automationId`, `EventId triggeringEventId`, `Ulid correlationId`, `Ulid originalRunId`, `List<AutomationId> chain` (the AMD-91 cycle path — the F4 distinct diagnostic; payload extends the Locked §3.7.1 set by `chain`) |
 | 19 | `automation_capability_mismatch` | constant ✓, NO record | **MINT record** (constant reused) | NORMAL | `AutomationId automationId`, `List<EntityId> affectedEntities`, `List<String> missingCapabilityIds` (Doc 01 :564) |
@@ -152,14 +152,15 @@ Per-slice: **M7.1** (rows 1, 3, 11–16, 19), **M7.2** (rows 2, 4–10, 17, 18),
 
 ## 9. Ratification Checklist
 
-- [ ] Bundled DOCS-Project review returned; deltas folded (R92-1/2/3 adjudicated; type-residency FLATTEN confirmed)
-- [ ] **B2 C8 ratified (same bundle)** — stamping tests pin the ratified convention
-- [ ] Nick ratification
-- [ ] AMD-92-INV-01/02 registered in `Architecture_Invariants_v1.md`
-- [ ] Navigation-index amendments row added
-- [ ] Doc 07 §3.7 (+invoked row, priority correction) + Doc 01 §4.3/§4.4 currency edits applied
+- [x] Bundled DOCS-Project review returned 2026-06-12 (RATIFY-WITH-EDITS; FLATTEN confirmed as the block keystone); E92-1/E92-2 folded, E92-3 declined-with-citation (§10)
+- [x] **B2 C8 RATIFIED same bundle (2026-06-12)** — stamping tests pin the ratified four-kind convention + the EC8-2 origin-consistency rule
+- [x] Nick ratification — 2026-06-12
+- [x] AMD-92-INV-01/02 registered (§46) — 2026-06-12
+- [x] Navigation-index row added — 2026-06-12
+- [x] Doc 07 (banner incl. the invoked-row note + BOTH §6.2 priority corrections) + Doc 01 (banner + §4.3 note) applied — 2026-06-12
 - [ ] Each M7.x P2 survey (incl. publish-count-pin category) enumerated before issue
+- [x] **(E92-2) Zero production publish sites for `AutomationTriggeredEvent`/`AutomationCompletedEvent` attested by grep at the ratification commit** (test/fixture references excluded) — _attested 2026-06-12 at `e5ea76f`: grep CLEAN, only the two record definitions + the `EventTypes` roster reference the types in main code; per the review ruling, a persisted production instance would have STOPPED the reshape in favor of schema-versioning_
 
 ## 10. Review Disposition
 
-PENDING — rides the bundled M7-block + B2 C8/C9 DOCS review.
+**DOCS-Project review (2026-06-12): RATIFY-WITH-EDITS — E92-1 (rows 15+16 gain `triggerId`; row-16 inclusion = PM ruling per the reviewer's recommendation) + E92-2 (grep-attestation checklist row; attested CLEAN at `e5ea76f`) FOLDED by the PM 2026-06-12.** **E92-3 DECLINED-WITH-CITATION:** the reviewer's conditional ("if §3.7.1 is silent on fields, re-label row 17 PM-proposed") does not fire — Locked Doc 07 §3.7.1 **:342** enumerates the `cascade_depth_exceeded` payload verbatim (`{automation_id, triggering_event_id, cascade_depth, max_cascade_depth, correlation_id}`), exactly row 17's set; "unchanged from Locked" stands (AMD-04's differing draft payload was superseded by the Doc-07 body fold, the same pattern as the config-key name). Return §A.1–§A.3/§A.9/§A.11. **FLATTEN confirmed as the block keystone** (cycle real at the embeds; no consumer clears the relocation bar; relocation stays available later with zero log migration). Both reshapes ACCEPTED (zero-producer claim structurally verified + grep-attested; the reshape is a Locked-§3.7 fidelity correction). `automation_invoked` mint CONFIRMED necessary (R92-1); nested records CONFIRMED Locked-faithful (R92-2); `automation_disabled` NORMAL survives w/ BOTH §6.2 occurrences corrected (R92-3). Fan-out re-derived clean: 55→71 / 24→41 / **36→53**. The A.9 C1-interim carry (no production `automation_triggered` publish before M7.2's completing side) rides the M7.1 instruction. **RATIFIED by Nick 2026-06-12.**

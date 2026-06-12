@@ -8,6 +8,8 @@
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-04
 
+> **Amendments in force (2026-06-12):** **AMD-92** registers the automation event family in §4.3/§4.4 (16 new types + reshaped `automation_triggered`/`automation_completed` payloads per Doc 07 §3.7; +`automation_invoked`; all `[automation]`-category; type-residency rule: event records never reference automation-resident types — run/status identifiers flatten to `Ulid`/`String`). **AMD-91** supersedes AMD-04's §4.5 paragraph label (the derived view stands). **B2-C8 (ratified 2026-06-12)** fixes the `actorRef` convention: four-kind closed set (PERSON/AUTOMATION/SYSTEM/API_CLIENT) recoverable by typed-ID provenance; automations stamp `AutomationId`; Tier-1 API keys map to API_CLIENT, never PERSON; kind⟺`EventOrigin` consistency (AUTOMATION⟺AUTOMATION, PERSON/API_CLIENT⟺USER_COMMAND, SYSTEM⟺SYSTEM). Anchors at `7c73c91`: `EventEnvelope:112`; `SqliteEventStore` write `:329–332`. The enforcing Doc 01 amendment rides M10.
+
 > **Amendment currency — AMD-52 (RATIFIED 2026-05-31), body FOLDED — M4.0b-4b shipped `72596cb` (2026-05-31).** `StateChangedEvent.oldValue/newValue` are the typed `AttributeValue` (`oldValue` nullable = first report), carried via a custom `JsonSerializer`/`JsonDeserializer` pair in `core/persistence` (compact `{"t":<AttributeType>,"v":…}` envelope, no `@JsonTypeInfo` — Jackson-isolation HARD RULE + ArchUnit `NO_JACKSON_IN_DOMAIN_MODEL`). The per-event `schema_version` column (the §3.10 seam) is the string(1)↔typed(2) discriminator — typed payloads write `schema_version = 2`; **no event-store row migration**. Reading a legacy `schema_version = 1` String `state_changed` under the typed reader yields a `DegradedEvent` (raw preserved — a defined non-upcast, version-gated in `EventPayloadCodec.decode`; no upcaster in the codec). **Folded into §4.6 (`state_changed` payload shape) and §3.10 (`schema_version` seam) below.** See `design/amendments/AMD-52_*` + AMD-52-INV-01..05 (Architecture_Invariants_v1.md §22).
 
 ---
@@ -521,6 +523,8 @@ The `event_type` field carries a string identifier. Core event types use undersc
 
 **Automation lifecycle:**
 
+_(AMD-92, 2026-06-12: this family expands to 19 types — see the AMD for the full inventory, priorities, and flattened payloads; `automation_invoked` joins as the manual/invocation initiator; `automation_disabled` is NORMAL.)_
+
 | Event Type | Subject | Producer | Default Priority | Description |
 |---|---|---|---|---|
 | `automation_triggered` | Automation | Automation Engine | NORMAL | A trigger condition was met, beginning a run. |
@@ -624,7 +628,7 @@ This supports the "why did this happen?" query: given any event, follow its `cor
 
 The projection also monitors chain depth. When a chain exceeds the configurable threshold (default: 50 events), it emits a `causality_depth_warning` DIAGNOSTIC event. This serves as an early indicator of potential automation loops — a well-behaved automation chain rarely exceeds 10 events.
 
-**Cascade depth (AMD-04).** The causal chain projection derives a `cascade_depth` field for each chain: the count of distinct `automation_triggered` events in the chain from root to current node. This field is included in the chain metadata returned by trace queries and enables the Automation Engine's cascade governance (Doc 07 §3.7.1) to propagate depth through causal context. The `cascade_depth` is computed incrementally as events are appended to the chain — each `automation_triggered` event increments the running depth counter for that chain. The trace query service exposes `cascade_depth` alongside the ordered event list for diagnostic purposes (e.g., "this command was issued at cascade depth 3").
+**Cascade depth (AMD-04 — superseded by AMD-91, 2026-06-12; this derived query-side view stands unchanged).** The causal chain projection derives a `cascade_depth` field for each chain: the count of distinct `automation_triggered` events in the chain from root to current node. This field is included in the chain metadata returned by trace queries and enables the Automation Engine's cascade governance (Doc 07 §3.7.1) to propagate depth through causal context. The `cascade_depth` is computed incrementally as events are appended to the chain — each `automation_triggered` event increments the running depth counter for that chain. The trace query service exposes `cascade_depth` alongside the ordered event list for diagnostic purposes (e.g., "this command was issued at cascade depth 3").
 
 **Memory bound.** The causal chain projection maintains an in-memory map of active correlation chains (correlation_id → chain metadata). A chain is considered "active" from the root event until either: (a) a terminal event in the chain is observed (automation run completes, command confirmed/timed out), or (b) a configurable inactivity timeout expires (default: 5 minutes). Expired chains are evicted from memory. The map is bounded at 10,000 active chains; if this limit is reached, the oldest chains are evicted with a structured log warning. The eviction does not affect event persistence or subscriber delivery — it only limits the real-time chain-length tracking available for diagnostic queries. Historical chain reconstruction remains available by querying the event log by `correlation_id`.
 

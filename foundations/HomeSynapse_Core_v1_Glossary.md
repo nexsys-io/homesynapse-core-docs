@@ -925,6 +925,8 @@ The Person concept exists because the identity-aware device model (INV-MU-01) an
 
 The Actor always references a `user_ref`, not a `person_ref`. Attribution flows through authenticated accounts; the Person model handles preference and presence, not audit trails.
 
+> **Superseded in part (B2-C8, ratified 2026-06-12):** the closed actor set is four-kind — PERSON, AUTOMATION, SYSTEM, API_CLIENT — recoverable by typed-ID provenance; automation-originated events stamp the `AutomationId`, not the originating user. The causal-reference semantic is **chain-recoverable**: the originating human remains fully attributable via the correlation chain to the user-actored root event (INV-MU-01's intent survives through the trace, not through field duplication). See `nexsys-hivemind/context/decisions/2026-06-08_B2_schema_decisions_C8_C9.md`.
+
 **UI term.** "Performed by" (in event detail views)
 
 **API tokens.**
