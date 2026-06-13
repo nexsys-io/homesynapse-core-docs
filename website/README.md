@@ -35,8 +35,13 @@ Plain Markdown. **The framework/static-site-generator decision is deliberately N
 
 **R16 fold note (2026-06-12):** the R16 assessment's merged disposition (`nexsys-hivemind/context/planning/2026-06-12_R16_output-contract_merged-disposition.md`) landed mid-Increment-1; its M5-C-COPY bucket (REC-193/194/195) is consumed above at stub/citation level per its own routing rule. Full copy drafting = Increment 2. Its read-out adds a binding copy guardrail: **"rendering, not data"** — B3/explainability copy claims the event-sourced record and current surfaces, never an unshipped plain-language-causality UI (the rendering register is M10/M13 work).
 
+## Design-system references (imported 2026-06-12)
+
+The Feb 2026 design-system canon (voice & tone, typography, visual design, website design vision, documentation style guide, content types) lives at `design-system/` — all DRAFT pending reconciliation. **`design-system/README.md` is the inventory + conflict register (C1–C10).** Until reconciliation, the register rules above outrank those documents wherever they conflict. Two canon documents (AboutHomeSynapse, DAS v1 Specification) plus the 15-file artifact pack are still un-extracted from the ChatGPT project (tracker C8).
+
 ## Open items (Nick)
 
 1. **Framework decision** — static site generator / hosting. Open, not blocking content drafting.
 2. **Landing-page "works with" section** — held back deliberately: integration claims must match shipped product truth at publish time (Zigbee is the MVP adapter; any Matter line uses the fence verbatim). Decide at Increment 2 or at publish.
-3. **Naming surface** — pages use "HomeSynapse" (product) and "NexSys" (company, trademark = the commercial control point per D-2). Confirm the public naming convention before publish.
+3. **Naming surface** — ~~Confirm the public naming convention before publish.~~ **RULED 2026-06-12 (Nick, W-7):** homesynapse.com only at launch; NexSys in footer/legal as "a NexSys product"; nexsys.io deferred. Pages use "HomeSynapse" (product) and "NexSys" (company, trademark = the commercial control point per D-2).
+4. **Install story (NEW, gates mainstream copy)** — undecided (W-4). Until ruled, mainstream "plug-and-play" claims are embargoed per the tense-truth gate; prosumer install copy may describe only what exists. See `nexsys-hivemind/context/decisions/2026-06-12_website-brand-deliberation_draft-rulings.md` (W-1..W-7: launch audience, publish model + gate, brand reference class, wordmark-only identity).
