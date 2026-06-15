@@ -1,4 +1,4 @@
-<!-- DRAFT — the M5-C Increment-1 deliverable (2026-06-12). Prosumer/technical audience (segment rule D-4 satisfied: lead is correctness/reliability, not privacy). Matter: not mentioned (fence trivially satisfied). Encryption: supporting trust point only, §"The quiet parts" (guardrail REC-181). Review state: drafted-awaiting-veto (Nick). -->
+<!-- DRAFT — the M5-C Increment-1 deliverable (2026-06-12). Prosumer/technical audience (segment rule D-4 satisfied: lead is correctness/reliability, not privacy). Matter: not mentioned (fence trivially satisfied). Encryption: supporting trust point only, §"The quiet parts" (guardrail REC-181). Review state: APPROVED 2026-06-14 (PM quality gate, veto delegated by Nick) — entry-gate row 4 CLOSED. Increment-1 acceptance met (reviewer-readable end-to-end + all three register guardrails + anti-requirements hold; INV-CE-01 blockquote verbatim-verified; no fabricated metrics). PUBLISH gates remain and do NOT gate row 4: competitor-receipt verification (HA ADR-0010 / issue numbers / openHAB #64682) before any inline promotion; the website/README open items (framework, works-with, install story). -->
 
 # One configuration. One truth.
 
@@ -114,7 +114,7 @@ PHONES HOME
 QUIET PARTS
 - Zero-config first run: INV-CE-02 / Doc 06 C2.
 - Encryption trust point (guardrail REC-181 compliance: non-headline, late placement, explicitly framed as table stakes): OQ-15-2 disposition (2026-06-12) — encrypted_scopes default CONFIRMED [identity, presence_personal]; p50 2.82–4.46 µs / p99 3.28–4.61 µs at real payload sizes (44/82 B) → "a few microseconds per record"; tax ≤0.12% of one core quoted exactly; Pi 5 with intrinsics forced OFF → "hardware crypto acceleration deliberately disabled" (the conservative case, honestly stated). No other metrics cited anywhere on this page.
-- **PUBLISH GATE (tense-truth):** at-rest payload encryption is ratified design with the default CONFIRMED, but the implementation is M6.3 (triple-gated, not yet issued). Secrets encryption IS shipped (M6.2). Before publish, verify M6.3 has shipped or shift this sentence to design-commitment framing. Same rule as the ledger stub's shipping-honesty guardrail.
+- **PUBLISH GATE (tense-truth) — CLEARED 2026-06-14:** at-rest payload encryption shipped in M6.3 (`1eddd9a`, GREEN — at-rest event-payload encryption for sensitive-PII scopes [identity, personal presence]), so the §"quiet parts" sentence is now shipped-true, not design-only. Secrets encryption shipped M6.2 (`7c73c91`). The OQ-15-2 figures remain the published metrics. (Pre-M6.3 this sentence was gated to design-commitment framing; that condition is now satisfied.)
 
 LEFT OUT
 - No templating DSL: anti-requirement REC-155. No silent ignoring: §3.6 ground as above. No second store: INV-CE-01.
