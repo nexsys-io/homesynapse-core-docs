@@ -861,6 +861,16 @@ Scenes are syntactic sugar over Automation Actions — they compile down to a se
 
 **API tokens.** `scene_id`, `scene_slug`, `scene_ref` — reserved for Tier 2+.
 
+### 4.7 AutomationComponent (reserved)
+
+**Concept.** A named, versioned, reusable Automation *fragment* — typed parameters plus a body composed of the sealed Trigger/Condition/Action definitions with parameter references in value positions. Instantiating an AutomationComponent with arguments **expands** it (at load time for static arguments) into a concrete Automation made entirely of sealed types, indistinguishable to the engine from a hand-authored one. It is the HomeSynapse answer to power-user reuse — the demand met elsewhere by Home Assistant blueprints, Apple Shortcuts, and Node-RED subflows — delivered *without* a templating or scripting language, so the result stays statically analyzable (no-DSL anti-requirement).
+
+**Disambiguation.** AutomationComponent is a **distinct canonical term** and is **not** the deprecated "Component" of §10.1 (the HA pre-2021 sense that HomeSynapse renamed to "Integration"). The two are unrelated: an Integration binds a protocol/device source; an AutomationComponent is a reusable automation-authoring fragment. The qualifier "Automation" is load-bearing — use the full term, never bare "Component."
+
+**UI term.** Component (within the automation-authoring surface only; the bare word is otherwise reserved/avoided per §10.1).
+
+**API tokens.** `component_id`, `component_version`, `component_ref`, and the `automation.components.*` config namespace — reserved; introduced by the Superior Automation Layer (Design Doc 16) and built with/after M7.2.
+
 ---
 
 ## 5. User Identity, Permissions, and Presence

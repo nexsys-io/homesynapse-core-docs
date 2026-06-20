@@ -79,8 +79,9 @@ The complete set of category prefixes currently in use is:
 | `AMD-92-INV` | Automation Event Vocabulary (AMD-92) | §46 |
 | `AMD-93-INV` | Automation Definition Schema Posture (AMD-93) | §47 |
 | `AMD-94-INV` | Rotate-DEK-on-Restore + Envelope Version Discriminator (AMD-94) | §48 |
+| `SA` | Superior Automation Layer (Doc 16) | §49 |
 
-The §17 Invariant Index provides the canonical per-identifier lookup; the §18 Traceability Matrix maps each category to failure modes and opportunities. The BUS / PROJ / WRITER / SUB-ISO categories were added by Phase 3 governance work (AMD-41, AMD-42, AMD-43, applied 2026-05-16); their canonical definitions live in §19. The `AMD-47-INV-NN` identifiers are **amendment-scoped** contract-level invariants (the convention introduced by the projection block's `AMD-50-INV-NN`); their canonical definitions live in §20 and they trace 1:1 to AMD-47 (RATIFIED 2026-05-30). The `AMD-54-INV` … `AMD-64-INV` categories (§24–§34) were registered together at the Workstream C integration-block ratification (2026-06-05, single review return) and trace 1:1 to AMD-54..64. The `AMD-66-INV` … `AMD-71-INV` categories (§37–§41) were registered together at the M6 configuration-block ratification (2026-06-09, single review return) and trace 1:1 to AMD-66/67/68/70/71; **AMD-69 is DEFERRED (Tier-2/OQ-15-3) and registers no invariant — the number stays reserved.** The sections are numbered by AMD order (66, 67, 68, 70, 71 → §37–§41); the section count is five because the deferred AMD-69 contributes none.
+The §17 Invariant Index provides the canonical per-identifier lookup; the §18 Traceability Matrix maps each category to failure modes and opportunities. The BUS / PROJ / WRITER / SUB-ISO categories were added by Phase 3 governance work (AMD-41, AMD-42, AMD-43, applied 2026-05-16); their canonical definitions live in §19. The `AMD-47-INV-NN` identifiers are **amendment-scoped** contract-level invariants (the convention introduced by the projection block's `AMD-50-INV-NN`); their canonical definitions live in §20 and they trace 1:1 to AMD-47 (RATIFIED 2026-05-30). The `AMD-54-INV` … `AMD-64-INV` categories (§24–§34) were registered together at the Workstream C integration-block ratification (2026-06-05, single review return) and trace 1:1 to AMD-54..64. The `AMD-66-INV` … `AMD-71-INV` categories (§37–§41) were registered together at the M6 configuration-block ratification (2026-06-09, single review return) and trace 1:1 to AMD-66/67/68/70/71; **AMD-69 is DEFERRED (Tier-2/OQ-15-3) and registers no invariant — the number stays reserved.** The sections are numbered by AMD order (66, 67, 68, 70, 71 → §37–§41); the section count is five because the deferred AMD-69 contributes none. The **`SA`** category (§49) was registered at the **Doc 16 (Superior Automation Layer) Lock — 2026-06-20** — a **new design-doc Lock, not an amendment**, so (like the §19 Phase-3 subsystem categories BUS/PROJ/WRITER/SUB-ISO and the foundational docs) it mints a subsystem category at its own Lock and **the on-disk amendment watermark stays AMD-94**; INV-SA-01/02 are novel (registered first-class) and INV-SA-03/04 are citing compositions of existing parents.
 
 ### 0.4 Relationship to Other Artifacts
 
@@ -1065,8 +1066,12 @@ Complete index of all invariants for reference from subsystem design documents.
 | **AMD-93-INV-02** | Fully-Resolvable References at Load Time | §47 |
 | **AMD-94-INV-01** | Rotate-on-Restore Prevents Cross-Restore Nonce Reuse (restore ⇒ fresh DEK version) | §48 |
 | **AMD-94-INV-02** | Encrypted At-Rest Rows Are Self-Describing (1-byte version discriminator) | §48 |
+| **INV-SA-01** | Expressiveness Expands Only Into the Sealed Model (no runtime DSL) | §49 |
+| **INV-SA-02** | Federation Non-Preclusion (scope additively reservable; no site-local-sequential identity) | §49 |
+| **INV-SA-03** | Explanation Is a Pure Projection of the Log (no parallel trace store) | §49 |
+| **INV-SA-04** | Running Automations Degrade Deterministically (deterministic terminal + recorded reason) | §49 |
 
-**Total: 165 invariants across 48 identifier categories (§0.3).** _Regenerated from this table at the 2026-06-19 AMD-94 ratification (§48, +2 — AMD-94-INV-01/02); prior regeneration 2026-06-12 (163/47, M7 block §42–§47, +11 — AMD-88..93); earlier 2026-06-09 (152/41, M6 block). Never propagate a stated total — re-derive from this table._
+**Total: 169 invariants across 49 identifier categories (§0.3).** _Regenerated from this table at the 2026-06-20 Doc 16 (Superior Automation Layer) Lock (§49, +4 — INV-SA-01..04; INV-SA-01/02 novel registered first-class, INV-SA-03/04 citing compositions; a new-doc Lock, not an amendment — watermark stays AMD-94); prior regeneration 2026-06-19 AMD-94 ratification (165/48, §48, +2 — AMD-94-INV-01/02); 2026-06-12 (163/47, M7 block §42–§47, +11 — AMD-88..93); earlier 2026-06-09 (152/41, M6 block). Never propagate a stated total — re-derive from this table._
 
 ---
 
@@ -1120,6 +1125,7 @@ This section maps each invariant category to the competitive failure modes and s
 | §46 Automation Event Vocabulary (AMD-92) | JPMS cycle via payload types (the AMD-52/E70-1 class); unregistered types failing encode in production (the M4.C class). |
 | §47 Automation Definition Schema Posture (AMD-93) | Destructive definition migration (the Groovy/Rule-Machine corpus-loss class); silently-never-fires dangling references. |
 | §48 Rotate-DEK-on-Restore + Envelope Version Discriminator (AMD-94) | Cross-restore (key,nonce) reuse breaking AES-GCM confidentiality *and* authentication (the OR-M6-NONCE restore-half: backup at N → live writes to N+k → restore to N → reuse N+1…N+k under the same DEK); an immutable hash-chained AEAD corpus shipped with no algorithm/version-agility slot, forcing a worst-conditions migration once the corpus is live and the chain is verified. |
+| §49 Superior Automation Layer (Doc 16) | Expressiveness delivered via a runtime template/DSL (the silent-failure Groovy/Jinja/Rule-Machine corpus) instead of expansion into the sealed model; explanations diverging from truth via a parallel trace store; a Run dying in a silent partial success or autonomously re-issuing commands (double-actuation); federation foreclosed by a site-local-sequential identity or a payload-resident scope forcing an immutable-log migration. |
 
 ---
 
@@ -1608,6 +1614,28 @@ On restore, a scope resumes encryption only under a freshly-installed **additive
 
 Every encrypted at-rest row carries a 1-byte algorithm/version discriminator; `v1` = the Doc 15 §3.4 envelope (AES-256-GCM, 96-bit counter nonce, per-scope DEK), distinct from `dek_ref`'s `key_version`. The slot exists from the first encrypted write so the AEAD may evolve without rewriting the immutable, chain-covered corpus — emitted as an envelope prefix (recommended, chain-covered) or an additive column (not chain-covered today; only the canonical metadata + `payload` are chained); final placement and version *policy* (registry, downgrade rules, AAD binding) are R-γ-pending, slot *existence* is this invariant.
 
+
+---
+
+## 49. Superior Automation Layer (Doc 16)
+
+§49 registers the **INV-SA** invariant category introduced by **Doc 16 — Superior Automation Layer** (the three first-class surfaces: expressiveness-without-a-DSL · explainability/causal-chain · run-coupled reliability), **Locked 2026-06-20**. Registered here (plus §0.3, the §17 Invariant Index, and the §18 Traceability Matrix) at the Doc 16 Lock, following the §19 subsystem-category precedent (BUS/PROJ/WRITER/SUB-ISO) — a **new design-doc Lock, not an amendment**, so it mints a subsystem category at its own Lock the way the foundational docs did and **the on-disk amendment watermark stays AMD-94** (the drift discriminators are the invariant count, 165→169, and the Locked-doc set). Owner doc: **Doc 16** (Locked 2026-06-20). Independent DOCS review return: `nexsys-hivemind/context/audits/2026-06-20_Doc16_independent_DOCS_Review_Return.md` (SCOPE = RIGHT; DOCUMENT = RATIFY-WITH-EDITS, all NON-BLOCKING; E1/E2/E4/E5/E6/E7 + S1/S2 folded; §7.2 source cross-check re-run at core `60d50ce` → M7.1-UNAFFECTED holds). **INV-SA-01/02 are novel** (no existing invariant covers the no-runtime-DSL anti-requirement-as-invariant or scope-reservability — registered first-class); **INV-SA-03/04 are citing compositions** that each add a constraint their parents do not impose and cite those parents. This layer adds **no sealed permit and no event type**; built by **M7.2a/M7.2b** (the run/action/dispatch engine that builds into Doc 16).
+
+### INV-SA-01: Expressiveness Expands Only Into the Sealed Model
+
+Every automation component and computed value resolves at load time to instances of the existing sealed `TriggerDefinition` / `ConditionDefinition` / `ActionDefinition` permits; no runtime template, expression-string, or scripting engine exists in the automation path. Expressiveness grows only by expansion into the sealed model — never via a parallel evaluation surface — so the no-DSL anti-requirement (AMD-88 §6 / REC-155) is structural and the statically-analyzable substrate the linter and dry-run surfaces depend on is preserved. *(Novel — the no-DSL anti-requirement as an invariant; Doc 16 §3.2, §5.3.)*
+
+### INV-SA-02: Federation Non-Preclusion
+
+No persisted identity is site-local-sequential (identities are globally unique by construction — typed ULIDs, LTD-04), and scope is an additive, absent-defaults-to-local discriminator reserved at the envelope/metadata level. Federating a single-site install therefore never requires migrating the immutable event log. Materializing the reserved `ScopeRef` later is itself a formal AMD (an envelope-shape change through the pipeline, even though additive) and must be confirmed compatible with the AMD-94 envelope-version slot it mirrors. *(Novel — no existing invariant covers scope-reservability; Doc 16 §3.5, §5.3; S2.)*
+
+### INV-SA-03: Explanation Is a Pure Projection of the Log
+
+Every `RunExplanation` / `NonFiringExplanation` / `AuditRecord` is reconstructable solely from persisted events plus `RunCausalChain`; no explanation depends on state not in the log, and no parallel trace store exists. *(Citing composition of **INV-ES-06** (every state change is explainable) + **INV-ES-01** (events are immutable facts) + **INV-TO-03** (no hidden state) — strengthens them with the "no parallel trace store" guarantee the parents permit but do not require; Doc 16 §3.3, §5.2, §5.3.)*
+
+### INV-SA-04: Running Automations Degrade Deterministically
+
+A Run under partial failure reaches a deterministic terminal `RunStatus` with a recorded, machine-readable reason and an emitted event; the engine never autonomously re-issues a command. *(Citing composition of **INV-RF-06** (graceful degradation under partial failure) + **INV-TO-02** (automation determinism) + **AMD-90-INV-01** (confirmation never blocks/retries) — strengthens them with the required recorded terminal reason the parents do not mandate; Doc 16 §3.4, §5.2, §5.3. Honors the D2/REC-162 no-engine-retry anti-requirement — deferred, not pre-empted.)*
 
 ---
 
