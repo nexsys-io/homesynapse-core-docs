@@ -78,6 +78,7 @@ The complete set of category prefixes currently in use is:
 | `AMD-91-INV` | Run Causal Chain + Cycle Suppression (AMD-91) | §45 |
 | `AMD-92-INV` | Automation Event Vocabulary (AMD-92) | §46 |
 | `AMD-93-INV` | Automation Definition Schema Posture (AMD-93) | §47 |
+| `AMD-94-INV` | Rotate-DEK-on-Restore + Envelope Version Discriminator (AMD-94) | §48 |
 
 The §17 Invariant Index provides the canonical per-identifier lookup; the §18 Traceability Matrix maps each category to failure modes and opportunities. The BUS / PROJ / WRITER / SUB-ISO categories were added by Phase 3 governance work (AMD-41, AMD-42, AMD-43, applied 2026-05-16); their canonical definitions live in §19. The `AMD-47-INV-NN` identifiers are **amendment-scoped** contract-level invariants (the convention introduced by the projection block's `AMD-50-INV-NN`); their canonical definitions live in §20 and they trace 1:1 to AMD-47 (RATIFIED 2026-05-30). The `AMD-54-INV` … `AMD-64-INV` categories (§24–§34) were registered together at the Workstream C integration-block ratification (2026-06-05, single review return) and trace 1:1 to AMD-54..64. The `AMD-66-INV` … `AMD-71-INV` categories (§37–§41) were registered together at the M6 configuration-block ratification (2026-06-09, single review return) and trace 1:1 to AMD-66/67/68/70/71; **AMD-69 is DEFERRED (Tier-2/OQ-15-3) and registers no invariant — the number stays reserved.** The sections are numbered by AMD order (66, 67, 68, 70, 71 → §37–§41); the section count is five because the deferred AMD-69 contributes none.
 
@@ -1062,8 +1063,10 @@ Complete index of all invariants for reference from subsystem design documents.
 | **AMD-92-INV-02** | Full Manifest Registration Before First Publish | §46 |
 | **AMD-93-INV-01** | Forward-Only, Non-Destructive Definition Migrations | §47 |
 | **AMD-93-INV-02** | Fully-Resolvable References at Load Time | §47 |
+| **AMD-94-INV-01** | Rotate-on-Restore Prevents Cross-Restore Nonce Reuse (restore ⇒ fresh DEK version) | §48 |
+| **AMD-94-INV-02** | Encrypted At-Rest Rows Are Self-Describing (1-byte version discriminator) | §48 |
 
-**Total: 163 invariants across 47 identifier categories (§0.3).** _Regenerated from this table at the 2026-06-12 M7-block registration (§42–§47, +11 — AMD-88..93 ratified 2026-06-12); prior regeneration 2026-06-09 (152/41, M6 block). Never propagate a stated total — re-derive from this table._
+**Total: 165 invariants across 48 identifier categories (§0.3).** _Regenerated from this table at the 2026-06-19 AMD-94 ratification (§48, +2 — AMD-94-INV-01/02); prior regeneration 2026-06-12 (163/47, M7 block §42–§47, +11 — AMD-88..93); earlier 2026-06-09 (152/41, M6 block). Never propagate a stated total — re-derive from this table._
 
 ---
 
@@ -1116,6 +1119,7 @@ This section maps each invariant category to the competitive failure modes and s
 | §45 Run Causal Chain + Cycle Suppression (AMD-91) | Window-dependent loop suppression; replay-divergent cascade behavior (INV-TO-02 breach). |
 | §46 Automation Event Vocabulary (AMD-92) | JPMS cycle via payload types (the AMD-52/E70-1 class); unregistered types failing encode in production (the M4.C class). |
 | §47 Automation Definition Schema Posture (AMD-93) | Destructive definition migration (the Groovy/Rule-Machine corpus-loss class); silently-never-fires dangling references. |
+| §48 Rotate-DEK-on-Restore + Envelope Version Discriminator (AMD-94) | Cross-restore (key,nonce) reuse breaking AES-GCM confidentiality *and* authentication (the OR-M6-NONCE restore-half: backup at N → live writes to N+k → restore to N → reuse N+1…N+k under the same DEK); an immutable hash-chained AEAD corpus shipped with no algorithm/version-agility slot, forcing a worst-conditions migration once the corpus is live and the chain is verified. |
 
 ---
 
@@ -1483,7 +1487,7 @@ Retry backoff (`BackoffParameters`) and recovery probing (`HealthParameters.prob
 
 ### AMD-86-INV-01: Encrypt-on-Write Is Irreversible; the Shred Operation Is Deferrable
 
-*Encrypt-on-write is irreversible; the shred operation is deferrable.* A category is crypto-shreddable only if written encrypted-per-scope; therefore the encrypt-on-write decision for the sensitive-PII categories is made at MVP and the operation that consumes those keys may land later. **[BLOCKING-for-M6-impl] corollary (Doc 15 §6/§13.4):** the per-scope GCM counter-nonce must be durable and strictly monotonic across crash AND restore, or (key, nonce) reuse breaks AES-GCM confidentiality *and* authentication for that scope — carried as an explicit M6 Open Risk (pm-handoff).
+*Encrypt-on-write is irreversible; the shred operation is deferrable.* A category is crypto-shreddable only if written encrypted-per-scope; therefore the encrypt-on-write decision for the sensitive-PII categories is made at MVP and the operation that consumes those keys may land later. **[BLOCKING-for-M6-impl] corollary (Doc 15 §6/§13.4):** the per-scope GCM counter-nonce must be durable and strictly monotonic across crash AND restore, or (key, nonce) reuse breaks AES-GCM confidentiality *and* authentication for that scope — carried as an explicit M6 Open Risk (pm-handoff). **[RESOLVED 2026-06-19]** The **crash-half** is discharged by M6.3 (durable, fsync-ahead-of-return counter; re-init from persisted max). The **restore-half** is discharged by **AMD-94-INV-01 (§48)** — rotate-DEK-on-restore (additive new DEK version, retain priors) + the fail-closed boot invariant (restore ⇒ install a fresh DEK version). **OR-M6-NONCE → CLOSED.**
 
 ---
 
@@ -1589,6 +1593,20 @@ Automation-definition migrations are forward-only and idempotent, always precede
 
 ### AMD-93-INV-02: Fully-Resolvable References at Load Time
 Every loaded automation definition has fully-resolvable references at load time (post-tombstone-redirect); a definition with dangling references never enters the registry.
+
+---
+
+## 48. Rotate-DEK-on-Restore + Envelope Version Discriminator (AMD-94)
+
+§48 registers the invariant category added by **AMD-94** (Doc 15 §6 currency amendment — rotate-DEK-on-restore binding + the 1-byte envelope version discriminator), **RATIFIED 2026-06-19** (FULL per-AMD track — persisted shape + crypto behavioral contract + new invariants; `constraint-enforcement.md §6`) — registered here (plus §0.3, the §17 Invariant Index, and the §18 Traceability Matrix) at ratification, following the §20–§47 precedent. Owner doc: **Doc 15 — Cryptographic Architecture** (Locked 2026-06-07; AMD-94 folded 2026-06-19 into §3.4/§4.1/§5/§6/§13.4/§16/§8.1). AMD-94-INV-01 **discharges the AMD-86-INV-01 (§35) `[BLOCKING-for-M6-impl]` restore-half corollary** → **OR-M6-NONCE CLOSED**. Independent DOCS review return: `nexsys-hivemind/context/audits/2026-06-19_AMD-94_DOCS_Review_Return.md` (RATIFY-WITH-EDITS; **E-1** boot-invariant restore⇒rotation-only sharpening + **E-2** encoding-neutral discriminator folded; the §8.1 `ScopeKeyManager` currency rider kept). Implemented by the future backup/restore WU (rotate-on-restore mechanics, §2.1) + app-bootstrap **AB-2** (the boot invariant on the read/write path) / **AB-4** (emits `v1` on the first encrypted write). The statements below are AMD-94 §7 as corrected by the ratified review edits (E-1/E-2).
+
+### AMD-94-INV-01: Rotate-on-Restore Prevents Cross-Restore Nonce Reuse
+
+On restore, a scope resumes encryption only under a freshly-installed **additive** DEK version (priors retained, never replaced; payloads never re-encrypted; version monotonicity across successive/concurrent restores enforced by the `scope_keys` PRIMARY KEY `(scope_id, key_version)`); carry-high-water-mark is a defense-in-depth cross-check, never the sole guarantee. A restored scope therefore never resumes counting under an already-used DEK version → (key, nonce) reuse is structurally impossible across restore. The boot invariant is **fail-closed**: **after a restore it is discharged only by installing a fresh DEK version** — rotation is the restore-completion gate, because a restore can roll the persisted counter back below an already-issued nonce and erase the engine's evidence of the true high-water mark, so the restored counter is not proof of safety. The alternative discharge — resume only when the persisted counter is **proven ≥ all prior nonces issued under the active DEK version** — is the **crash-recovery** branch, sound only because the M6.3 durable, fsync-ahead-of-return counter makes the persisted max equal the true max after a crash. Discharges the AMD-86-INV-01 (§35) restore-half corollary; closes OR-M6-NONCE restore-half.
+
+### AMD-94-INV-02: Encrypted At-Rest Rows Are Self-Describing
+
+Every encrypted at-rest row carries a 1-byte algorithm/version discriminator; `v1` = the Doc 15 §3.4 envelope (AES-256-GCM, 96-bit counter nonce, per-scope DEK), distinct from `dek_ref`'s `key_version`. The slot exists from the first encrypted write so the AEAD may evolve without rewriting the immutable, chain-covered corpus — emitted as an envelope prefix (recommended, chain-covered) or an additive column (not chain-covered today; only the canonical metadata + `payload` are chained); final placement and version *policy* (registry, downgrade rules, AAD binding) are R-γ-pending, slot *existence* is this invariant.
 
 
 ---
