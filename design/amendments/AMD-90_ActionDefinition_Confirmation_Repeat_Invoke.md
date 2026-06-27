@@ -19,6 +19,8 @@ Three gaps: (1) the Pending Command Ledger is implicitly mandatory for every com
 
 ### 2.1 `ConfirmationPolicy` (the merged 33⊕143⊕144⊕161 item)
 
+> **⚠ SUPERSEDED-IN-PART by AMD-95 (2026-06-26) for the V1 engine — see §11.** The `CommandAction` 4→5 change and the automation-resident `ConfirmationPolicy{OPTIMISTIC,REQUIRED,BEST_EFFORT}` enum below were **never built**; confirmation is sourced from the capability (`ConfirmationMode`, `DISABLED` ≡ optimistic). AMD-90-INV-01/02 and the timeout design are unaffected. The §2.2/§2.3 permit items are unaffected here (separate currency item, D-07-A).
+
 New automation-resident enum:
 
 ```java
@@ -100,3 +102,9 @@ NO per-action timeout field (config-key + capability layering suffices; demand-g
 ## 10. Review Disposition
 
 **DOCS-Project review (2026-06-12): RATIFY-AS-IS — zero edits.** Return §A.6. R90-1 (BEST_EFFORT-as-default) CONFIRMED — the disposition's parenthetical describes BEST_EFFORT's semantics verbatim; OPTIMISTIC-as-default would silently regress Locked §3.11.2's implicit posture. R90-2 (AMD-03 inviolate; state-based WHILE degenerate → load-time WARNING) CONFIRMED — per-iteration re-snapshot is supersession territory. The two-layer default (interface OPTIMISTIC / CommandAction YAML-load BEST_EFFORT mirroring `onUnavailable`) ruled coherent. **RATIFIED by Nick 2026-06-12.** Open residue: the Pi-4 calibration spike (REC-161) remains Nick-paced, pre-M7.3 pin-freeze.
+
+## 11. Superseded-in-Part by AMD-95 (2026-06-26)
+
+**§2.1 (`ConfirmationPolicy`) is superseded-in-part by AMD-95 for the V1 engine** (RATIFIED 2026-06-26; review return `nexsys-hivemind/context/audits/2026-06-26_AMD-95-and-doc-currency_review_return.md`). The M7.2b action-model freeze (`1b0b6c9`) froze `CommandAction` at **4 fields** `(Selector, String, Map, UnavailablePolicy)` — the planned **5th `confirmation` component was never added**, and the automation-resident `ConfirmationPolicy{OPTIMISTIC, REQUIRED, BEST_EFFORT}` enum **was never built**. The as-built confirmation signal lives on the **capability**: the device-model `ConfirmationPolicy.mode()` / `ConfirmationMode` enum, where **`DISABLED` ≡ optimistic / no ledger tracking** and any other mode ≡ track-and-confirm (the M7.3 `ConfirmationPolicyGateTest`). AMD-95 §2.C withdraws, for the V1 engine, the §2.1 `CommandAction` 4→5 change and the automation-resident enum, in favor of this capability-sourced model (Doc 07 D16).
+
+**What stays from AMD-90 (unchanged):** AMD-90-INV-01 (no engine retry at any policy) and AMD-90-INV-02 (bounded iteration) are **not disturbed**; the per-command timeout precedence (capability `default_timeout` → the `automation.command_pipeline.default_confirmation_timeout_ms` fallback, §2.1) holds; and the §2.2/§2.3 action-permit items (`RepeatAction`, `ActivateSceneAction`→`InvokeAutomationAction`) are **out of AMD-95's scope** — they are a separate, ratified-but-unbuilt action-model currency item (the shipped `ActionDefinition` permits 8, not 9), deferred to M8 with a forward/unbuilt note (D-07-A; Nick ruled 2026-06-26). The REC-161 Pi-4 calibration spike rides the bench.

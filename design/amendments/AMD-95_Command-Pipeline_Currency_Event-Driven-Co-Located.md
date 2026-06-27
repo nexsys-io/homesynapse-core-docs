@@ -2,7 +2,7 @@
 file: design/amendments/AMD-95_Command-Pipeline_Currency_Event-Driven-Co-Located.md
 purpose: AMD-95 — the Doc 07 §3.11 / AMD-90 command-pipeline currency reconciliation. Brings the Locked design into agreement with the frozen source the M7.3 [REVIEW]s mapped AND ratifies the §1 event-driven/co-located dispatch shape (decision record 2026-06-25, D1) as the target M7.4 builds. Authored so M7.4a/M7.4b author against reality, not against a pipeline the code never built.
 audience: Nick (ratify), PM, Coder (M7.4), independent DOCS-Project reviewer
-status: PROPOSED 2026-06-25 (v6 hub). NOT self-ratified. Runs the formal DOCS second-opinion review → Nick co-sign → ratify pipeline. At ratification the on-disk amendment watermark advances AMD-94 → AMD-95 (a genuine Locked-doc amendment, unlike the Doc 16/17 new-doc Locks).
+status: **RATIFIED 2026-06-26** (v7 hub). DOCS-currency review **RATIFY-WITH-EDITS** (return `nexsys-hivemind/context/audits/2026-06-26_AMD-95-and-doc-currency_review_return.md` — all eight frozen-signature claims VERIFIED EXACT at core `5363347`; the AMD-90 §2.1 supersede-in-part correct; zero source/event/module-info delta); **Nick co-signed 2026-06-26** (the §3 consolidated decision pass, decision A1). The §3 edit list (incl. the three review-added drift fixes: getIntegrationForEntity→two-hop, handleCommand→handle(CommandEnvelope), §4.3 comment) is folded into Doc 07 §3.11.1/§3.11.2/§4.3/§7/§16 + the AMD-90 §11 supersede-in-part note. On-disk amendment watermark **AMD-94 → AMD-95** (a genuine Locked-doc amendment, unlike the Doc 16/17 new-doc Locks). ZERO invariant mint (register stays 169/49 from this amendment). **Unblocks M7.4a.**
 source: the M7.3 closeout [REVIEW]s (pm-handoff beat 7; coder-handoff M7.3 block; cross-agent-notes 2026-06-22) + the §1 deeper-M7 architecture decision record (context/decisions/2026-06-25_deeper-M7-automation-architecture_decision-record.md, D1–D4) + the 2026-06-23 prior-art study.
 baseline: homesynapse-core HEAD `5363347` (M7.3 DELIVERED GREEN; live wiring deferred → M7.4). The frozen signatures below are source-verified at this HEAD.
 -->
@@ -73,12 +73,12 @@ M7.4 builds 2.A–2.D under two §1 constraints: **D2 pure-function-replay** (de
 
 ## 7. Ratification Checklist
 
-- [ ] Independent DOCS-Project review (source-verify the frozen signatures at `5363347`; rule the AMD-90 §2.1 supersede-in-part; confirm zero event-type/module-info impact)
-- [ ] Nick ratification (co-sign — the PM does not self-ratify)
-- [ ] Doc 07 §3.11.1/§3.11.2/§16 currency edits applied
-- [ ] AMD-90 §2.1 "superseded-in-part by AMD-95" note applied
-- [ ] Nav-index row + watermark AMD-94 → AMD-95
-- [ ] Spine flip (snapshot watermark; backlog M7.4 row references AMD-95)
+- [x] Independent DOCS-Project review (source-verify the frozen signatures at `5363347`; rule the AMD-90 §2.1 supersede-in-part; confirm zero event-type/module-info impact) — RATIFY-WITH-EDITS, 2026-06-26
+- [x] Nick ratification (co-sign — the PM does not self-ratify) — 2026-06-26 (§3 decision A1)
+- [x] Doc 07 §3.11.1/§3.11.2/§4.3/§7/§16 currency edits applied (incl. review edits 6–8) — 2026-06-26
+- [x] AMD-90 §2.1 "superseded-in-part by AMD-95" note applied (§11 + the §2.1 inline marker) — 2026-06-26
+- [x] Nav-index row + watermark AMD-94 → AMD-95 — 2026-06-26
+- [ ] Spine flip (snapshot watermark; backlog M7.4 row references AMD-95) — applied in the v7 hub spine reconcile (this session)
 
 ## 8. Review Disposition
 
