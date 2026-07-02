@@ -153,7 +153,7 @@ A `Semaphore` limits concurrent in-flight SREQ operations. CC2652-based coordina
 
 **EZSP/ASH transport.** The ASH layer is substantially more complex than UNPI. Key implementation concerns: byte destuffing (escape 0x7E, 0x7D, 0x11, 0x13, 0x18, 0x1A with XOR 0x20 prefix), data derandomization (LFSR seeded at 0x42: `if bit0==0: next=val>>1; if bit0==1: next=(val>>1)^0xB8`), CRC-CCITT (polynomial 0x1021, init 0xFFFF, big-endian output), 3-bit sliding window sequence numbers, and piggyback acknowledgments. The EZSP version negotiation command (0x0000) always uses legacy single-byte frame ID format for backward compatibility.
 
-**Supported EZSP versions.** The transport targets EZSP version 13 and above, corresponding to EmberZNet 7.4+ firmware on EFR32MG21/MG24 hardware. This is the actively maintained firmware generation — the coordinator hardware recommended for HomeSynapse (EFR32MG21 dongles such as the SONOFF ZBDongle-E, Home Assistant Connect ZBT-1/ZBT-2) ships with this firmware or can be flashed to it. EZSP versions 8–12 (EmberZNet 6.x–7.3) are legacy: the zigbee2mqtt project has deprecated its EZSP 8–12 driver, and no new coordinator hardware ships with these firmware versions. The adapter does not support EZSP versions below 8.
+**Supported EZSP versions.** The transport targets EZSP version 13 and above, corresponding to EmberZNet 7.4+ firmware on EFR32MG21/MG24 hardware — the supported band spans **EZSP v13–v14 / EmberZNet 7.4–8.x** *(AMD-96)*. This is the actively maintained firmware generation — the coordinator hardware recommended for HomeSynapse (EFR32MG21 dongles such as the SONOFF ZBDongle-E, Home Assistant Connect ZBT-1/ZBT-2, and the **EFR32MG24 SONOFF Dongle Plus MG24** *(AMD-96)*) ships with this firmware or can be flashed to it. **Measured Wave-1 baseline (AMD-96/E1, bench 2026-07-01):** the reference bench coordinator (Dongle Plus MG24, VID:PID `10c4:ea60`) shipped **EmberZNet 7.4.5.0 build 0 / EZSP v13** — within the band; frozen as the M9 acceptance baseline. **Ship-firmware is batch-dependent:** other units of the same model are reported shipping EmberZNet 8.0.2/EZSP v14, on which an `ASH_ERROR_TIMEOUT` cluster is a known watch-item (z2m #30891) — acceptance must be **firmware-version-aware** (tolerate the band; read the negotiated stack version at initialization — never from an external registry, which measured `sw_version=null` (E6)), with reflash-to-7.4.x-and-re-anchor as the contingency for ASH instability on 8.x. EZSP versions 8–12 (EmberZNet 6.x–7.3) are legacy: the zigbee2mqtt project has deprecated its EZSP 8–12 driver, and no new coordinator hardware ships with these firmware versions. The adapter does not support EZSP versions below 8.
 
 If the EZSP version negotiated during initialization falls below 13, the adapter logs a structured WARN entry (`zigbee.ezsp_legacy_version`) identifying the negotiated version and recommending a firmware update, then proceeds with best-effort operation. If the version falls below 8, the adapter throws a `PermanentIntegrationException` because the frame format is incompatible. This tiered approach avoids bricking existing setups while clearly communicating the supported path.
 
@@ -170,6 +170,8 @@ ASH window size is 1 (stop-and-wait), consistent with bellows. The adaptive ACK 
 If neither probe sequence produces a valid response within the 10-second total timeout, the adapter logs a structured ERROR entry (`zigbee.auto_detect_failed`) with the serial port path and the bytes received (if any), then throws a `PermanentIntegrationException` with a user-readable message identifying the serial port and suggesting the user: (a) verify the coordinator is connected and powered, (b) check serial port permissions, and (c) if the issue persists, set `integrations.zigbee.adapter_type` explicitly to `znp` or `ezsp` to bypass auto-detection.
 
 If `integrations.zigbee.adapter_type` is set in configuration, the adapter skips auto-detection entirely and uses the declared transport type. This manual override exists as a reliability fallback — auto-detection is the default and handles the vast majority of coordinator hardware correctly.
+
+**Port identification keys on VID:PID, never on USB descriptor strings** *(AMD-96/E2, measured 2026-07-01)*: any port-locating or coordinator-fingerprinting logic (INV-CE-04) must key on the USB vendor:product identifiers (e.g. `10c4:ea60` for the CP210x-bridged SONOFF MG21/MG24 dongles) plus the probe sequence above — the probe's negotiated stack version disambiguates otherwise-identical bridges (MG21 vs MG24). USB descriptor *strings* are rebranded by vendors and are not stable: the reference bench unit reports SONOFF-branded strings, not the `Silicon_Labs_CP2102N` string the pre-bench assumption expected. Descriptor-string matching would have failed on real Wave-1 silicon.
 
 ### 3.4 Device Interview Pipeline
 
@@ -202,7 +204,7 @@ The mapping between ZCL clusters and HomeSynapse capabilities is the adapter's c
 |---|---|---|---|
 | OnOff | 0x0006 | `on_off` | `onOff` (Bool) → `state` (BooleanValue) |
 | LevelControl | 0x0008 | `brightness` | `currentLevel` (Uint8, 0–254) → `brightness` (IntValue, 0–254; percentage derived at query time) |
-| ColorControl (CT) | 0x0300 | `color_temperature` | `colorTemperatureMireds` (Uint16) → `color_temp_mireds` (IntValue); K = 1,000,000 / mireds computed at query time |
+| ColorControl (CT) | 0x0300 | `color_temperature` | `colorTemperatureMireds` (Uint16) → **`color_temp_kelvin` (IntValue, K)**, converted `K = 1,000,000 / mireds` **at INGESTION** (Doc 02 §3.6 canonical `color_temp_kelvin` + §3.7 convert-to-canonical-at-ingestion); the original mireds value is retained for auditability per Doc 02 §3.7 (canonical + original protocol value). *(AMD-96)* |
 | TemperatureMeasurement | 0x0402 | `temperature` | `measuredValue` (Int16, 0.01°C) → `temperature` (QuantityValue, °C, value/100.0) |
 | RelativeHumidity | 0x0405 | `humidity` | `measuredValue` (Uint16, 0.01%) → `humidity` (QuantityValue, %, value/100.0) |
 | IlluminanceMeasurement | 0x0400 | `illuminance` | `measuredValue` (Uint16) → `illuminance` (QuantityValue, lx). Log conversion or direct pass-through per device profile. |
@@ -221,7 +223,7 @@ The mapping between ZCL clusters and HomeSynapse capabilities is the adapter's c
 | On/Off Light (0x0100) | OnOff | `light` |
 | Dimmable Light (0x0101) | OnOff + LevelControl | `light` |
 | Color Temperature Light (0x010C) | OnOff + LevelControl + ColorControl(CT) | `light` |
-| Extended Color Light (0x010D) | OnOff + LevelControl + ColorControl(full) | `light` |
+| Extended Color Light (0x010D) | OnOff + LevelControl + ColorControl(full) | `light` (V1 realizes `on_off`/`brightness`/`color_temperature` only; full color is post-MVP — see "Color modes beyond color temperature") *(AMD-96)* |
 | On/Off Light Switch (0x0103) | OnOff (client) | `button` |
 | Dimmer Switch (0x0104) | LevelControl (client) | `button` |
 | Occupancy Sensor (0x0107) | OccupancySensing | `binary_sensor` |
@@ -268,6 +270,28 @@ Example: an Aqara wall switch profile includes an initialization write to set cl
 | B: Mixed standard + custom | Xiaomi/Aqara | Profile activates Xiaomi TLV codec. Standard reporting configuration skipped. |
 | A: Fully custom protocol | Tuya 0xEF00 (modelID `TS0601`) | Profile activates Tuya DP codec. Cluster-to-capability mapping replaced by DP-to-capability mapping. |
 
+**Confirmation-characterization block *(AMD-97, ratified 2026-07-01)*.** The `DeviceProfile` additionally carries a `confirmation[]` block — one entry per **actuating** capability — recording whether this specific device can render a true `CONFIRMED` at all. This is the per-device schema slot for the `confirmed | unconfirmed | failed` differentiator: it turns confirmability from a capability-default assumption into a per-device, regression-protected, honestly-degrading fact. Read-only capabilities carry an empty block (their value is the event-stream fixture). **The block has exactly EIGHT fields** (plus corpus-level `provenance` metadata in the bench serialization):
+
+```
+confirmation[]:
+  capability              : the capability key (e.g. "on_off")
+  confirmationMode        : inherited from the Doc 02 §3.6 default; per-device overridable
+  authoritativeAttribute  : the attribute whose report/readback confirms the command (null if none exists)
+  reportsAuthoritative    : VERIFIED_REPORTS | READBACK_ONLY | NONE
+  reportingPosture        : ON_CHANGE | PERIODIC | SLEEPY | NONE
+  confirmability          : CONFIRMABLE | BEST_EFFORT | UNCONFIRMABLE   ← the load-bearing honest verdict
+  recommendedTimeoutMs    : per-device-tuned; feeds Doc 02 §3.8 default_timeout
+  degradeRule             : enum — NO_REPORT_TIMEOUT_TO_UNCONFIRMED | NACK_TO_FAILED |
+                            IMMEDIATE_UNCONFIRMED | CONFIRM_FROM_CACHE_OR_READBACK
+                            (composable set; free-text nuance lives in a `notes` sibling, never in the rule)
+```
+
+`confirmability` semantics: **CONFIRMABLE** = a true `CONFIRMED` is achievable (the device reliably reports/returns the authoritative attribute). **BEST_EFFORT** = possible but slow/unreliable (sleepy, periodic-only, no Configure-Reporting, or **readback-only**: the authoritative attribute exists and is readable but is never reported — the measured Hue `color_loop_active 0x4002` class) → tune the timeout up or confirm via explicit readback; expect honest `UNCONFIRMED` under load. **UNCONFIRMABLE** = no authoritative attribute returns at all (strict set-only, the measured `identify` class) → render `UNCONFIRMED` immediately, **never** a false `CONFIRMED` (maps to `ConfirmationMode.DISABLED` *with the honest reason recorded*). **The taxonomy split is measured, not theoretical** *(bench E5-#5)*: "attribute never reported" (`reportsAuthoritative: READBACK_ONLY`) and "no attribute" (`reportsAuthoritative: NONE`) are distinct sub-cases — the field pair `confirmability × reportsAuthoritative` carries the split without a fourth verdict value.
+
+**Measured worked example (Wave-1, bench 2026-07-01, the ratified reference values):** Hue LCA017 — `on_off`/`brightness`/`color_temperature` = `CONFIRMABLE` via `VERIFIED_REPORTS`/`ON_CHANGE` (measured confirm latencies 0.29–0.70 s for OnOff/Level; 6.7–8.4 s for CT, which batches at ~10 s min-interval → per-capability `recommendedTimeoutMs` is a measured necessity: 5000/5000/15000); `effect (color_loop)` = `UNCONFIRMABLE`-by-report (`READBACK_ONLY` — ACK SUCCESS then zero effect-state reports; 0x4002 readable on demand); `identify` = `UNCONFIRMABLE` strict (`NONE`). SNZB-03P = empty block (read-only sensor). Authoritative live values: `nexsys-bench/corpus/devices/*` + `fixtures/*` (pointer, not copy — the corpus is the acceptance spec).
+
+**Engine consumption caveats (measured; binding on the M9 confirmation engine):** (1) no-change ⇒ no report — an idempotent command (`idempotency_class: IDEMPOTENT`, Doc 02 §3.8) whose commanded value equals the last known authoritative value confirms from cache or explicit readback, never by report-waiting; (2) `TOLERANCE` confirms against the **settled** value, not transition transients; (3) expectations superseded by a newer command on the same attribute **expire** — never false-fail, never false-confirm; (4) ingestion deduplicates identical consecutive-TSN report pairs (measured: every SNZB event ×2, 8–21 ms apart).
+
 ### 3.7 Reporting Configuration
 
 After a device is adopted and its entities are created, the adapter configures attribute reporting for each bound cluster. The Configure Reporting command (ZCL 0x06) sets minimum interval, maximum interval, and reportable change threshold per attribute.
@@ -277,6 +301,7 @@ After a device is adopted and its entities are created, the adapter configures a
 | Cluster | Attribute | Min Interval | Max Interval | Reportable Change |
 |---|---|---|---|---|
 | OnOff | onOff | 0 s | 3600 s | — (discrete) |
+| OccupancySensing | occupancy | 0 s | 3600 s | — (discrete) *(AMD-96 — the hero-trigger cluster; row absent pre-bench. Note: some occupancy sensors (measured: SNZB-03P) report on their own firmware schedule regardless; the row makes the adapter's posture explicit rather than accidental)* |
 | LevelControl | currentLevel | 5 s | 3600 s | 1 |
 | ColorControl | colorTemperatureMireds | 5 s | 3600 s | 1 |
 | TemperatureMeasurement | measuredValue | 10 s | 3600 s | 10 (0.1°C) |

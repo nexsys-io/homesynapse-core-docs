@@ -282,6 +282,8 @@ The MVP ships with a sealed set of standard capabilities sufficient to exercise 
 
 `color_hs`, `color_xy`, `lock`, `thermostat_control`, `hvac_mode`, `fan_mode`, `cover`, `media_player`, `battery_storage`, `solar_inverter`, `ev_charger`, `valve`, `siren`.
 
+*(AMD-96 note: full color — `color_hs`/`color_xy` — is a **non-precluding** post-MVP promotion: the sealed capability model expands additively, no migration is needed, and the Wave-1 hero light's measured `color_capabilities=31` surface is retained in the bench corpus for the day it is pulled forward. V1 `light` scope is white/CT — `on_off` + `brightness` + `color_temperature`.)*
+
 ### 3.7 Attribute Type System
 
 Every attribute value in HomeSynapse is typed at the model boundary. Integrations must produce values conforming to the attribute's declared schema. The type system combines Matter's formal primitive types, HomeKit's constraint metadata, and OpenHAB's JSR 385 quantity type model.
@@ -376,6 +378,8 @@ The Pending Command Ledger consumes an `Expectation` interface that can evaluate
 
 **Tolerance band ownership.** The capability defines default tolerance bands and timeouts. Protocol adapters may override tolerance when the protocol or hardware requires it (e.g., a specific dimmer that rounds to nearest 5%). Automations never invent tolerance semantics ad hoc — they consume the capability-defined defaults or explicit adapter overrides. This prevents inconsistent confirmation behavior across different parts of the system.
 
+**Per-device confirmability override *(AMD-97, ratified 2026-07-01)*.** The adapter override scope widens from *tolerance* to *confirmability*: a device profile may carry a per-capability confirmation-characterization block (Doc 08 §3.6 `confirmation[]` — protocol-agnostic in concept per INV-CE-04; the first measured values are Zigbee) declaring whether a true `CONFIRMED` is achievable on this device at all (`CONFIRMABLE | BEST_EFFORT | UNCONFIRMABLE`), with what authoritative attribute, reporting posture, per-capability timeout, and degrade rule. The engine consumes `confirmability` to choose between attempting a real `CONFIRMED` and rendering an honest immediate `UNCONFIRMED` **with the reason recorded** — never silent optimism (INV-SA-03). Measured validation (bench 2026-07-01): tolerance is not merely a rounding nicety — the Wave-1 light re-derives commanded CT ±1 mired, so `EXACT_MATCH` false-fails; the §3.6 `TOLERANCE ±50K` default is measured-validated. **AMD-97-INV-01:** a command whose confirmation is `DISABLED`/`UNCONFIRMABLE` **never renders `CONFIRMED`** — the honest verdict is structural, not best-effort.
+
 **Command parameter validation.** Every command parameter is validated against its schema before the command is dispatched to the integration. Type mismatches, out-of-range values, and missing required parameters produce synchronous validation errors. The integration never sees an invalid command. This is a hard contract: the integration API guarantees that any command received has passed schema validation.
 
 ### 3.9 Extensibility: Standard and Custom Capabilities
@@ -410,7 +414,7 @@ Entity type determines the required and optional capabilities for an entity, fol
 
 | entity_type | Required Capabilities | Optional Capabilities |
 |---|---|---|
-| `light` | `on_off` | `brightness`, `color_temperature`, `color_hs`, `color_xy` |
+| `light` | `on_off` | `brightness`, `color_temperature` (V1); `color_hs`, `color_xy` (**post-MVP — reserved, not realized in V1**; see §3.6 post-MVP set) *(AMD-96)* |
 | `switch` | `on_off` | — |
 | `plug` | `on_off` | `power_measurement`, `energy_meter` |
 | `sensor` | *(at least one measurement capability)* | `battery`, `device_health` |

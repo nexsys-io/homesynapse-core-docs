@@ -193,6 +193,8 @@ These are Phase-1 design shapes. Per the AMD-92 type-residency discipline, exact
 | `RunContext`, `RunId`, `RunStatus` | Record/wrapper/enum | automation (Doc 07 §8.2) | **Existing.** Run state and terminal status the reliability contract binds. |
 | `automation_completed` (`failureReason`, `abortReason`) | Event record | event (AMD-92) | **Existing.** The reliability contract uses the already-ratified nullable reason components — no reshape. |
 
+> **V1 wire-surface recording note *(AMD-97 bundle, ratified 2026-07-01 — deferred-not-contradicted)*.** The shipped V1 read-API (M7.5a/b) serves the **frozen v1.1 contract** (`context/decisions/2026-06-21_dashboard-read-API-contract-freeze.md` + the 2026-06-27 read-API scope-freeze), which is a deliberate **subset** of this section's eventual model: the wire `RunExplanation` ships the frozen field set (not the full tree above), and the wire **`NonFiringVerdict` (4 values: `CONDITION_NOT_MET | NEVER_TRIGGERED | ACTED_BUT_UNCONFIRMED | DISABLED`) is a distinct V1 vocabulary — NOT a value-subset of this table's 7-value `SuppressionReason`** (only `CONDITION_NOT_MET` overlaps; the wire verdicts answer "why didn't it fire at all," the suppression reasons classify "why a triggered run didn't act"). The boundary maps between the vocabularies at the read layer. Shipped code that renders the frozen subset does not contradict this Locked doc; the governing authority for the V1 wire is the contract freeze. The deep per-non-match trigger diagnosis remains post-V1 (§4 scope guard).
+
 ---
 
 ## 5. Contracts and Invariants
