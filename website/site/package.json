@@ -1,0 +1,20 @@
+{
+  "name": "marketing-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Marketing site build (Astro; ruled 2026-07-03). Content canon lives one directory up (website/); this build renders it. Name-light: no product name in code (brand token in src/lib/brand.mjs).",
+  "license": "UNLICENSED",
+  "scripts": {
+    "predev": "node scripts/check-shared-sources.mjs",
+    "dev": "astro dev",
+    "prebuild": "node scripts/check-shared-sources.mjs",
+    "build": "astro build",
+    "postbuild": "node scripts/check-zero-js.mjs",
+    "preview": "astro preview",
+    "verify": "npm run build"
+  },
+  "dependencies": {
+    "astro": "^5.18.2"
+  }
+}

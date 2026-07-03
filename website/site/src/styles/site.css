@@ -1,0 +1,208 @@
+/*
+ * site.css — the marketing site's styling layer over the SHARED design tokens.
+ *
+ * Token source of truth: homesynapse-core/web-ui/dashboard/src/styles/tokens.css (GENERATED from
+ * the DTCG source; imported directly — never copied, never hand-extended with new colors).
+ * This file adds only SITE-SCOPED derivations (--site-*): the reading-surface type scale from
+ * design-system/typography-reference.md §3–§4 (Major Third, 65ch measure, 1.6 leading) applied
+ * per the Calm Canvas model (design-system/website-design-vision.md §4).
+ *
+ * Deliberate skeleton restraint: no textures, no brand-moment fields (W-8/W-9/W-10 await the
+ * sample-round veto), no sticky header (2.4.11 has nothing to obscure), no web-font additions
+ * beyond the dashboard's shared self-hosted Inter subset (D-FE-10).
+ */
+
+/* ---- Site type scale (typography-reference §3.1, Major Third 1.25) ---- */
+:root {
+  --site-h1: 2.441rem;
+  --site-h2: 1.953rem;
+  --site-h3: 1.563rem;
+  --site-h4: 1.25rem;
+  --site-body: 1rem;      /* §4.4: reading content never below 16px */
+  --site-small: 0.875rem;
+  --site-measure: 65ch;   /* §4.1 */
+  --site-display-tracking: -0.02em; /* §3.5 */
+}
+
+/* ---- Base ---- */
+* { box-sizing: border-box; }
+html { background: var(--hs-bg); }
+body {
+  margin: 0;
+  font-family: var(--hs-font-sans);
+  font-size: var(--site-body);
+  line-height: 1.6;
+  color: var(--hs-text);
+  background: var(--hs-bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---- Accessibility fundamentals ---- */
+:focus-visible {
+  outline: 2px solid var(--hs-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--hs-radius-sm);
+}
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: var(--hs-space-2);
+  background: var(--hs-surface);
+  color: var(--hs-text);
+  padding: var(--hs-space-2) var(--hs-space-4);
+  border: var(--hs-border-width) solid var(--hs-border-strong);
+  border-radius: var(--hs-radius-md);
+  z-index: 100;
+}
+.skip-link:focus-visible { left: var(--hs-space-2); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+/* ---- Shell: header / canvas / footer (Calm Canvas: expression around content, never inside) ---- */
+.shell {
+  max-width: calc(var(--site-measure) + 2 * var(--hs-space-8));
+  margin: 0 auto;
+  padding: 0 var(--hs-space-4);
+}
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hs-space-4);
+  padding: var(--hs-space-4) 0;
+}
+.wordmark {
+  font-weight: var(--hs-weight-semibold);
+  letter-spacing: var(--site-display-tracking);
+  font-size: var(--hs-text-md);
+  color: var(--hs-text);
+  text-decoration: none;
+  padding: var(--hs-space-1) 0; /* ≥24px target (2.5.8) */
+}
+.wordmark:hover { color: var(--hs-link); }
+.site-nav { display: flex; align-items: center; gap: var(--hs-space-4); flex-wrap: wrap; }
+.site-nav a {
+  color: var(--hs-text-secondary);
+  text-decoration: none;
+  font-size: var(--hs-text-sm);
+  padding: var(--hs-space-2) var(--hs-space-1); /* ≥24px target (2.5.8) */
+  border-radius: var(--hs-radius-sm);
+}
+.site-nav a:hover { color: var(--hs-link); }
+
+.canvas {
+  background: var(--hs-surface);
+  border: var(--hs-border-width) solid var(--hs-border);
+  border-radius: var(--hs-radius-lg);
+  padding: var(--hs-space-8) var(--hs-space-6);
+  margin: var(--hs-space-4) 0 var(--hs-space-6);
+  box-shadow: var(--hs-shadow-sm);
+}
+@media (max-width: 640px) {
+  .canvas { padding: var(--hs-space-6) var(--hs-space-4); }
+}
+
+.site-footer {
+  padding: var(--hs-space-4) 0 var(--hs-space-8);
+  color: var(--hs-text-muted);
+  font-size: var(--site-small);
+  letter-spacing: 0.01em; /* §3.5 metadata tracking */
+}
+.site-footer nav { display: flex; flex-wrap: wrap; gap: var(--hs-space-2) var(--hs-space-4); margin-bottom: var(--hs-space-3); }
+.site-footer a { color: var(--hs-text-secondary); }
+.site-footer p { margin: var(--hs-space-1) 0; }
+
+/* ---- Prose (the reading surface — typography-reference §3/§4/§6/§7) ---- */
+.prose { max-width: var(--site-measure); margin: 0 auto; }
+.prose h1 {
+  font-size: var(--site-h1);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: var(--site-display-tracking);
+  margin: 0 0 1.5rem;
+}
+.prose h2 {
+  font-size: var(--site-h2);
+  font-weight: var(--hs-weight-semibold);
+  line-height: 1.2;
+  letter-spacing: var(--site-display-tracking);
+  margin: 3rem 0 1rem;
+}
+.prose h3 {
+  font-size: var(--site-h3);
+  font-weight: var(--hs-weight-semibold);
+  line-height: 1.25;
+  margin: 2rem 0 0.5rem;
+}
+.prose h4 {
+  font-size: var(--site-h4);
+  font-weight: var(--hs-weight-medium);
+  line-height: 1.3;
+  margin: 1.5rem 0 0.5rem;
+}
+.prose p, .prose ul, .prose ol { margin: 0 0 1.25em; }
+.prose li { margin-bottom: 0.5em; }
+.prose li::marker { color: var(--hs-text-muted); }
+.prose a { color: var(--hs-link); text-decoration: underline; text-underline-offset: 2px; }
+.prose a:hover { text-decoration-thickness: 2px; }
+.prose strong { font-weight: var(--hs-weight-semibold); }
+.prose blockquote {
+  margin: 1.5rem 0;
+  padding: var(--hs-space-4) var(--hs-space-5);
+  border-left: 3px solid var(--hs-link);
+  background: var(--hs-surface-sunk);
+  border-radius: 0 var(--hs-radius-md) var(--hs-radius-md) 0;
+}
+.prose blockquote p:last-child { margin-bottom: 0; }
+.prose code {
+  font-family: var(--hs-font-mono);
+  font-size: 0.875em;
+  background: var(--hs-surface-sunk);
+  padding: 0.125em 0.375em;
+  border-radius: var(--hs-radius-sm);
+}
+.prose pre {
+  background: var(--hs-surface-sunk);
+  border: var(--hs-border-width) solid var(--hs-border);
+  border-radius: var(--hs-radius-md);
+  padding: var(--hs-space-4);
+  overflow-x: auto;
+  line-height: 1.5;
+}
+.prose pre code { background: none; padding: 0; font-size: var(--site-small); }
+.prose hr {
+  border: none;
+  border-top: var(--hs-border-width) solid var(--hs-border);
+  margin: 3rem 0;
+}
+.prose em { font-style: italic; }
+
+/* ---- Landing refinements (one idea per viewport; calm, not conversion-pattern) ---- */
+.landing .prose h1 { margin-bottom: 0.5rem; }
+.landing .prose h1 + h2 {
+  margin-top: 0;
+  color: var(--hs-text-secondary);
+  font-weight: var(--hs-weight-normal);
+  font-size: var(--site-h3);
+  line-height: 1.35;
+}
+
+/* ---- Theme toggle (color + shape + text, never color alone) ---- */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hs-space-2);
+  font: inherit;
+  font-size: var(--hs-text-sm);
+  color: var(--hs-text-secondary);
+  background: transparent;
+  border: var(--hs-border-width) solid var(--hs-border-strong);
+  border-radius: var(--hs-radius-pill);
+  padding: var(--hs-space-1) var(--hs-space-3);
+  min-height: 28px; /* ≥24px target (2.5.8) */
+  cursor: pointer;
+  transition: color var(--hs-dur-fast) var(--hs-ease), border-color var(--hs-dur-fast) var(--hs-ease);
+}
+.theme-toggle:hover { color: var(--hs-text); border-color: var(--hs-text-muted); }

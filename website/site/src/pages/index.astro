@@ -1,0 +1,23 @@
+---
+/*
+ * Landing — renders the canon landing page (website/index.md, the D-4-conformant
+ * mainstream-facing copy) inside the Calm Canvas shell. The canon markdown is the copy
+ * authority; this file only frames it.
+ */
+import { getEntry, render } from 'astro:content';
+import Base from '../layouts/Base.astro';
+
+const entry = await getEntry('canon', 'index');
+if (!entry) throw new Error('canon landing (website/index.md) not found');
+const { Content } = await render(entry);
+---
+<Base
+  title=""
+  description="A smart home that works — reliable by design, one model of your home, on hardware you own."
+>
+  <div class="landing">
+    <div class="prose">
+      <Content />
+    </div>
+  </div>
+</Base>

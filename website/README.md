@@ -25,11 +25,12 @@ Plain Markdown. **The framework/static-site-generator decision is deliberately N
 
 | Page | State | Increment | Evidence base |
 |---|---|---|---|
-| `index.md` (landing) | DRAFT (skeleton-grade) | 1 | Six Battlefields B1/B6 framing; D-4 mainstream lead |
+| `index.md` (landing) | DRAFT — **built out** (5-section landing incl. the D-4 segment fork; name-tokenized) 2026-07-03 | 1.5 | Six Battlefields B1/B6 framing; D-4 mainstream lead |
 | `pages/config-superiority.md` | **DRAFT — the Increment-1 deliverable, reviewer-readable** | 1 | R13 §1/§3.1 via the R13 assessment; INV-CE-01; Doc 06; OQ-15-2 disposition; REC-171/182 cross-links |
-| `pages/ledger-gap-dossier.md` | STUB — flagship-class | 2 | REC-142 / R14-A §3.3 (category-of-one confirmation-of-intent) |
-| `pages/no-cloud-account.md` | STUB | 2 | REC-171 (flagship claim + account-dependency matrix), REC-179 (cloud-shutdown narrative, Insteon evidence) |
-| `pages/explainability.md` | STUB — flagship-class (REC-194) | 2 | REC-182 + R14-A pain citations; R16 M5-C-COPY bucket **FOLDED 2026-06-12**: REC-194 porch-light/B3 dossier (THE FLAGSHIP), REC-193 no-eviction attestation (+145), REC-195 LLM-paste property |
+| `pages/ledger-gap-dossier.md` | **SHORT honest public version** 2026-07-03 (flagship dossier still Increment 2; planning stub preserved in-file) | 2 | REC-142 / R14-A §3.3 (category-of-one confirmation-of-intent) |
+| `pages/no-cloud-account.md` | **SHORT honest public version** 2026-07-03 (flagship dossier still Increment 2; planning stub preserved in-file) | 2 | REC-171 (flagship claim + account-dependency matrix), REC-179 (cloud-shutdown narrative, Insteon evidence) |
+| `pages/explainability.md` | **SHORT honest public version** 2026-07-03 (flagship dossier still Increment 2; planning stub preserved in-file) | 2 | REC-182 + R14-A pain citations; R16 M5-C-COPY bucket **FOLDED 2026-06-12**: REC-194 porch-light/B3 dossier (THE FLAGSHIP), REC-193 no-eviction attestation (+145), REC-195 LLM-paste property |
+| `pages/developers.md` | **NEW — R-3 developer/integrations surface** (truthful posture; L-12 voice) 2026-07-03 | 1.5 | 2026-07-02 extensibility assessment §3 item 2 + Doc-18 charter + dossier L-12; full claim table in-page |
 
 **Remaining §2e backlog (no page yet — assign at Increment 2+):** Data-Act/CRA alignment, dated (REC-174) · Apple-contrast (REC-175) · Matter-friction contrast, positioning register (REC-176).
 
@@ -39,9 +40,13 @@ Plain Markdown. **The framework/static-site-generator decision is deliberately N
 
 The Feb 2026 design-system canon (voice & tone, typography, visual design, website design vision, documentation style guide, content types) lives at `design-system/` — all DRAFT pending reconciliation. **`design-system/README.md` is the inventory + conflict register (C1–C10).** Until reconciliation, the register rules above outrank those documents wherever they conflict. Two canon documents (AboutHomeSynapse, DAS v1 Specification) plus the 15-file artifact pack are still un-extracted from the ChatGPT project (tracker C8).
 
+## Site build (NEW 2026-07-03)
+
+`site/` builds this canon with Astro (one command: `npm run build`). The build substitutes the name-light `{{productName}}`/`{{companyName}}` tokens (W-11 rename-readiness), strips the review-only provenance comments from output, rewrites canon `.md` links to routes, consumes the dashboard's generated design tokens directly (sibling checkout, preflight-checked), and enforces zero-JS-by-default as a gate. Details + ruling record: `site/README.md`.
+
 ## Open items (Nick)
 
-1. **Framework decision** — static site generator / hosting. Open, not blocking content drafting.
+1. **Framework decision** — ~~static site generator~~ **RULED 2026-07-03 (Nick, website-lane §1 gate): Astro, built at `website/site/` (this repo, alongside the canon).** Hosting/analytics remain open (hub); the build assumes no host and ships `noindex` until W-5. See `site/README.md` for the build story + defaults.
 2. **Landing-page "works with" section** — held back deliberately: integration claims must match shipped product truth at publish time (Zigbee is the MVP adapter; any Matter line uses the fence verbatim). Decide at Increment 2 or at publish.
 3. **Naming surface** — ~~Confirm the public naming convention before publish.~~ **RULED 2026-06-12 (Nick, W-7):** homesynapse.com only at launch; NexSys in footer/legal as "a NexSys product"; nexsys.io deferred. Pages use "HomeSynapse" (product) and "NexSys" (company, trademark = the commercial control point per D-2).
 4. **Install story (NEW, gates mainstream copy)** — undecided (W-4). Until ruled, mainstream "plug-and-play" claims are embargoed per the tense-truth gate; prosumer install copy may describe only what exists. See `nexsys-hivemind/context/decisions/2026-06-12_website-brand-deliberation_draft-rulings.md` (W-1..W-7: launch audience, publish model + gate, brand reference class, wordmark-only identity).

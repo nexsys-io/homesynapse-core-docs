@@ -1,0 +1,45 @@
+---
+/*
+ * Theme toggle — dark/light/system, mirroring the dashboard's D-FE-1 UX (persistent choice,
+ * `prefers-color-scheme` honored for "system"). Plain inline JS, no framework (zero-JS posture).
+ * The stored preference is non-secret UI state (the dashboard's documented precedent).
+ * State is conveyed by TEXT + shape, never color alone.
+ */
+---
+<button class="theme-toggle" type="button" data-theme-toggle aria-live="polite">
+  <span aria-hidden="true">◐</span>
+  <span data-theme-label>Theme: System</span>
+</button>
+
+<script is:inline>
+  (function () {
+    var KEY = 'hs-theme';
+    var btn = document.querySelector('[data-theme-toggle]');
+    var label = btn && btn.querySelector('[data-theme-label]');
+    if (!btn || !label) return;
+    var media = window.matchMedia('(prefers-color-scheme: dark)');
+    function stored() {
+      try { return localStorage.getItem(KEY); } catch (e) { return null; }
+    }
+    function mode() {
+      var s = stored();
+      return s === 'dark' || s === 'light' ? s : 'system';
+    }
+    function apply() {
+      var m = mode();
+      var theme = m === 'system' ? (media.matches ? 'dark' : 'light') : m;
+      document.documentElement.setAttribute('data-theme', theme);
+      label.textContent = 'Theme: ' + m.charAt(0).toUpperCase() + m.slice(1);
+    }
+    btn.addEventListener('click', function () {
+      var next = { system: 'light', light: 'dark', dark: 'system' }[mode()];
+      try {
+        if (next === 'system') localStorage.removeItem(KEY);
+        else localStorage.setItem(KEY, next);
+      } catch (e) { /* storage unavailable — still applies for this page view */ }
+      apply();
+    });
+    media.addEventListener('change', function () { if (mode() === 'system') apply(); });
+    apply();
+  })();
+</script>

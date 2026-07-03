@@ -1,0 +1,73 @@
+---
+/*
+ * Base layout — the Calm Canvas shell (design-vision §4): header (wordmark + nav + theme
+ * toggle), the content canvas, and the footer (W-7: "a <company> product" — tokenized).
+ * Name-light: every name renders from BRAND (src/lib/brand.mjs). Wordmark is typeset from the
+ * token (W-6: wordmark-only, monochrome-survivable) — no image lockup to re-draw at rename.
+ *
+ * Zero-JS-by-default: the only scripts are the inline theme boot (below, FOUC-free) and the
+ * toggle. No framework JS ships (enforced by scripts/check-zero-js.mjs).
+ */
+import '@dash/src/styles/tokens.css';
+import '@dash/src/styles/fonts.css';
+import '../styles/site.css';
+import ThemeToggle from '../components/ThemeToggle.astro';
+import { BRAND } from '../lib/brand.mjs';
+import { CANON_ROUTES } from '../lib/routes.mjs';
+
+const { title = '', description = '' } = Astro.props;
+const pageTitle = title ? `${title} — ${BRAND.productName}` : BRAND.productName;
+const dossiers = ['config-superiority', 'explainability', 'no-cloud-account', 'ledger-gap-dossier'];
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pageTitle}</title>
+    {description && <meta name="description" content={description} />}
+    {/* Pre-publish (W-2/W-5): never indexed until the publish gate passes. Remove at publish. */}
+    <meta name="robots" content="noindex" />
+    <script is:inline>
+      /* Theme boot — before first paint, no FOUC. Site default: stored choice > OS preference
+         > light (the site is light-leaning by default; the dashboard records dark — different
+         defaults, same tokens, per the master plan §4.1). */
+      (function () {
+        var theme = 'light';
+        try {
+          var s = localStorage.getItem('hs-theme');
+          if (s === 'dark' || s === 'light') theme = s;
+          else if (window.matchMedia('(prefers-color-scheme: dark)').matches) theme = 'dark';
+        } catch (e) { /* default stands */ }
+        document.documentElement.setAttribute('data-theme', theme);
+      })();
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="shell">
+      <header class="site-header">
+        <a class="wordmark" href="/">{BRAND.productName}</a>
+        <nav class="site-nav" aria-label="Site">
+          <a href="/#built-different-provably">Why it’s different</a>
+          <a href="/developers/">Developers</a>
+          <ThemeToggle />
+        </nav>
+      </header>
+      <main id="main" class="canvas">
+        <slot />
+      </main>
+      <footer class="site-footer">
+        <nav aria-label="Dossiers">
+          {dossiers.map((d) => <a href={CANON_ROUTES[d].path}>{CANON_ROUTES[d].title}</a>)}
+          <a href="/developers/">Developers</a>
+        </nav>
+        <p>{BRAND.productName} is a {BRAND.companyName} product.</p>
+        <p>
+          This site loads no third-party resources and runs no analytics. The only thing it
+          stores is your theme choice, on your device.
+        </p>
+      </footer>
+    </div>
+  </body>
+</html>

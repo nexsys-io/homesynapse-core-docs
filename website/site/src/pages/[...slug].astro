@@ -1,0 +1,29 @@
+---
+/*
+ * Canon page routes — every website/pages/*.md renders through the ONE route map
+ * (src/lib/routes.mjs). Adding a canon page = one map row; no per-page component.
+ */
+import { getCollection, render } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import { CANON_ROUTES } from '../lib/routes.mjs';
+
+export async function getStaticPaths() {
+  const entries = await getCollection('canon');
+  return entries
+    .filter((e) => e.id !== 'index')
+    .map((entry) => {
+      const key = entry.id.replace(/^pages\//, '');
+      const route = CANON_ROUTES[key];
+      if (!route) throw new Error(`No route mapped for canon page: ${entry.id} — add it to src/lib/routes.mjs`);
+      return { params: { slug: route.path.replaceAll('/', '') }, props: { entry, route } };
+    });
+}
+
+const { entry, route } = Astro.props;
+const { Content } = await render(entry);
+---
+<Base title={route.title} description={route.description}>
+  <article class="prose">
+    <Content />
+  </article>
+</Base>

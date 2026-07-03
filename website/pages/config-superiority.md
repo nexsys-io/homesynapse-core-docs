@@ -14,7 +14,7 @@ This isn't a bug class you can patch away. It's an architecture. The only fix is
 
 ## Our answer is structural
 
-HomeSynapse is built against a published architectural invariant — INV-CE-01 — and it says this:
+{{productName}} is built against a published architectural invariant — INV-CE-01 — and it says this:
 
 > All configuration must exist in a single canonical representation that is: human-readable (documented YAML schema), machine-parseable (validated against JSON Schema), version-controllable (diffable, mergeable, suitable for Git), and the sole source of truth. The UI reads and writes this same canonical representation. **There is no separate "UI storage" and "file storage" — there is one configuration, accessible through multiple interfaces.**
 
@@ -34,7 +34,7 @@ UI, REST API, CLI, or your text editor over SSH — every interface operates on 
 
 Quiet corruption is the configuration killer, so every defense here is loud by design:
 
-- **The "Norway problem" is extinct here.** Classic YAML 1.1 parsers turn the country code `NO` into `false` and `on`/`off` into booleans. HomeSynapse locks parsing to YAML 1.2, which eliminates that entire bug class — not mitigates, eliminates.
+- **The "Norway problem" is extinct here.** Classic YAML 1.1 parsers turn the country code `NO` into `false` and `on`/`off` into booleans. {{productName}} locks parsing to YAML 1.2, which eliminates that entire bug class — not mitigates, eliminates.
 - **Unknown keys are detected and surfaced, never silently ignored.** A typo'd option name on other platforms simply does nothing, forever. Here the schema knows every valid key, so a stray one is flagged as a warning you can see — not swallowed.
 - **Validation tells you everything at once.** One pass collects every issue with type, location, and severity — no fix-one-error-reboot-find-the-next loop.
 - **Startup is forgiving; a running system is protected.** At boot, a warning-grade typo won't keep your lights from working. On reload, the bar flips to strict: a bad change is rejected wholesale and the system keeps running on the prior good configuration. A reload can never degrade a working home.
@@ -74,7 +74,7 @@ The features a platform refuses to grow are the ones that keep your Sunday after
 
 ---
 
-*HomeSynapse is built by NexSys. The configuration system described here is Locked, ratified design — not roadmap.*
+*{{productName}} is built by {{companyName}}. The configuration system described here is Locked, ratified design — not roadmap.*
 
 <!--
 Provenance (review-only — strip at publish). Authority order per the Increment-1 brief.
