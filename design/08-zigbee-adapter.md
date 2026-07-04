@@ -294,6 +294,8 @@ confirmation[]:
 
 **Engine consumption caveats (measured; binding on the M9 confirmation engine):** (1) no-change ⇒ no report — an idempotent command (`idempotency_class: IDEMPOTENT`, Doc 02 §3.8) whose commanded value equals the last known authoritative value confirms from cache or explicit readback, never by report-waiting; (2) `TOLERANCE` confirms against the **settled** value, not transition transients; (3) expectations superseded by a newer command on the same attribute **expire** — never false-fail, never false-confirm; (4) ingestion deduplicates identical consecutive-TSN report pairs (measured: every SNZB event ×2, 8–21 ms apart).
 
+**Realization currency (M9.4a, 2026-07-04 — AMD-98):** caveat 3 is enforced in `core/automation` — ledger supersession-expiry with ISSUANCE-supersedes semantics and the `command_result(outcome="superseded")` disposition; both banned directions are test-pinned from this section's own fixture triple in the capability (Kelvin) domain (6211/4630/4525 K vs 4525 — the false-FAIL direction; a synthetic ≤50 K pair pins the false-CONFIRM direction). Caveat 2's TOLERANCE path is reachable end-to-end via ledger-side parameterized-expectation derivation (AMD-98 §2.3). Caveat 1 (readback/cache confirm) remains the M9.4b arrival. The EZSP acceptance band narrowed to ==13 at the upper edge per AMD-98 §1 (the v14 0x0034/0x0045 wire dialect is uncharacterized on owned silicon; the §3.2 v14 notes are superseded in part).
+
 ### 3.7 Reporting Configuration
 
 After a device is adopted and its entities are created, the adapter configures attribute reporting for each bound cluster. The Configure Reporting command (ZCL 0x06) sets minimum interval, maximum interval, and reportable change threshold per attribute.
