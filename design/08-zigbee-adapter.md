@@ -237,6 +237,8 @@ When the device type ID is absent or unrecognized, the adapter falls back to clu
 
 ### 3.6 Device Profile Registry
 
+*(Realization currency — M9.3, 2026-07-04: the source `DeviceProfile` record now carries **10 components** — the AMD-97 `confirmation[]` block (the eight fields below) realized as component 10 via the M9.3 §1 AMD-correction — and the match key is the **sealed `MatchCriteria`** hierarchy (`ExactModel` | `ModelWildcard` | `Fingerprint`, all three defined, fingerprint matching Wave-2; precedence per Doc 18 §3.5(d): Fingerprint > ExactModel > ModelWildcard, then priority, then profileId). This section's prose `properties` field was NOT realized (no consumer existed; adding it later is additive). Where this section's record sketch and source disagree, SOURCE is truth (truth hierarchy rank 1): `integration/integration-zigbee/.../DeviceProfile.java`.)*
+
 The device profile registry stores per-model overrides that adjust the adapter's behavior for devices that deviate from standard ZCL. A profile is keyed by `(manufacturerName, modelIdentifier)` — exact string match, with optional wildcard prefix matching for manufacturer families.
 
 **Profile contents:**
