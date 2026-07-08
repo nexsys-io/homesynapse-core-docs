@@ -1,15 +1,16 @@
 # Device/Entity Registries as Projections of the Event Log (the DUR amendment)
 
-**Document type:** CONTRACT-LEVEL AMENDMENT — **PROPOSED, RATIFICATION PENDING (Nick)**
-**Date:** 2026-07-08
-**AMD number:** assigned at ratification (the next in series; the on-disk watermark advances by one — per the in-flight-number convention this document does not pin it)
+**Document type:** CONTRACT-LEVEL AMENDMENT — **RATIFIED 2026-07-08 (Nick): *"ratify as recommended — (A), and R-B through R-E as written"***
+**Date:** 2026-07-08 (proposed and ratified same day)
+**AMD number:** **AMD-99** (assigned at ratification; the on-disk watermark advances **AMD-98 → AMD-99**; register deltas executed: invariants 174→175, categories 52→53 — new `REG`, register §53)
 **Target documents:** Doc 01 (Event Model — new event types §4.3) · Doc 02 (Device Model — registry semantics §3.8/§3.12) · Doc 12 (Lifecycle — the Phase 3 boot rebuild)
 **Ruling of record:** pm-handoff v24 beat-4 (Nick, verbatim, 2026-07-08): *"DUR — (i). Event-source the registries"* + guardrails G1 (this document) and G2 (bounded surface)
 **Evidence base:** bench record iterations 3–5a (identity re-mint on every restart; orphan view rows; pin-2 unreachable); the completing survey at core `8800424` (pm-handoff v24 beat-4)
+**Ratification record:** Nick's full assessment is preserved VERBATIM in pm-handoff v25 beat-1 (the DP-18-C-class record). Three text folds were applied from that assessment before ratification per the edits-fold-verbatim convention — **F1** (§3): registration updates ride an idempotent re-emit of the existing two types, no third event type (locks the R-E +2 mint closed); **F2** (§6/§8): durable IDs fix the RESTART-orphan class specifically — removal→state-view cleanup rides the future removal-emission milestone; **F3** (§8): the single-apply-path refactor scope is ALL registry mutators, not only `adopt()`'s writes. The DUR coding WU carry-list (non-blocking) also rides pm-handoff v25 beat-1.
 
 ---
 
-## §0 — RULING BOX (one turn: "ratify as recommended," or override by letter)
+## §0 — RULING BOX — **RATIFIED AS RECOMMENDED (Nick, 2026-07-08): (A), and R-B through R-E as written**
 
 | # | Decision | REC / default |
 |---|---|---|
@@ -46,6 +47,8 @@
 
 **Emission contract:** `adopt()` publishes `device_registered`, then one `entity_registered` per created entity, then the existing `device_adopted` (RETAINED unchanged — additive; no existing consumer moves). Causal order: device before its entities. Subject refs: device-scoped / entity-scoped respectively.
 
+**Update semantics (F1, folded at ratification from Nick's assessment):** registration UPDATES ride an idempotent re-emit of the existing two event types — a genuine capability change (e.g. a Q10 re-interview) re-emits `entity_registered` with the refreshed mirrors; there is NO third event type. REG-INV-1's idempotent-by-identity clause is what makes the re-emit safe; this line locks the R-E "+2" mint closed so it cannot silently reopen later.
+
 **Boundary note (explicit):** the adapter's `profilesByIeee` map is adapter-local durable state whose home remains `zigbee-devices.json` (already restart-persistent). The registry invariant governs the CORE registries; the adapter's IEEE→id and binding maps rebuild FROM the rebuilt registries (hardwareIdentifiers + deviceId/endpointIndex), not from private events.
 
 ## §4 — The invariant, with teeth (R-B)
@@ -63,6 +66,7 @@ Home: **Phase 3 CORE_DOMAIN** (`HomeSynapseCore:501` region) — exactly where t
 
 **Design mechanism (permanent):** `device_removed` — an EXISTING event type with zero production emitters today — becomes the first-class tombstone: the projection removes the device and its entities on replay and live delivery alike. Removal-event emission surfaces (REST/UI) remain future milestones; the projection honors the event from day one.
 **One-time bench cleanup (not a migration):** the 3 orphan rows in the bench DB are pre-DUR history. At iteration 5b entry: **wipe the bench events DB once** (custody `data/zigbee/` preserved — the network resumes; the devices re-adopt under the new event flow, then the restart proves durability). No migration code, no backfill of synthetic registration events for pre-V1 data. **Additivity:** the new event types are additive; existing stored `device_adopted` rows replay untouched (per-type codecs).
+**Scope precision (F2, folded at ratification):** durable IDs fix the RESTART-orphan class specifically (identity re-mint on reboot can no longer strand view rows); state-view cleanup on device REMOVAL rides the future removal-emission milestone alongside the REST/UI surfaces — this amendment makes the projection honor the tombstone; it does not wire removal emission or view garbage-collection, and "fixes orphan accumulation" must not be read as fixing the removal class.
 
 ## §7 — Mint arithmetic, explicit (R-E)
 
@@ -70,8 +74,8 @@ Home: **Phase 3 CORE_DOMAIN** (`HomeSynapseCore:501` region) — exactly where t
 
 ## §8 — Sizing statement (G2) and out-of-scope
 
-In: 2 event types + their nested payload mirrors (payload shape, not new event *types*) · 1 projection subscriber + the single-apply-path refactor of `adopt()`'s registry writes · 1 ArchUnit rule · `device_removed` projection handling · the full-restart identity IT (the leg `RestartHonestyIT` structurally cannot cover — it restarts only the integration). Out: any REST/UI removal surface · registry API reshaping · state-view projection changes (the view already keys on entity-scoped events; durable entity IDs fix its orphan accumulation going forward) · adapter cache redesign · any Doc 09 amendment. If authoring reveals a cascade beyond this list, the hub flags before dispatch — the G2 contract.
+In: 2 event types + their nested payload mirrors (payload shape, not new event *types*) · 1 projection subscriber + the single-apply-path refactor of **ALL registry mutators** (F3 — `adopt()`'s writes AND every other production mutator the WU's grounding survey enumerates, each routed through the projection-apply or retired; the ArchUnit rule is the backstop, the enumeration is the plan) · 1 ArchUnit rule · `device_removed` projection handling · the full-restart identity IT (the leg `RestartHonestyIT` structurally cannot cover — it restarts only the integration). Out: any REST/UI removal surface · registry API reshaping · state-view projection changes (the view already keys on entity-scoped events; durable entity IDs fix the RESTART-orphan class going forward — F2: removal-driven view cleanup rides the removal-emission milestone) · adapter cache redesign · any Doc 09 amendment. If authoring reveals a cascade beyond this list, the hub flags before dispatch — the G2 contract.
 
-## §9 — Ratification actions (on Nick's word)
+## §9 — Ratification actions (EXECUTED at ratification, 2026-07-08, v25 hub)
 
 (1) Assign the next AMD number; rename this file to the `AMD-NN_` pattern. (2) Register edits: mint REG-INV-1 (§0.3, the §17 index, the §18 traceability row, the regeneration line: 175/53, watermark advanced). (3) Fold pointer notes into Doc 01 §4.3 / Doc 02 §3.8/§3.12 / Doc 12 Phase 3 per standing amendment practice. (4) The hub authors the DUR coding instruction AGAINST THIS RATIFIED TEXT (G1 discharged). Any edit Nick makes before ratifying folds verbatim; a contested clause is a conversation, not an improvisation.

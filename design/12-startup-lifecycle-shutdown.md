@@ -18,6 +18,8 @@
 **Author:** HomeSynapse Core Architecture
 **Date:** 2026-03-09
 
+> **Amendment pointer — AMD-99 (Registries-Projection, RATIFIED 2026-07-08):** Phase 3 (CORE_DOMAIN, §3.5) Step 3.1's stated intent — the registries "load their persisted state from the domain event store" — gains its ratified realization: a **registry-projection subscriber on the existing event-bus replay machinery** (checkpointed; REPLAY→LIVE per the M3 lifecycle) reconstructs the DeviceRegistry/EntityRegistry from `device_registered`/`entity_registered`/`device_removed`, caught up to the log head BEFORE Phase 6 INTEGRATIONS resumes and BEFORE automation definitions bind entity refs (riding the existing Phase-3-before-Phase-6 catch-up ordering invariant; the one sanctioned addition if no awaitable hook exists is ONE composition-root await — anything wider is a STOP). **REG-INV-1** (register §53) governs. See `design/amendments/AMD-99_Registries-Projection.md`.
+
 ---
 
 ## 0. Purpose
@@ -167,6 +169,8 @@ Data Infrastructure establishes the persistence and event distribution foundatio
 Core Domain initializes the subsystems that give HomeSynapse its semantic model: what devices exist, what state they have, and what automations operate on them. The ordering within this phase reflects data dependencies: the Device Model must load before the State Store (which queries entity schemas), and both must be ready before the Automation Engine (which queries both).
 
 **Step 3.1: Device Model registries initialize.** The DeviceRegistry, EntityRegistry, and CapabilityRegistry (Doc 02 §8.1) load their persisted state from the domain event store. Standard capability definitions are registered. The registries are available for queries from this point forward.
+
+_(AMD-99, 2026-07-08: this step's ratified mechanism is the registry-projection subscriber — the registries rebuild by replaying `device_registered`/`entity_registered`/`device_removed` from the log, REG-INV-1; see the masthead pointer.)_
 
 **Step 3.2: State Store and State Projection initialize.** The State Store (Doc 03) executes:
 

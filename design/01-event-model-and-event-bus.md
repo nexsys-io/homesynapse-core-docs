@@ -12,6 +12,8 @@
 
 > **Amendment currency — AMD-52 (RATIFIED 2026-05-31), body FOLDED — M4.0b-4b shipped `72596cb` (2026-05-31).** `StateChangedEvent.oldValue/newValue` are the typed `AttributeValue` (`oldValue` nullable = first report), carried via a custom `JsonSerializer`/`JsonDeserializer` pair in `core/persistence` (compact `{"t":<AttributeType>,"v":…}` envelope, no `@JsonTypeInfo` — Jackson-isolation HARD RULE + ArchUnit `NO_JACKSON_IN_DOMAIN_MODEL`). The per-event `schema_version` column (the §3.10 seam) is the string(1)↔typed(2) discriminator — typed payloads write `schema_version = 2`; **no event-store row migration**. Reading a legacy `schema_version = 1` String `state_changed` under the typed reader yields a `DegradedEvent` (raw preserved — a defined non-upcast, version-gated in `EventPayloadCodec.decode`; no upcaster in the codec). **Folded into §4.6 (`state_changed` payload shape) and §3.10 (`schema_version` seam) below.** See `design/amendments/AMD-52_*` + AMD-52-INV-01..05 (Architecture_Invariants_v1.md §22).
 
+> **Amendment pointer — AMD-99 (Registries-Projection, RATIFIED 2026-07-08):** the §4.3 device-lifecycle family gains **`device_registered`** + **`entity_registered`** — full-fidelity registration payloads (event-model-local mirrors of the complete device/entity records incl. capabilities and the installed per-device confirmation tuning; the AMD-52-class JPMS payload-residency rule honored) — and **`device_removed` becomes the first-class registry tombstone** the projection honors on replay and live delivery alike (zero production emitters today; emission surfaces ride future milestones). Emission contract: `adopt()` publishes `device_registered` → one `entity_registered` per entity → the existing `device_adopted` (RETAINED unchanged — additive). Registration updates ride an idempotent re-emit of the same two types — no third type. Registry mutation is governed by **REG-INV-1** (registries are projections: single apply path, write-ahead + idempotent-by-identity, boot rebuild by replay — register §53). Mints ride the DUR coding WU in lockstep: `EventTypes` 71→73 · `@EventType` 41→43 · codecs 53→55 · `EventCategoryMapping` +2 · every count-pin test in the SAME change. See `design/amendments/AMD-99_Registries-Projection.md`.
+
 ---
 
 ## 0. Purpose
@@ -510,6 +512,8 @@ The `event_type` field carries a string identifier. Core event types use undersc
 | `entity_transferred` | Entity | Core (user-initiated) | NORMAL | Physical hardware was swapped behind a stable entity identity. |
 | `entity_type_changed` | Entity | Core (migration) | NORMAL | Entity type was migrated via governed type migration. |
 | `availability_changed` | Entity/Device | Integration Adapter / Core | CRITICAL (to offline) / NORMAL (to online) | Reachability status changed. |
+
+_(AMD-99, 2026-07-08: this family gains `device_registered` (Device subject, Core `adopt()`, NORMAL) and `entity_registered` (Entity subject, Core `adopt()`, NORMAL) — full-fidelity registration payloads from which the device/entity registries are rebuilt at boot; `device_removed` above becomes the projection's first-class tombstone. `device_adopted` is retained unchanged. See the masthead pointer + the AMD for payload shapes and mint arithmetic.)_
 
 **Device and entity profile events:**
 
