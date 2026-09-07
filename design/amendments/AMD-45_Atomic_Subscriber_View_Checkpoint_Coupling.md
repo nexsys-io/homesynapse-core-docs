@@ -19,6 +19,8 @@ Two independent checkpoint domains exist in the production path today:
 
 1. **Bus subscriber checkpoint** (`subscriber_checkpoints` table). Written by `InProcessEventBus` after every successful LIVE delivery (`InProcessEventBus` line 500, unconditional). Records the subscriber's last-delivered `globalPosition`.
 
+   **[Note 2026-09-06 — FIX-1b, landed 2026-09-05 `e5fa035` (CI green): the bus-side subscriber checkpoint now has THREE writers, every one gated on `!SubscriberInfo.atomicCheckpoint()` exactly per §2.2 Option A — LIVE delivery (`InProcessEventBus:566`), REPLAY (`ReplayDriver:167` / `:202`) and, since FIX-1b, the TRANSITION drain (`TransitionCoordinator:148`), which before the fix delivered positions WITHOUT checkpointing them (the `ReplayTransitionIT` phase-1 stall measured 2026-09-05 — a checkpoint that lied low, not a loss). With the view checkpoint below that is four checkpoint writers in the production path; the crash-window analysis in §1 is unchanged because the gate keeps atomic-checkpoint subscribers self-managed on every writer.]**
+
 2. **View checkpoint** (`view_checkpoints` table). Written by `StateProjection` on checkpoint-policy cadence (`FixedCheckpointPolicy` — 200 events OR 2 seconds for HOME_DEFAULT). Records the projection's `cursorPosition` and the serialized state snapshot.
 
 These two checkpoint writes are **independent**: different code paths, different timing, different transactions. The bus subscriber checkpoint races ahead of the view checkpoint because the bus writes after every delivery while the projection writes on policy cadence.

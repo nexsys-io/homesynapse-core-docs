@@ -868,7 +868,7 @@ If any EZSP config override fails (the coordinator rejects the value), the adapt
 | `serial_port` | String | auto-detect | Valid device path | Auto-detection probes `/dev/ttyUSB*` and `/dev/ttyACM*`. Explicit path avoids ambiguity with multiple USB devices. |
 | `baud_rate` | Integer | auto-detect | 57600, 115200 | CC2652: 115200. CC2531: 115200. EFR32: 115200. |
 | `channel` | Integer | auto-select | 11–26 | Auto-selection via energy scan on first formation. Fixed channel avoids re-pairing. |
-| `permit_join_duration` | Integer | 120 | 1–254 | Zigbee spec maximum is 254 seconds. 120 is sufficient for most pairing workflows. |
+| `permit_join_duration` | Integer | **absent = no window** | 1–254 | An ABSENT key opens NOTHING — the conservative default is law (`ZigbeeIntegrationAdapter:87–:93`; the schema fragment carries no default: PKG-SEC-2 R1, 2026-09-03, security-relevant). Set 1–254 to open a window at boot; 254 is the Zigbee maximum; a restart re-opens the window while the key is present (M9.4-PJ). |
 | `watchdog_interval_seconds` | Integer | 30 | 10–300 | Frequent enough to detect crashes within one health window cycle. |
 | `availability.mains_timeout_minutes` | Integer | 10 | 1–60 | Active ping after 10 minutes of silence. Lower values increase Zigbee traffic. |
 | `availability.battery_timeout_hours` | Integer | 25 | 1–168 | Slightly above the maximum ZCL reporting interval (18 hours) plus margin for sleepy devices. |

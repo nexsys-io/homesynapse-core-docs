@@ -457,8 +457,13 @@ User=homesynapse
 Group=homesynapse
 WorkingDirectory=/var/lib/homesynapse
 ExecStart=/opt/homesynapse/bin/homesynapse
-Restart=on-failure
+# FAILCHAN (2026-09-04): the JVM exits 143 after a caught SIGTERM — a clean stop by contract.
+SuccessExitStatus=143
+# Restart policy keyed to the ExitCode contract: every exit relaunches EXCEPT the deterministic
+# CONFIGURATION_FAILURE (10), which is surfaced, not looped. (Was Restart=on-failure.)
+Restart=always
 RestartSec=10
+RestartPreventExitStatus=10
 WatchdogSec=60
 
 MemoryMax=2G
@@ -478,11 +483,11 @@ DeviceAllow=/dev/ttyACM0 rw
 WantedBy=multi-user.target
 ```
 
-Key properties: `WatchdogSec=60` triggers restart if the process stops sending heartbeats (HomeSynapse must call `sd_notify(WATCHDOG=1)` periodically). `ProtectSystem=strict` makes the filesystem read-only except for explicitly listed paths. `MemoryMax=2G` provides a hard ceiling complementing JVM `-Xmx`. `Restart=on-failure` with `RestartSec=10` provides automatic crash recovery.
+Key properties: `WatchdogSec=60` triggers restart if the process stops sending heartbeats (HomeSynapse must call `sd_notify(WATCHDOG=1)` periodically). `ProtectSystem=strict` makes the filesystem read-only except for explicitly listed paths. `MemoryMax=2G` provides a hard ceiling complementing JVM `-Xmx`. `Restart=always` with `RestartSec=10` and `RestartPreventExitStatus=10` provides automatic crash recovery keyed to the `ExitCode` contract (FAILCHAN, 2026-09-04: a stray SIGTERM or a crash must not leave the house dark; a deterministic configuration failure is surfaced, never looped; `SuccessExitStatus=143` grades a clean operator stop `success`/`inactive` — measured on the card at H8-a).
 
 **Rationale:** A self-contained distribution eliminates the "which Java version?" support question entirely. Every user runs the exact same JVM. jlink reduces the distribution size by ~75% vs a full JDK bundle, improves startup time (less to load), and reduces attack surface. systemd is native to Raspberry Pi OS (Debian-based) and provides process supervision, resource limits, filesystem isolation, and watchdog monitoring without additional dependencies.
 
-**Invariant alignment:** INV-RF-04 (crash safety — systemd `Restart=on-failure` provides automatic recovery), INV-PR-01 (constrained hardware — jlink eliminates ~200 MB of unused JDK modules; `MemoryMax` prevents OS destabilization), INV-PR-03 (bounded resource usage — systemd cgroups enforce limits), INV-PD-08 (tamper-evident integrity — `/opt/homesynapse/` is read-only at filesystem level), INV-SE-01 (no default credentials — dedicated unprivileged service user).
+**Invariant alignment:** INV-RF-04 (crash safety — systemd `Restart=always` + `RestartPreventExitStatus=10` provides automatic recovery), INV-PR-01 (constrained hardware — jlink eliminates ~200 MB of unused JDK modules; `MemoryMax` prevents OS destabilization), INV-PR-03 (bounded resource usage — systemd cgroups enforce limits), INV-PD-08 (tamper-evident integrity — `/opt/homesynapse/` is read-only at filesystem level), INV-SE-01 (no default credentials — dedicated unprivileged service user).
 
 **Reversal criteria:** If jlink module resolution is a persistent maintenance burden (>2 hours per release), fall back to bundled JRE. If the target audience shifts toward container-based deployment (Docker on NAS hardware), evaluate container image distribution alongside systemd.
 

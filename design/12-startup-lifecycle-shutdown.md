@@ -130,7 +130,7 @@ Platform Bootstrap executes before any HomeSynapse application code. It establis
 
 Foundation Services loads and validates the configuration that every subsequent subsystem reads.
 
-**Step 1.1: Configuration System loads and validates.** The Configuration System (Doc 06 §3.1–§3.2) executes its six-stage loading pipeline: file system read from `PlatformPaths.configDir()/config.yaml`, YAML parse via SnakeYAML Engine, tag resolution (`!secret`, `!env`), core-only schema composition (integration schemas are not yet available — they are registered after Phase 6 integration discovery), schema validation against the core schema, and typed model construction. After Phase 6 integration discovery, the Configuration System recomposes the full schema including integration schemas and revalidates the integration configuration sections. If the configuration file is absent, the Configuration System generates defaults satisfying INV-CE-02 (zero-configuration first run). If schema validation produces fatal errors (corrupt YAML, broken secret references), the process exits with a diagnostic message listing every validation failure. Non-fatal errors (invalid value for one key) cause that key to revert to its default, and the system logs a WARNING.
+**Step 1.1: Configuration System loads and validates.** The Configuration System (Doc 06 §3.1–§3.2) executes its six-stage loading pipeline: file system read from `PlatformPaths.configDir()/homesynapse.yaml` (the root document name is `homesynapse.yaml` — `YamlLoader.ROOT_DOCUMENT_NAME`; `config.yaml` was never the file), YAML parse via SnakeYAML Engine, tag resolution (`!secret`, `!env`), schema composition, schema validation, and typed model construction. **[Correction 2026-09-06 — PKG-SEC-2, landed 2026-09-03 `ef02d13`, proven on hardware at R-4b 2026-09-04 (`Configuration issue` = 0); the v61 b11 audit R2]:** the sentence this replaced ("core-only composition … recomposed and revalidated after Phase 6 integration discovery") described a mechanism that was never built, on a discovery premise DECIDE-04 retired. The integration config-schema fragments are static resource text supplied to the core BEFORE `start()` and composed ONCE at Phase-1 validation (Doc 06 §3.2 :127; C7) — the `integrations.*` sections validate against the real fragment at boot; nothing recomposes or revalidates after Phase 6. If the configuration file is absent, the Configuration System generates defaults satisfying INV-CE-02 (zero-configuration first run). If schema validation produces fatal errors (corrupt YAML, broken secret references), the process exits with a diagnostic message listing every validation failure. Non-fatal errors (invalid value for one key) cause that key to revert to its default, and the system logs a WARNING.
 
 **Step 1.2: Configuration migration check.** If the loaded configuration file's `schema_version` is older than the running code's `CURRENT_SCHEMA_VERSION`, the Configuration System executes the migration framework (AMD-13, Doc 06 §3.7). In service mode (non-interactive), non-destructive migrations (ADDED, VALUE_CHANGED) apply automatically. Destructive migrations (REMOVED, TYPE_CHANGED) cause a fatal startup error requiring manual migration via `homesynapse migrate-config`. A timestamped backup of the original configuration is created before any migration.
 
@@ -474,7 +474,7 @@ All lifecycle events use the `system.*` event type namespace per **Event Model &
 
 ### 6.1 Configuration File Missing or Invalid
 
-**Trigger:** `PlatformPaths.configDir()/config.yaml` is absent or contains syntax errors.
+**Trigger:** `PlatformPaths.configDir()/homesynapse.yaml` is absent or contains syntax errors.
 
 **Impact:** If absent, the Configuration System generates defaults (INV-CE-02). If syntax is invalid, the system cannot determine any configuration.
 
@@ -510,7 +510,7 @@ All lifecycle events use the `system.*` event type namespace per **Event Model &
 
 **Trigger:** The health loop fails to call `reportWatchdog()` within `WatchdogSec` (60 seconds).
 
-**Impact:** systemd sends SIGABRT (or SIGKILL depending on configuration), producing a core dump. The process is restarted by `Restart=on-failure` after `RestartSec=10` (LTD-13).
+**Impact:** systemd sends SIGABRT (or SIGKILL depending on configuration), producing a core dump. The process is restarted by `Restart=always` after `RestartSec=10` (LTD-13 as amended by FAILCHAN 2026-09-04: every exit relaunches EXCEPT the deterministic `CONFIGURATION_FAILURE` (10, `RestartPreventExitStatus=10`); a clean stop is exit 143 and systemd never restarts a unit it stopped itself).
 
 **Recovery:** On restart, the unclean shutdown marker is detected. The integrity check runs. The reconciliation pass repairs any inconsistencies. JFR recording from the failed run (if recoverable) provides root-cause data.
 
@@ -530,7 +530,7 @@ All lifecycle events use the `system.*` event type namespace per **Event Model &
 
 **Impact:** `OutOfMemoryError` or systemd OOM-kills the process.
 
-**Recovery:** The system restarts via `Restart=on-failure`. If the OOM was caused by full replay, the system will OOM again on the next attempt. Mitigation: the full replay path logs its progress (events processed, memory used) so the user can identify the cause. The long-term fix is to ensure checkpoint compatibility across versions (reducing the need for full replay) or to implement incremental replay with bounded memory.
+**Recovery:** The system restarts via `Restart=always` (FAILCHAN 2026-09-04; see §6.4). If the OOM was caused by full replay, the system will OOM again on the next attempt. Mitigation: the full replay path logs its progress (events processed, memory used) so the user can identify the cause. The long-term fix is to ensure checkpoint compatibility across versions (reducing the need for full replay) or to implement incremental replay with bounded memory.
 
 **Event:** JFR captures allocation profiling data leading up to the OOM. If the process survives long enough (OOM caught by a subsystem), a `system.subsystem_failed` event is emitted.
 
@@ -660,7 +660,7 @@ interface SystemLifecycleManager {
 
 **Implementation notes:**
 
-- `start()` is called from `main()`. It executes Phases 0–6 sequentially. If a fatal failure occurs, `start()` calls `shutdown()` for any already-initialized subsystems and then calls `System.exit(1)`.
+- `start()` is called from `main()`. It executes Phases 0–6 sequentially. If a fatal failure occurs, `start()` calls `shutdown()` for any already-initialized subsystems and rethrows; **`main` — the ONE `System.exit` site — exits with the `ExitCode` the unit keys its restart policy on** (FAILCHAN, landed 2026-09-04 `7af2d6c`; EXITCODE RULED (a) 2026-09-03; `Main.java:164–:186`, `ExitCode.java`): `10 CONFIGURATION_FAILURE` (deterministic — `RestartPreventExitStatus=10`: surfaced, never looped) · `11 PERSISTENCE_FAILURE` · `12 EVENT_BUS_FAILURE` · `13 SUBSYSTEM_INIT_TIMEOUT` · `99 UNEXPECTED_ERROR`. A SIGTERM that arrives mid-bootstrap is owned by the shutdown hook (exit 143 — clean by the unit's `SuccessExitStatus=143`; the hook itself never calls `System.exit`). The former `System.exit(1)` is gone.
 - `shutdown(reason)` is safe to call from the JVM shutdown hook, from `start()` on fatal failure, or from an explicit admin API call. Concurrent calls are serialized — the first call executes the shutdown; subsequent calls wait for completion.
 - `healthSnapshot()` is called by the REST API health endpoint and the WebSocket health streaming.
 
@@ -680,7 +680,7 @@ interface SystemLifecycleManager {
 
 ## 9. Configuration
 
-All lifecycle configuration lives under the `lifecycle:` namespace in `config.yaml`. Every option has a sensible default — the system starts and operates correctly with no lifecycle configuration (INV-CE-02).
+All lifecycle configuration lives under the `lifecycle:` namespace in `homesynapse.yaml`. Every option has a sensible default — the system starts and operates correctly with no lifecycle configuration (INV-CE-02).
 
 ```yaml
 lifecycle:
