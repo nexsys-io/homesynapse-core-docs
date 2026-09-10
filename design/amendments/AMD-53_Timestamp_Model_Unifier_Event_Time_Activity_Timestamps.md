@@ -49,6 +49,8 @@ The LIVE wall-clock code is a latent **doc/code mismatch** for all three, not ju
 
 **Net:** this is closer to "ratify the model the doc already implies + fix LIVE (all three fields, plus adoption seeding) to match + restore determinism" than to "invent a new contract." It is small and bounded — the honest last mile of Workstream A.
 
+**Correction (2026-09-07, ruled at the HERO-0 audit's F1 — Nick's word `F1: seed-null`, D4 of the v66 decision record; implemented by HONESTY-1):** the §1.5 seeding rule is narrowed to the two timestamps the adoption event can honestly own. `initialEntityState` seeds **`lastChanged` and `lastUpdated`** from the triggering event's event-time (`eventTime ?? ingestTime`, as §2.1 says) and seeds **`lastReported` = `null`** — the field is written by a `state_reported` and by nothing else, so a never-reported entity serves `null`, not its registration instant (the v1.1.3 dashboard read-API freeze's "the projection holds none" arm becomes reachable; `api/rest-api` already renders it). Determinism (§4) is preserved: `null` is a pure function of the log and identical across rebuilds; §5 test #4 is unchanged and gains a sibling (#4b: adoption through a non-report event leaves `lastReported` null until the first report). `staleAfter`/`stale` semantics are untouched (AMD-53-INV-02; `staleAfter` stays `null` at adoption as before). Source anchor at `39c8dd3`: `StateProjection.initialEntityState` `:992–:1001` (the three `seed` arguments become `seed, seed, null`). Nothing else in this amendment changes.
+
 ---
 
 ## 2. Change Specification
