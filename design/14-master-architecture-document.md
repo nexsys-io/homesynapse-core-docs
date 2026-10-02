@@ -665,7 +665,7 @@ integrations:
   zigbee:
     serial_port: auto                       # Auto-detect CC2652/EFR32
     channel: auto                           # Auto-select (default 15)
-    permit_join_duration: 120
+    # permit_join_duration: 120             # IGNORED since PJ-2 (core 146468c): the window opens only by POST /api/v1/integrations/{integrationId}/permit-join — DOCS-1, 2026-10-01
     watchdog_interval_seconds: 30
     availability:
       mains_timeout_minutes: 10
